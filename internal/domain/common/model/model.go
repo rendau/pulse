@@ -5,6 +5,5 @@ type ListParams struct {
 	PageSize       int64
 	WithTotalCount bool
 	OnlyCount      bool
-	SortName       string
 	Sort           []string
 }

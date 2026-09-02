@@ -1,7 +1,16 @@
 # CLAUDE.md
 
-Руководство для Claude Code по работе с этим репозиторием. Go-сервис на Clean Architecture + DDD,
-с gRPC/grpc-gateway, Postgres (pgx), proto-генерацией через Makefile.
+Руководство для Claude Code по работе с этим репозиторием. Go-сервис на Clean Architecture + DDD:
+MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Postgres (pgx/mobone),
+клиенты Kubernetes/GitHub/registry/Prometheus/Loki/Alertmanager. ТЗ — `docs/infra-mcp-spec.md`
+(читать целиком перед работой над любой фазой; в ТЗ сервис назван `infra-mcp`).
+
+Согласованные с заказчиком отклонения от ТЗ и шаблона:
+- gRPC/grpc-gateway/proto из шаблона убраны — транспорт только MCP поверх HTTP.
+- Теги образов в кластере — `latest` (keel), поэтому `deployed_commit` берётся не из тега,
+  а из digest запущенного пода → OCI-label `org.opencontainers.image.revision` (registry API).
+  Если тег похож на SHA — используется тег.
+- jsonb-колонка `service.metadata` хранится байтовым способом (`[]byte` + repo-локальная DTO).
 
 Конвенции этого стека вынесены в глобальные Claude Code скиллы (`crud`, `mobone`,
 `golang-service`, `golang-samber-lo`) — они подхватываются автоматически по описанию.
@@ -13,42 +22,46 @@
 ### Верхний уровень
 - `cmd/main.go` — entrypoint, поднимает `internal/app.App`.
 - `internal/` — бизнес-логика и инфраструктура (закрытые пакеты).
-- `api/proto/` — исходные `.proto` данного сервиса.
-- `pkg/proto/` — сгенерированный код protobuf/grpc/gateway (**не редактировать вручную**).
-- `migrations/` — SQL миграции Postgres.
-- `docs/` — swagger JSON и статические доки, выдаются через `/docs/*`.
-- `vendor-proto/` — внешние `.proto` зависимости (обновляются Makefile).
-- `Dockerfile`, `Makefile` — сборка, запуск, генерация proto.
-- `.env.example`, `.migrate_scripts.example` — примеры окружения и миграций.
+- `migrations/` — SQL миграции Postgres (единый `000001_init` до первого деплоя).
+- `docs/` — ТЗ и статические доки, выдаются через `/docs/*`.
+- `conf.example.yml` — пример yaml-правил (`RULES_PATH`, по умолчанию `./conf.yml`).
+- `Dockerfile`, `Makefile` — сборка (`make build` подставляет версию через ldflags).
+- `.env.example` — пример окружения.
 
 ### Внутренние пакеты (`internal/`)
 - `internal/app/` — сборка приложения: серверы, миграции, метрики, трассировка, HTTP-gateway, DI.
   - `app.go` — граф зависимостей и запуск компонентов.
-  - `grpc.go` — gRPC сервер + интерсепторы ошибок/метрик/трейсинга.
-  - `grpc_gateway.go` — HTTP-gateway, CORS, error handler.
-  - `system_http_server.go` — системный HTTP-сервер (порт 3003): /healthcheck, /docs/*, /metrics.
+  - `mcp_server.go` — MCP-сервер, HTTP-транспорт на `MCP_PATH`, bearer-auth middleware.
+  - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
+    /healthcheck, /readiness, /docs/*, /metrics.
   - `migration.go` — запуск миграций из `migrations/`.
-- `internal/config/` — конфигурация через env (см. `config.go`).
+- `internal/config/` — `config.go` (env) и `rules.go` (yaml-правила: `image_mapping`,
+  `indexer.exclude_namespaces`, `stale_after`).
 - `internal/handler/` — транспортный слой.
-  - `grpc/` — gRPC handlers.
-  - `grpc/dto/` — преобразование protobuf ↔ domain models.
-  - могут быть и другие транспортные каналы.
+  - `mcp/` — MCP-инструменты (`handler.go` — регистрация и описания, по файлу на группу).
+  - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
+- `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
+- `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов).
 - `internal/domain/` — доменная модель, сервисы и репозитории.
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
   - `common/` — общие модели/утилиты/PG базовый репозиторий.
-- `internal/service/` — сервисы (фоновые/инфраструктурные), для переиспользования или выделения логики.
+- `internal/service/` — сервисы (фоновые/инфраструктурные), для переиспользования или выделения логики:
+  `k8s`, `github`, `registry`, `prometheus`, `loki`, `alertmanager` (клиенты источников, read-only),
+  `indexer` (фоновый обход кластера → каталог).
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы.
 
 ---
 
 ## Архитектура: слои и зависимости
 
-- **Transport** (`internal/handler/grpc/*`):
-  - Работает только с protobuf DTO и usecase-интерфейсами.
+- **Transport** (`internal/handler/mcp/*`):
+  - Работает только с DTO инструментов и usecase-интерфейсами.
   - Не обращается напрямую к репозиториям и сервисам.
+  - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
+  - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).
   - Валидация входных параметров.
@@ -82,7 +95,9 @@ domain service → repo
 - К `repo` слою доступ только из `domain service`.
 
 ### Хранилища
-- Postgres: все доменные entities (см. `migrations/*`).
+- Postgres: только топология и метаданные (`service`, `workload`). Значений метрик, логов и
+  счётчиков в БД быть не должно (Р4 ТЗ) — всё состояние запрашивается живьём.
+- Домен сущности «сервис каталога» лежит в `internal/domain/svc` (таблица `service`).
 - **Имена таблиц всегда в единственном числе**, без plural: `usr`, `app`, `secret`, `item`
   (не `usrs`, `apps`, `secrets`, `items`). То же значение указывается в `TableName` репозитория.
 
@@ -92,14 +107,16 @@ domain service → repo
   (напр. `drop table if exists <table> cascade;`).
 - В `down` объекты удаляются в порядке, обратном `up` (с учётом внешних ключей).
 
-### API
-- gRPC сервисы: `api/proto/pulse_v1/*`.
-- HTTP-gateway: через grpc-gateway + swagger (`docs/api.swagger.json`).
-- DTO маппинг: `internal/handler/grpc/dto`.
-- **REST-пути (route paths) всегда в единственном числе**, без plural:
-  `/secret`, `/secret/{id}`, `/app`, `/item` (не `/secrets`, `/apps`, `/items`).
-- **Пагинация: во всех `list` запросах `page` начинается с `0`** (нумерация страниц с нуля).
-- **Для update использовать HTTP-метод `PUT`** (не `PATCH`): `put: "/<entity>/{id}"`.
+### API (MCP)
+- Инструменты регистрируются в `internal/handler/mcp/handler.go` через `mcp.AddTool` с типизированными
+  In/Out DTO (`internal/handler/mcp/dto`); схема выводится из json/jsonschema-тегов.
+- Все инструменты read-only (Р5 ТЗ): `ToolAnnotations{ReadOnlyHint: true}`.
+- Ошибка источника не роняет ответ: частичный результат + поле `errors: [{source, message}]`.
+- Семантические ошибки (неизвестный сервис, неверный параметр) отдаются моделью как текст
+  ошибки инструмента с подсказкой (см. `handler/mcp/errors.go`); неизвестное имя сервиса —
+  всегда со списком похожих имён.
+- **Пагинация: `page` начинается с `0`.**
+- Ответ инструмента ≤ 100 KB; при усечении — `truncated: true` и `total_count`.
 
 ### Ошибки и валидация
 - Семантические ошибки — через `internal/errs` (см. gRPC interceptor в `internal/app/grpc.go`).
@@ -110,8 +127,8 @@ domain service → repo
   обёрнутые ошибки.
 
 ### Правила изменения кода
-- gRPC DTO не должны протекать в доменные сервисы.
-- `pkg/proto` и `docs/api.swagger.json` — генерируемые файлы (обновляются через Makefile).
+- DTO инструментов не должны протекать в usecase и доменные сервисы.
+- Секреты не покидают сервис (Р7 ТЗ): значения секретов никогда не попадают в ответ.
 - В тестах всегда предпочитай `testify`: `require` для проверок, прерывающих тест,
   и `assert` для остальных утверждений.
 - При реализации worker pool / параллельной обработки используй `errgroup`
@@ -182,34 +199,53 @@ domain service → repo
 ### Запуск
 - Entry: `cmd/main.go` → `internal/app.App`.
 - На старте выполняются:
-  - загрузка env (autoload `.env`),
-  - настройка логгера/метрик/трейсинга,
-  - pgx pool,
-  - миграции (`internal/app/migration.go`),
-  - запуск gRPC + HTTP-gateway.
+  - загрузка env (autoload `.env`) и yaml-правил (`RULES_PATH`),
+  - настройка логгера/метрик,
+  - pgx pool, миграции (`internal/app/migration.go`),
+  - клиенты источников (недоступный источник не мешает старту — виден в `ping`),
+  - индексер (`INDEXER_ENABLED`, `INDEXER_INTERVAL`),
+  - MCP HTTP-сервер и системный HTTP-сервер.
 
 ### Переменные окружения
-- Описаны в `internal/config/config.go`.
-- Примеры: `.env.example`, `.migrate_scripts.example`.
+- Описаны в `internal/config/config.go`; пример — `.env.example`.
+- Kubernetes: пустой `KUBECONFIG` — in-cluster; для локальной разработки `KUBECONFIG` + `KUBE_CONTEXT`.
 
 ### Системный HTTP-сервер
-- Отдельный сервер на порту `3003` (`const systemHttpPort` в `internal/app/system_http_server.go`).
-- Обслуживает служебные ручки: `/healthcheck`, `/docs/*`, `/metrics`.
+- Отдельный сервер на `SYSTEM_HTTP_PORT` (дефолт `3003`).
+- Обслуживает служебные ручки: `/healthcheck`, `/readiness` (Postgres доступен), `/docs/*`, `/metrics`.
 
-### Метрики и трассировка
-- Prometheus метрики на `/metrics` (системный сервер, порт 3003) при `WITH_METRICS=true`.
+### Метрики
+- Prometheus метрики на `/metrics` (системный сервер) при `WITH_METRICS=true`.
   Используется `metrics.Registry`, а не дефолтный `promhttp.Handler()`.
-- Трейсинг Jaeger включается при `WITH_TRACING=true` и `JAEGER_ADDRESS`.
-
-### Документация и healthcheck
-- `/healthcheck` — HTTP healthcheck (200 OK), порт 3003.
-- `/docs/*` — статические docs + swagger (`docs/api.swagger.json`), порт 3003.
 
 ### Сборка
-- `make build` создаёт бинарник `cmd/build/svc`.
-- Dockerfile копирует бинарник, `docs/` и `migrations/` в `/app`.
+- `make build` создаёт бинарник `cmd/build/svc` (версия — `-X internal/constant.Version`).
+- Dockerfile копирует бинарник, `docs/`, `migrations/` и `conf.example.yml` (как `conf.yml`) в `/app`.
 
 ### Flow проверки изменений
 ```
-make generate-proto  →  gofmt  →  go test ./...  →  go run ./cmd/.
+gofmt  →  go vet ./...  →  go test ./...  →  golangci-lint run  →  запуск на тестовом стенде
 ```
+
+---
+
+## Тестовый стенд
+
+- Postgres только в docker:
+  ```
+  docker run --rm -d --name pulse-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=pulse -p 5440:5432 postgres:17
+  ```
+  DSN: `postgres://postgres:postgres@localhost:5440/pulse?sslmode=disable`.
+- Порт 3003 на машине может быть занят другим проектом — для pulse: `SYSTEM_HTTP_PORT=3013`,
+  `HTTP_PORT=9091`, `MCP_AUTH_TOKEN=devtoken`, `RULES_PATH=./conf.example.yml`.
+- Кластер для прогонов индексера — локальный docker-desktop (`KUBECONFIG=$HOME/.kube/config
+  KUBE_CONTEXT=docker-desktop CLUSTER_NAME=local`). Прод (`yc-zeon`) — только read-only и только
+  по явной просьбе.
+- Вызов инструмента через curl (ответ — SSE, строка `data: {...}`):
+  ```
+  curl -s -X POST localhost:9091/mcp -H "Authorization: Bearer devtoken" \
+    -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ping","arguments":{}}}'
+  ```
+- Живой тест registry-клиента: `REGISTRY_LIVE_IMAGE=ghcr.io/actions/actions-runner:latest go test ./internal/service/registry/... -run TestLive -v`.

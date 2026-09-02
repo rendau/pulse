@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"context"
 	"net/http"
 	"time"
 
@@ -10,15 +10,25 @@ import (
 	"github.com/mechta-market/pulse/internal/infra/metrics"
 )
 
-const systemHttpPort = 3003
-
 // SystemHttpServerCreate builds the system HTTP server that exposes
-// service endpoints: /healthcheck, /docs/*, /metrics.
-func SystemHttpServerCreate() *http.Server {
+// service endpoints: /healthcheck, /readiness, /docs/*, /metrics.
+func SystemHttpServerCreate(port string, ready func(ctx context.Context) error) *http.Server {
 	mux := http.NewServeMux()
 
-	// healthcheck
+	// healthcheck: процесс жив
 	mux.HandleFunc("/healthcheck", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// readiness: сервис готов принимать запросы (хранилище индекса доступно)
+	mux.HandleFunc("/readiness", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		if err := ready(ctx); err != nil {
+			http.Error(w, "not ready: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -30,7 +40,7 @@ func SystemHttpServerCreate() *http.Server {
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}))
 
 	return &http.Server{
-		Addr:              fmt.Sprintf(":%d", systemHttpPort),
+		Addr:              ":" + port,
 		Handler:           mux,
 		ReadHeaderTimeout: 2 * time.Second,
 		ReadTimeout:       time.Minute,
