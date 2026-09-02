@@ -1,0 +1,229 @@
+package catalog
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/samber/lo"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/mechta-market/pulse/internal/constant"
+	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	svcService "github.com/mechta-market/pulse/internal/domain/svc/service"
+	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	"github.com/mechta-market/pulse/internal/errs"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	"github.com/mechta-market/pulse/internal/usecase/catalog/model"
+)
+
+const (
+	defaultPageSize = 100
+	maxPageSize     = 500
+	// liveTimeout — общий дедлайн на живые запросы к кластеру внутри одного вызова
+	liveTimeout     = 5 * time.Second
+	liveConcurrency = 5
+)
+
+type Usecase struct {
+	svc      svcServiceI
+	workload workloadServiceI
+	k8s      k8sClientI
+}
+
+func New(svc svcServiceI, workload workloadServiceI, k8s k8sClientI) *Usecase {
+	return &Usecase{svc: svc, workload: workload, k8s: k8s}
+}
+
+func (u *Usecase) Resolve(ctx context.Context, query string) (*model.ResolveResult, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("%w: query is required", errs.InvalidRequest)
+	}
+
+	candidates, err := u.svc.Resolve(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("svc.Resolve: %w", err)
+	}
+
+	namespaces, err := u.namespacesByService(ctx, lo.Map(candidates, func(c *svcModel.Candidate, _ int) string { return c.Service.Name }))
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.ResolveResult{
+		Ambiguous: svcService.Ambiguous(candidates),
+		Candidates: lo.Map(candidates, func(c *svcModel.Candidate, _ int) *model.Candidate {
+			return &model.Candidate{
+				Service:    c.Service,
+				Confidence: c.Confidence,
+				MatchedBy:  c.MatchedBy,
+				Namespaces: namespaces[c.Service.Name],
+			}
+		}),
+	}, nil
+}
+
+func (u *Usecase) List(ctx context.Context, pars *model.ListReq) ([]*model.ServiceSummary, int64, error) {
+	if pars == nil {
+		pars = &model.ListReq{}
+	}
+	if pars.PageSize <= 0 {
+		pars.PageSize = defaultPageSize
+	}
+	if pars.PageSize > maxPageSize {
+		return nil, 0, fmt.Errorf("%w: page_size must be <= %d", errs.IncorrectPageSize, maxPageSize)
+	}
+	if pars.Page < 0 {
+		return nil, 0, fmt.Errorf("%w: page must be >= 0", errs.InvalidRequest)
+	}
+
+	req := &svcModel.ListReq{
+		Team:        pars.Team,
+		Namespace:   pars.Namespace,
+		Criticality: pars.Criticality,
+		HasMetadata: pars.HasMetadata,
+		Search:      pars.Search,
+	}
+	req.Page, req.PageSize, req.WithTotalCount = pars.Page, pars.PageSize, true
+
+	services, total, err := u.svc.List(ctx, req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("svc.List: %w", err)
+	}
+
+	namespaces, err := u.namespacesByService(ctx, lo.Map(services, func(s *svcModel.Main, _ int) string { return s.Name }))
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return lo.Map(services, func(s *svcModel.Main, _ int) *model.ServiceSummary {
+		return &model.ServiceSummary{Service: s, Namespaces: namespaces[s.Name]}
+	}), total, nil
+}
+
+func (u *Usecase) Info(ctx context.Context, name string) (*model.ServiceInfo, error) {
+	service, err := u.getService(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceName: new(service.Name)})
+	if err != nil {
+		return nil, fmt.Errorf("workload.List: %w", err)
+	}
+
+	result := &model.ServiceInfo{
+		Service: service,
+		Workloads: lo.Map(workloads, func(w *workloadModel.Main, _ int) *model.WorkloadInfo {
+			return &model.WorkloadInfo{Workload: w}
+		}),
+	}
+
+	// живое состояние подов: параллельно, с общим дедлайном; ошибка кластера — в errors
+	liveCtx, cancel := context.WithTimeout(ctx, liveTimeout)
+	defer cancel()
+
+	eg, egCtx := errgroup.WithContext(liveCtx)
+	eg.SetLimit(liveConcurrency)
+	for _, info := range result.Workloads {
+		if info.Workload.Selector == "" {
+			continue
+		}
+		eg.Go(func() error {
+			pods, err := u.k8s.ListPods(egCtx, info.Workload.Namespace, info.Workload.Selector)
+			if err != nil {
+				return fmt.Errorf("%s/%s: %w", info.Workload.Namespace, info.Workload.Name, err)
+			}
+			info.Pods = podsState(pods)
+			return nil
+		})
+	}
+	if err = eg.Wait(); err != nil {
+		result.Errors = append(result.Errors, model.SourceError{Source: constant.SourceK8s, Message: err.Error()})
+	}
+
+	return result, nil
+}
+
+// getService ищет сервис по имени; неизвестное имя — ошибка со списком похожих (1.3 ТЗ).
+func (u *Usecase) getService(ctx context.Context, name string) (*svcModel.Main, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: service is required", errs.InvalidRequest)
+	}
+
+	service, found, err := u.svc.Get(ctx, name, false)
+	if err != nil {
+		return nil, fmt.Errorf("svc.Get: %w", err)
+	}
+	if found {
+		return service, nil
+	}
+
+	candidates, err := u.svc.Resolve(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("svc.Resolve: %w", err)
+	}
+
+	desc := fmt.Sprintf("unknown service %q", name)
+	if len(candidates) > 0 {
+		similar := lo.Map(candidates, func(c *svcModel.Candidate, _ int) string { return c.Service.Name })
+		desc += "; similar: " + strings.Join(similar, ", ") + " (use resolve_service to pick one)"
+	} else {
+		desc += "; no similar names in catalog (use list_services)"
+	}
+
+	return nil, errs.ErrFull{Err: errs.ObjectNotFound, Desc: desc}
+}
+
+func (u *Usecase) namespacesByService(ctx context.Context, names []string) (map[string][]string, error) {
+	if len(names) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceNames: names})
+	if err != nil {
+		return nil, fmt.Errorf("workload.List: %w", err)
+	}
+
+	result := make(map[string][]string, len(names))
+	for _, w := range workloads {
+		result[w.ServiceName] = append(result[w.ServiceName], w.Namespace)
+	}
+	for name, namespaces := range result {
+		namespaces = lo.Uniq(namespaces)
+		sort.Strings(namespaces)
+		result[name] = namespaces
+	}
+
+	return result, nil
+}
+
+// podsState сводит поды к счётчикам и списку проблем в человекочитаемом виде.
+func podsState(pods []k8sModel.Pod) *model.PodsState {
+	state := &model.PodsState{Total: len(pods)}
+
+	for _, pod := range pods {
+		if pod.Ready {
+			state.Ready++
+		}
+		state.Restarts += pod.Restarts
+
+		if pod.Phase == "Pending" || pod.Phase == "Failed" {
+			state.Problems = append(state.Problems, fmt.Sprintf("%s: %s", pod.Name, pod.Phase))
+		}
+		for _, c := range pod.Containers {
+			if c.State != "running" && c.Reason != "" && c.Reason != "Completed" {
+				state.Problems = append(state.Problems, fmt.Sprintf("%s/%s: %s", pod.Name, c.Name, c.Reason))
+			}
+			if c.LastTerminationReason == "OOMKilled" {
+				state.Problems = append(state.Problems, fmt.Sprintf("%s/%s: last termination OOMKilled at %s",
+					pod.Name, c.Name, c.LastTerminatedAt.UTC().Format(time.RFC3339)))
+			}
+		}
+	}
+
+	return state
+}

@@ -1,0 +1,16 @@
+# Структурные правила сервиса. Путь задаётся env RULES_PATH (по умолчанию ./conf.yml).
+# Отсутствие файла — не ошибка: применяются значения ниже.
+
+indexer:
+  exclude_namespaces: [kube-system, kube-public, kube-node-lease]
+  # workload, не видевшийся дольше этого срока, удаляется из каталога
+  stale_after: 1h
+
+# «имя образа → репозиторий GitHub», правила применяются по порядку, первое совпадение.
+# Образ, не подошедший ни под одно правило, считается сторонним (postgres, redis…):
+# его workload попадает в каталог без репозитория.
+# Плейсхолдеры: {path} — путь без registry (mechta-market/promo-sync),
+# {org} — первый сегмент пути (или поле org), {image_name} — последний сегмент.
+image_mapping:
+  - registry: ghcr.io
+    repo_template: "https://github.com/{path}"

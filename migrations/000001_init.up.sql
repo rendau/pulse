@@ -1,0 +1,42 @@
+-- Каталог топологии: полностью производный от кластера и service.yaml.
+-- Значений метрик, логов и счётчиков здесь нет (Р4): только связи и метаданные.
+
+create table service (
+    name             text primary key,
+    title            text        not null default '',
+    repo_url         text        not null default '',
+    description      text        not null default '',
+    criticality      text        not null default '',
+    owner_team       text        not null default '',
+    owner_contacts   text[]      not null default '{}',
+    aliases          text[]      not null default '{}',
+    metadata_present boolean     not null default false,
+    -- разобранный service.yaml (метрики, логи, раннбуки, endpoints)
+    metadata         jsonb       not null default '{}',
+    first_seen       timestamptz not null default now(),
+    last_seen        timestamptz not null default now()
+);
+
+create index service_repo_url_idx on service (repo_url);
+create index service_owner_team_idx on service (owner_team);
+
+create table workload (
+    cluster          text        not null,
+    namespace        text        not null,
+    kind             text        not null,
+    name             text        not null,
+    service_name     text        not null,
+    replicas_desired integer     not null default 0,
+    -- image из спеки контейнера; image_digest — что реально запущено (из статуса пода)
+    image            text        not null default '',
+    image_digest     text        not null default '',
+    deployed_commit  text        not null default '',
+    -- label-селектор подов workload'а, чтобы брать их состояние живьём
+    selector         text        not null default '',
+    first_seen       timestamptz not null default now(),
+    last_seen        timestamptz not null default now(),
+    primary key (cluster, namespace, kind, name)
+);
+
+create index workload_service_name_idx on workload (service_name);
+create index workload_last_seen_idx on workload (last_seen);
