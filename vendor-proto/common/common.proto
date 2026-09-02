@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "github.com/mechta-market/nsi/pkg/proto/common";
+
+message ListParamsSt {
+  int64 page = 2;
+  int64 page_size = 3;
+  bool with_total_count = 4;
+  bool only_count = 5;
+  string sort_name = 6;
+  repeated string sort = 7;
+}
+
+message PaginationInfoSt {
+  int64 page = 1;
+  int64 page_size = 2;
+  int64 total_count = 3;
+}
+
+message I18nFieldSt {
+  string kz = 1;
+  string ru = 2;
+  string en = 3;
+}
+
+message ErrorRep {
+  string code = 1;
+  string message = 2;
+  map<string, string> fields = 3;
+}
+
+message File {
+  string name = 1;
+  string extension = 2;
+  string mime_type = 3;
+  bytes data = 4;
+}

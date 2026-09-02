@@ -1,0 +1,3 @@
+migrate -path migrations -database "postgres://localhost/pulse?sslmode=disable" up
+
+migrate create -ext sql -dir migrations init
