@@ -88,14 +88,18 @@ type Runbook struct {
 
 // Endpoint — декларация диагностической ручки (фаза 6). Вызов возможен только по id.
 type Endpoint struct {
-	Id      string
-	Title   string
-	Path    string
-	Method  string
-	Params  map[string]EndpointParam
-	MaxRows int
-	PII     []string
-	Timeout time.Duration
+	Id     string
+	Title  string
+	Path   string
+	Method string
+	// Port и K8sService — куда ходить внутри кластера; пусто — дефолты из правил (порт)
+	// и имя сервиса каталога (k8s Service)
+	Port       int
+	K8sService string
+	Params     map[string]EndpointParam
+	MaxRows    int
+	PII        []string
+	Timeout    time.Duration
 }
 
 type EndpointParam struct {

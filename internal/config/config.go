@@ -52,6 +52,11 @@ var Conf = struct {
 	KusecUrl   string `env:"KUSEC_URL"`
 	KusecToken string `env:"KUSEC_TOKEN"`
 
+	// диагностические ручки сервисов (фаза 6): direct — на ClusterIP через DNS name.namespace.svc
+	// (в кластере); k8s-proxy — через API-сервер (локальная разработка, нужен RBAC services/proxy)
+	EndpointCallMode string `env:"ENDPOINT_CALL_MODE" envDefault:"direct"`
+	ClusterDomain    string `env:"CLUSTER_DOMAIN" envDefault:"svc"`
+
 	// индексер топологии
 	IndexerInterval time.Duration `env:"INDEXER_INTERVAL" envDefault:"5m"`
 	IndexerEnabled  bool          `env:"INDEXER_ENABLED" envDefault:"true"`

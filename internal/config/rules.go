@@ -62,6 +62,15 @@ type Rules struct {
 		MaxDepth int `yaml:"max_depth"`
 	} `yaml:"dependencies"`
 
+	Endpoints struct {
+		// жёсткие потолки поверх декларации в service.yaml
+		MaxRows      int           `yaml:"max_rows"`
+		MaxBodyBytes int64         `yaml:"max_body_bytes"`
+		MaxTimeout   time.Duration `yaml:"max_timeout"`
+		// DefaultPort — порт ручки, если в декларации не задан (HTTP-порт сервиса)
+		DefaultPort int `yaml:"default_port"`
+	} `yaml:"endpoints"`
+
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
 		MaxWindow time.Duration `yaml:"max_window"`
@@ -170,6 +179,18 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Dependencies.MaxDepth <= 0 {
 		r.Dependencies.MaxDepth = 3
+	}
+	if r.Endpoints.MaxRows <= 0 {
+		r.Endpoints.MaxRows = 100
+	}
+	if r.Endpoints.MaxBodyBytes <= 0 {
+		r.Endpoints.MaxBodyBytes = 256 << 10
+	}
+	if r.Endpoints.MaxTimeout <= 0 {
+		r.Endpoints.MaxTimeout = 10 * time.Second
+	}
+	if r.Endpoints.DefaultPort <= 0 {
+		r.Endpoints.DefaultPort = 80
 	}
 	if r.Metrics.MaxWindow <= 0 {
 		r.Metrics.MaxWindow = 7 * 24 * time.Hour

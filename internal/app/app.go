@@ -39,8 +39,11 @@ import (
 	serviceLokiServiceP "github.com/mechta-market/pulse/internal/service/loki/service"
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
+	serviceSvcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	serviceSvcproxyServiceP "github.com/mechta-market/pulse/internal/service/svcproxy/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
 	usecaseDependenciesP "github.com/mechta-market/pulse/internal/usecase/dependencies"
+	usecaseEndpointsP "github.com/mechta-market/pulse/internal/usecase/endpoints"
 	usecaseLogsP "github.com/mechta-market/pulse/internal/usecase/logs"
 	usecaseSnapshotP "github.com/mechta-market/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
@@ -265,9 +268,29 @@ func (a *App) Init() {
 		domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
 	)
 
+	// endpoints (прокси к диагностическим ручкам)
+	var endpointsUsecase *usecaseEndpointsP.Usecase
+	{
+		var caller usecaseEndpointsP.CallerI = serviceSvcproxyServiceP.New(config.Conf.ClusterDomain)
+		if config.Conf.EndpointCallMode == "k8s-proxy" {
+			caller = k8sProxyCaller{k8sService}
+			slog.Info("endpoint calls go through kubernetes API proxy (services/proxy)")
+		}
+
+		endpointsUsecase = usecaseEndpointsP.New(
+			usecaseEndpointsP.Config{
+				MaxRows:      rules.Endpoints.MaxRows,
+				MaxBodyBytes: rules.Endpoints.MaxBodyBytes,
+				MaxTimeout:   rules.Endpoints.MaxTimeout,
+				DefaultPort:  rules.Endpoints.DefaultPort,
+			},
+			svcService, workloadService, caller,
+		)
+	}
+
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, endpointsUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}
@@ -366,6 +389,23 @@ func (a *App) Exit() {
 	a.pgpool.Close()
 
 	os.Exit(a.exitCode)
+}
+
+// k8sProxyCaller адаптирует ProxyGet клиента k8s под порт вызова ручек (локальная разработка).
+type k8sProxyCaller struct {
+	k8s *serviceK8sServiceP.Service
+}
+
+func (c k8sProxyCaller) Get(ctx context.Context, namespace, service string, port int, path string, query map[string]string, maxBytes int64) (*serviceSvcproxyModel.Response, error) {
+	body, err := c.k8s.ProxyGet(ctx, namespace, service, port, path, query)
+	if err != nil {
+		return nil, err
+	}
+	resp := &serviceSvcproxyModel.Response{StatusCode: http.StatusOK, Body: body}
+	if int64(len(body)) > maxBytes {
+		resp.Body, resp.Truncated = body[:maxBytes], true
+	}
+	return resp, nil
 }
 
 // pinger — общий срез клиентов источников для ping.

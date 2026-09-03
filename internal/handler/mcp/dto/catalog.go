@@ -127,7 +127,7 @@ type ServiceInfoRep struct {
 	Metrics       []MetricDef    `json:"metrics,omitempty"`
 	LogsSelector  string         `json:"logs_selector,omitempty"`
 	Runbooks      []Runbook      `json:"runbooks,omitempty"`
-	Endpoints     []string       `json:"diagnostic_endpoints,omitempty" jsonschema:"id диагностических ручек из service.yaml"`
+	Endpoints     []EndpointDef  `json:"diagnostic_endpoints,omitempty" jsonschema:"диагностические ручки из service.yaml; вызов — call_service_endpoint"`
 	Workloads     []WorkloadInfo `json:"workloads"`
 	FirstSeen     time.Time      `json:"first_seen"`
 	LastSeen      time.Time      `json:"last_seen"`
@@ -184,7 +184,7 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 		Metrics:       lo.Map(v.Service.Metadata.Metrics, encodeMetricDef),
 		LogsSelector:  v.Service.Metadata.Logs.Selector,
 		Runbooks:      lo.Map(v.Service.Metadata.Runbooks, encodeRunbook),
-		Endpoints:     lo.Map(v.Service.Metadata.Endpoints, func(e svcModel.Endpoint, _ int) string { return e.Id }),
+		Endpoints:     lo.Map(v.Service.Metadata.Endpoints, EncodeEndpointDef),
 		Workloads:     lo.Map(v.Workloads, encodeWorkloadInfo),
 		FirstSeen:     v.Service.FirstSeen.UTC(),
 		LastSeen:      v.Service.LastSeen.UTC(),

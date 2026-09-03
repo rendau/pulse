@@ -57,6 +57,14 @@ dependencies:
   max_nodes: 50
   max_depth: 3
 
+endpoints:
+  # жёсткие потолки для call_service_endpoint поверх декларации в service.yaml
+  max_rows: 100
+  max_body_bytes: 262144
+  max_timeout: 10s
+  # порт ручки, если в декларации не задан (HTTP-порт сервиса в кластере)
+  default_port: 80
+
 metrics:
   # ограничения произвольного PromQL в query_metrics
   max_window: 168h

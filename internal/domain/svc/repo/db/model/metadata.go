@@ -45,6 +45,8 @@ type endpointJSON struct {
 	Title   string                       `json:"title"`
 	Path    string                       `json:"path"`
 	Method  string                       `json:"method"`
+	Port    int                          `json:"port,omitempty"`
+	K8sSvc  string                       `json:"k8s_service,omitempty"`
 	Params  map[string]endpointParamJSON `json:"params,omitempty"`
 	MaxRows int                          `json:"max_rows"`
 	PII     []string                     `json:"pii,omitempty"`
@@ -87,10 +89,12 @@ func encodeRunbook(v runbookJSON, _ int) domainModel.Runbook {
 
 func encodeEndpoint(v endpointJSON, _ int) domainModel.Endpoint {
 	return domainModel.Endpoint{
-		Id:     v.Id,
-		Title:  v.Title,
-		Path:   v.Path,
-		Method: v.Method,
+		Id:         v.Id,
+		Title:      v.Title,
+		Path:       v.Path,
+		Method:     v.Method,
+		Port:       v.Port,
+		K8sService: v.K8sSvc,
 		Params: lo.MapValues(v.Params, func(p endpointParamJSON, _ string) domainModel.EndpointParam {
 			return domainModel.EndpointParam{Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required}
 		}),
@@ -132,6 +136,8 @@ func decodeEndpoint(v domainModel.Endpoint, _ int) endpointJSON {
 		Title:  v.Title,
 		Path:   v.Path,
 		Method: v.Method,
+		Port:   v.Port,
+		K8sSvc: v.K8sService,
 		Params: lo.MapValues(v.Params, func(p domainModel.EndpointParam, _ string) endpointParamJSON {
 			return endpointParamJSON{Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required}
 		}),

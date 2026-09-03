@@ -49,6 +49,8 @@ type ServiceYaml struct {
 		Title  string `yaml:"title"`
 		Path   string `yaml:"path"`
 		Method string `yaml:"method"`
+		Port   int    `yaml:"port"`
+		K8sSvc string `yaml:"k8s_service"`
 		Params map[string]struct {
 			Type     string   `yaml:"type"`
 			Default  any      `yaml:"default"`
@@ -107,13 +109,15 @@ func decodeMetadata(v *ServiceYaml) svcModel.Metadata {
 	}
 	for _, e := range v.Endpoints {
 		endpoint := svcModel.Endpoint{
-			Id:      e.Id,
-			Title:   e.Title,
-			Path:    e.Path,
-			Method:  e.Method,
-			MaxRows: e.MaxRows,
-			PII:     e.PII,
-			Params:  make(map[string]svcModel.EndpointParam, len(e.Params)),
+			Id:         e.Id,
+			Title:      e.Title,
+			Path:       e.Path,
+			Method:     e.Method,
+			Port:       e.Port,
+			K8sService: e.K8sSvc,
+			MaxRows:    e.MaxRows,
+			PII:        e.PII,
+			Params:     make(map[string]svcModel.EndpointParam, len(e.Params)),
 		}
 		if e.Timeout != "" {
 			endpoint.Timeout, _ = time.ParseDuration(e.Timeout)

@@ -47,7 +47,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
   `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
   `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
-  (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам). Исключение из правила
+  (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам),
+  `endpoints` (call_service_endpoint: allowlist по id, только GET, валидация параметров,
+  PII через redact, лимиты строк/байт/таймаута). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
   селектор + выборку + агрегацию.
@@ -66,6 +68,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/service/` — сервисы (фоновые/инфраструктурные), для переиспользования или выделения логики:
   `k8s`, `github`, `registry`, `prometheus`, `loki`, `alertmanager`, `kusec` (клиенты источников,
   read-only; kusec — заглушка до получения проекта, методы отдают `errs.NotImplemented`),
+  `svcproxy` (GET к ручке сервиса внутри кластера по DNS `name.namespace.svc`; локально —
+  `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGet`),
   `indexer` (фоновый обход кластера → каталог + история деплоев).
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы.
 
@@ -78,6 +82,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Не обращается напрямую к репозиториям и сервисам.
   - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
   - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
+  `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`).
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).
   - Валидация входных параметров.

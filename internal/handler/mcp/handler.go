@@ -7,6 +7,7 @@ import (
 
 	"github.com/mechta-market/pulse/internal/usecase/catalog"
 	"github.com/mechta-market/pulse/internal/usecase/dependencies"
+	"github.com/mechta-market/pulse/internal/usecase/endpoints"
 	"github.com/mechta-market/pulse/internal/usecase/logs"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot"
 	"github.com/mechta-market/pulse/internal/usecase/system"
@@ -20,10 +21,22 @@ type Handler struct {
 	logs         logs.LogsI
 	timeline     timeline.TimelineI
 	dependencies dependencies.DependenciesI
+	endpoints    endpoints.EndpointsI
 }
 
-func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI, logs logs.LogsI, timeline timeline.TimelineI, dependencies dependencies.DependenciesI) *Handler {
-	return &Handler{system: system, catalog: catalog, snapshot: snapshot, logs: logs, timeline: timeline, dependencies: dependencies}
+func New(
+	system system.SystemI,
+	catalog catalog.CatalogI,
+	snapshot snapshot.SnapshotI,
+	logs logs.LogsI,
+	timeline timeline.TimelineI,
+	dependencies dependencies.DependenciesI,
+	endpoints endpoints.EndpointsI,
+) *Handler {
+	return &Handler{
+		system: system, catalog: catalog, snapshot: snapshot, logs: logs,
+		timeline: timeline, dependencies: dependencies, endpoints: endpoints,
+	}
 }
 
 // Register добавляет все инструменты на сервер. Описания инструментов — часть продукта:
@@ -90,4 +103,10 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: getDependenciesDescription,
 		Annotations: readOnly,
 	}, h.GetDependencies)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "call_service_endpoint",
+		Description: callServiceEndpointDescription,
+		Annotations: readOnly,
+	}, h.CallServiceEndpoint)
 }
