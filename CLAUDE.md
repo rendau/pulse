@@ -44,11 +44,14 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
-  `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics).
+  `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
+  `logs` (query_logs, top_errors). Исключение из правила «usecase не ходит в соседний usecase»:
+  `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
+  селектор + выборку + агрегацию.
 - `internal/domain/` — доменная модель, сервисы и репозитории.
   - `svc`, `workload` — каталог (Postgres); `snapshot` — детерминированные правила снапшота
     (health, summary_hints, базовая линия) без обращения к источникам; `event` — нормализованное
-    событие (ТЗ 1.2).
+    событие (ТЗ 1.2); `logs` — нормализация строк и агрегация в паттерны (чистые функции).
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
@@ -105,7 +108,10 @@ domain service → repo
   `not configured`.
 - Авторизация клиента: `*_TOKEN` (bearer), userinfo в URL (basic), `*_ORG_ID` (X-Scope-OrgID) —
   всё в `Auth` конструктора `New(baseUrl, Auth)`; заголовки ставит только `sendRequest`.
-- Параметр `window` разбирается `internal/util/window` (дефолт 1h, максимум 7d, понимает `7d`).
+- Параметр `window` разбирается `internal/util/window` (дефолт 1h, максимум 7d, понимает `7d`);
+  у логов свой потолок `logs.max_window` (24h).
+- Логи: селектор из `service.yaml` (`logs.selector`), иначе `logs.default_selector` из правил
+  с плейсхолдерами `{namespace}`, `{pod_regex}`; запрос без привязки к сервису невозможен.
 
 ### Хранилища
 - Postgres: только топология и метаданные (`service`, `workload`). Значений метрик, логов и

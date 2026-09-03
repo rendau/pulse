@@ -37,6 +37,9 @@ type Config struct {
 	MaxWindow time.Duration
 	MaxSeries int
 	MaxPoints int
+
+	// TopErrors — сколько error-паттернов логов класть в снапшот
+	TopErrors int
 }
 
 type Usecase struct {
@@ -47,6 +50,7 @@ type Usecase struct {
 	k8s          k8sClientI
 	prometheus   PrometheusI
 	alertmanager AlertmanagerI
+	logs         LogsI
 	rules        rulesServiceI
 }
 
@@ -57,10 +61,14 @@ func New(
 	k8s k8sClientI,
 	prometheus PrometheusI,
 	alertmanager AlertmanagerI,
+	logs LogsI,
 	rules rulesServiceI,
 ) *Usecase {
 	if conf.Deadline <= 0 {
 		conf.Deadline = 5 * time.Second
+	}
+	if conf.TopErrors <= 0 {
+		conf.TopErrors = 3
 	}
 	if conf.MaxWindow <= 0 {
 		conf.MaxWindow = window.Max
@@ -72,6 +80,7 @@ func New(
 		k8s:          k8s,
 		prometheus:   prometheus,
 		alertmanager: alertmanager,
+		logs:         logs,
 		rules:        rules,
 	}
 }
@@ -117,6 +126,7 @@ func (u *Usecase) Snapshot(ctx context.Context, serviceName string, win time.Dur
 	eg.Go(func() error { collector.events(egCtx); return nil })
 	eg.Go(func() error { collector.alerts(egCtx); return nil })
 	eg.Go(func() error { collector.metrics(egCtx); return nil })
+	eg.Go(func() error { collector.topErrors(egCtx); return nil })
 	_ = eg.Wait()
 
 	collector.finish()
@@ -341,6 +351,25 @@ func (c *collector) metrics(ctx context.Context) {
 
 	c.mu.Lock()
 	c.snap.Metrics = metrics
+	c.mu.Unlock()
+}
+
+// topErrors — верхние error-паттерны логов за окно (фаза 3): снапшот говорит не «деградировал»,
+// а «падает на connection refused к acquirer-gateway».
+func (c *collector) topErrors(ctx context.Context) {
+	if c.u.logs == nil {
+		c.addError(constant.SourceLoki, errs.Err("not configured"))
+		return
+	}
+
+	patterns, err := c.u.logs.TopErrors(ctx, c.service, c.workloads, c.snap.Window, c.u.conf.TopErrors)
+	if err != nil {
+		c.addError(constant.SourceLoki, err)
+		return
+	}
+
+	c.mu.Lock()
+	c.snap.TopErrors = patterns
 	c.mu.Unlock()
 }
 

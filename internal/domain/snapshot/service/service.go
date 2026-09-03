@@ -120,6 +120,13 @@ func (s *Service) SummaryHints(snap *model.Snapshot, now time.Time) []string {
 			m.Id, verb, math.Abs(*m.DeltaVsYesterday), formatValue(m.SameTimeYesterday), formatValue(m.Current)))
 	}
 
+	for i, p := range snap.TopErrors {
+		if i >= 3 {
+			break
+		}
+		hints = append(hints, fmt.Sprintf("в логах %d× «%s»", p.Count, lo.Ellipsis(p.Template, 160)))
+	}
+
 	oomCount := lo.CountBy(snap.RecentEvents, func(e eventModel.Event) bool { return e.Type == constant.EventTypeOOMKill })
 	if oomCount > 0 {
 		hints = append(hints, fmt.Sprintf("OOMKilled: %d событий за окно", oomCount))

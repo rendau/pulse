@@ -33,6 +33,22 @@ type Rules struct {
 		DefaultMetrics []MetricDef `yaml:"default_metrics"`
 	} `yaml:"snapshot"`
 
+	Logs struct {
+		// MaxLines — сколько строк забирать из Loki за один запрос (лимит объёма выдачи)
+		MaxLines int `yaml:"max_lines"`
+		// MaxPatterns — top-N паттернов в ответе
+		MaxPatterns int `yaml:"max_patterns"`
+		// RawLimit — потолок строк в режиме raw
+		RawLimit int `yaml:"raw_limit"`
+		// MaxWindow — потолок окна запроса логов
+		MaxWindow time.Duration `yaml:"max_window"`
+		// TopErrors — сколько error-паттернов класть в снапшот
+		TopErrors int `yaml:"top_errors"`
+		// DefaultSelector — LogQL-селектор, когда в service.yaml нет logs.selector.
+		// Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads} (w1|w2)
+		DefaultSelector string `yaml:"default_selector"`
+	} `yaml:"logs"`
+
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
 		MaxWindow time.Duration `yaml:"max_window"`
@@ -105,6 +121,24 @@ func (r *Rules) applyDefaults() {
 	}
 	if len(r.Snapshot.DefaultMetrics) == 0 {
 		r.Snapshot.DefaultMetrics = defaultMetrics()
+	}
+	if r.Logs.MaxLines <= 0 {
+		r.Logs.MaxLines = 5000
+	}
+	if r.Logs.MaxPatterns <= 0 {
+		r.Logs.MaxPatterns = 20
+	}
+	if r.Logs.RawLimit <= 0 {
+		r.Logs.RawLimit = 100
+	}
+	if r.Logs.MaxWindow <= 0 {
+		r.Logs.MaxWindow = 24 * time.Hour
+	}
+	if r.Logs.TopErrors <= 0 {
+		r.Logs.TopErrors = 3
+	}
+	if r.Logs.DefaultSelector == "" {
+		r.Logs.DefaultSelector = `{namespace="{namespace}", pod=~"{pod_regex}"}`
 	}
 	if r.Metrics.MaxWindow <= 0 {
 		r.Metrics.MaxWindow = 7 * 24 * time.Hour

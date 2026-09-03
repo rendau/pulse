@@ -110,7 +110,7 @@ func newUsecase(k8s *fakeK8s, prom PrometheusI, am AlertmanagerI) *Usecase {
 		Deadline: 2 * time.Second, MaxEvents: 50, MaxAlerts: 50,
 		DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: `sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))`}},
 		MaxWindow:      7 * 24 * time.Hour, MaxSeries: 20, MaxPoints: 200,
-	}, svc, wl, k8s, prom, am, snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
+	}, svc, wl, k8s, prom, am, nil, snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
 }
 
 func TestSnapshot_Degraded(t *testing.T) {
@@ -139,7 +139,8 @@ func TestSnapshot_Degraded(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, snapshotModel.HealthDegraded, snap.Health)
-	assert.Empty(t, snap.Errors)
+	sources := lo.Map(snap.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source })
+	assert.Equal(t, []string{constant.SourceLoki}, sources, "loki не сконфигурирован — единственная ошибка")
 
 	require.Len(t, snap.Alerts, 1, "чужой алерт отфильтрован")
 	assert.Equal(t, "HighErrorRate", snap.Alerts[0].Name)
@@ -186,7 +187,7 @@ func TestSnapshot_PartialWhenSourcesFail(t *testing.T) {
 	require.NoError(t, err)
 
 	sources := lo.Map(snap.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source })
-	assert.ElementsMatch(t, []string{constant.SourcePrometheus, constant.SourceAlertmanager}, sources)
+	assert.ElementsMatch(t, []string{constant.SourcePrometheus, constant.SourceAlertmanager, constant.SourceLoki}, sources)
 	assert.Equal(t, 1, snap.Workloads[0].Pods.Ready, "k8s-часть на месте")
 	require.Len(t, snap.Metrics, 1)
 	assert.NotEmpty(t, snap.Metrics[0].Error)
@@ -201,7 +202,7 @@ func TestSnapshot_UnknownWhenK8sDown(t *testing.T) {
 
 	assert.Equal(t, snapshotModel.HealthUnknown, snap.Health)
 	sources := lo.Map(snap.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source })
-	assert.ElementsMatch(t, []string{constant.SourceK8s, constant.SourcePrometheus}, sources, "prometheus не сконфигурирован — тоже в errors")
+	assert.ElementsMatch(t, []string{constant.SourceK8s, constant.SourcePrometheus, constant.SourceLoki}, sources, "несконфигурированные источники — тоже в errors")
 }
 
 func TestQueryMetrics(t *testing.T) {

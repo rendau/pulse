@@ -31,6 +31,19 @@ snapshot:
   #     promql: 'sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))'
   #     unit: rps
 
+logs:
+  # сколько строк забирать из Loki за запрос и потолок окна (ограничение объёма выдачи)
+  max_lines: 5000
+  max_window: 24h
+  # top-N паттернов в query_logs и число error-паттернов в снапшоте
+  max_patterns: 20
+  top_errors: 3
+  # потолок строк в режиме raw
+  raw_limit: 100
+  # LogQL-селектор, когда в service.yaml нет logs.selector.
+  # Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads}
+  default_selector: '{namespace="{namespace}", pod=~"{pod_regex}"}'
+
 metrics:
   # ограничения произвольного PromQL в query_metrics
   max_window: 168h

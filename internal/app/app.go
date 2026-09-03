@@ -17,6 +17,7 @@ import (
 
 	"github.com/mechta-market/pulse/internal/config"
 	"github.com/mechta-market/pulse/internal/constant"
+	domainLogsServiceP "github.com/mechta-market/pulse/internal/domain/logs/service"
 	domainSnapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	domainSnapshotServiceP "github.com/mechta-market/pulse/internal/domain/snapshot/service"
 	domainSvcRepoDbP "github.com/mechta-market/pulse/internal/domain/svc/repo/db"
@@ -33,6 +34,7 @@ import (
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
+	usecaseLogsP "github.com/mechta-market/pulse/internal/usecase/logs"
 	usecaseSnapshotP "github.com/mechta-market/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
 )
@@ -148,6 +150,27 @@ func (a *App) Init() {
 	// catalog
 	catalogUsecase := usecaseCatalogP.New(svcService, workloadService, k8sService)
 
+	// logs
+	var logsUsecase *usecaseLogsP.Usecase
+	{
+		// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
+		var lokiClient usecaseLogsP.LokiI
+		if lokiService != nil {
+			lokiClient = lokiService
+		}
+
+		logsUsecase = usecaseLogsP.New(
+			usecaseLogsP.Config{
+				MaxLines:        rules.Logs.MaxLines,
+				MaxPatterns:     rules.Logs.MaxPatterns,
+				RawLimit:        rules.Logs.RawLimit,
+				MaxWindow:       rules.Logs.MaxWindow,
+				DefaultSelector: rules.Logs.DefaultSelector,
+			},
+			svcService, workloadService, lokiClient, domainLogsServiceP.New(),
+		)
+	}
+
 	// snapshot
 	var snapshotUsecase *usecaseSnapshotP.Usecase
 	{
@@ -164,6 +187,10 @@ func (a *App) Init() {
 		if alertmanagerService != nil {
 			alertmanagerClient = alertmanagerService
 		}
+		var logsClient usecaseSnapshotP.LogsI
+		if lokiService != nil {
+			logsClient = logsUsecase
+		}
 
 		snapshotUsecase = usecaseSnapshotP.New(
 			usecaseSnapshotP.Config{
@@ -176,14 +203,15 @@ func (a *App) Init() {
 				MaxWindow: rules.Metrics.MaxWindow,
 				MaxSeries: rules.Metrics.MaxSeries,
 				MaxPoints: rules.Metrics.MaxPoints,
+				TopErrors: rules.Logs.TopErrors,
 			},
-			svcService, workloadService, k8sService, prometheusClient, alertmanagerClient, rulesService,
+			svcService, workloadService, k8sService, prometheusClient, alertmanagerClient, logsClient, rulesService,
 		)
 	}
 
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}

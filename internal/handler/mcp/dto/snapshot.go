@@ -28,6 +28,7 @@ type SnapshotRep struct {
 	Workloads    []WorkloadState `json:"workloads"`
 	Pods         PodsSummary     `json:"pods"`
 	Metrics      []Metric        `json:"metrics"`
+	TopErrors    []LogPattern    `json:"top_errors" jsonschema:"верхние error-паттерны логов за окно; подробнее — query_logs"`
 	RecentEvents []Event         `json:"recent_events"`
 	Errors       []SourceError   `json:"errors" jsonschema:"источники, которые не ответили: часть картины отсутствует"`
 }
@@ -100,6 +101,7 @@ func EncodeSnapshotRep(v *snapshotModel.Snapshot) SnapshotRep {
 		Alerts:       lo.Map(v.Alerts, encodeAlert),
 		Workloads:    lo.Map(v.Workloads, encodeWorkloadState),
 		Metrics:      lo.Map(v.Metrics, encodeMetric),
+		TopErrors:    lo.Map(v.TopErrors, EncodeLogPattern),
 		RecentEvents: lo.Map(v.RecentEvents, EncodeEvent),
 		Errors:       lo.Map(v.Errors, encodeSnapshotSourceError),
 	}

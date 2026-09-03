@@ -30,6 +30,7 @@ MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTT
 | `get_service_info` | карточка сервиса: метаданные, workloads, живое состояние подов |
 | `get_service_snapshot` | срез состояния: алерты, поды, метрики с базовой линией, события, health |
 | `query_metrics` | временной ряд по `metric_id` сервиса или произвольному PromQL |
+| `query_logs` | логи из Loki: агрегированные паттерны со счётчиком или последние строки |
 
 ## service.yaml
 

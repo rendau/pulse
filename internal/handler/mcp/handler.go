@@ -6,6 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mechta-market/pulse/internal/usecase/catalog"
+	"github.com/mechta-market/pulse/internal/usecase/logs"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot"
 	"github.com/mechta-market/pulse/internal/usecase/system"
 )
@@ -14,10 +15,11 @@ type Handler struct {
 	system   system.SystemI
 	catalog  catalog.CatalogI
 	snapshot snapshot.SnapshotI
+	logs     logs.LogsI
 }
 
-func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI) *Handler {
-	return &Handler{system: system, catalog: catalog, snapshot: snapshot}
+func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI, logs logs.LogsI) *Handler {
+	return &Handler{system: system, catalog: catalog, snapshot: snapshot, logs: logs}
 }
 
 // Register добавляет все инструменты на сервер. Описания инструментов — часть продукта:
@@ -60,4 +62,10 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: queryMetricsDescription,
 		Annotations: readOnly,
 	}, h.QueryMetrics)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "query_logs",
+		Description: queryLogsDescription,
+		Annotations: readOnly,
+	}, h.QueryLogs)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
@@ -42,6 +43,11 @@ type PrometheusI interface {
 
 type AlertmanagerI interface {
 	ListAlerts(ctx context.Context) ([]alertmanagerModel.Alert, error)
+}
+
+// LogsI — usecase логов (top_errors); nil, когда Loki не сконфигурирован.
+type LogsI interface {
+	TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, window time.Duration, top int) ([]logsModel.Pattern, error)
 }
 
 type rulesServiceI interface {

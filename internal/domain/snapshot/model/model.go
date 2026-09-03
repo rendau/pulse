@@ -4,6 +4,7 @@ import (
 	"time"
 
 	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
+	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 )
 
 // Health — детерминированная оценка состояния сервиса.
@@ -93,6 +94,8 @@ type Snapshot struct {
 	Alerts       []Alert
 	Workloads    []WorkloadState
 	Metrics      []Metric
+	// TopErrors — верхние error-паттерны логов за окно (фаза 3)
+	TopErrors    []logsModel.Pattern
 	RecentEvents []eventModel.Event
 	Errors       []SourceError
 }
