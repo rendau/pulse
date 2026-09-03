@@ -40,3 +40,23 @@ create table workload (
 
 create index workload_service_name_idx on workload (service_name);
 create index workload_last_seen_idx on workload (last_seen);
+
+-- История деплоев: смена образа/digest у workload между циклами индексера (фаза 4).
+create table deploy (
+    id                bigserial primary key,
+    cluster           text        not null,
+    namespace         text        not null,
+    kind              text        not null,
+    name              text        not null,
+    service_name      text        not null,
+    image             text        not null default '',
+    image_digest      text        not null default '',
+    deployed_commit   text        not null default '',
+    prev_image        text        not null default '',
+    prev_image_digest text        not null default '',
+    prev_commit       text        not null default '',
+    observed_at       timestamptz not null default now()
+);
+
+create index deploy_service_observed_idx on deploy (service_name, observed_at desc);
+create index deploy_observed_idx on deploy (observed_at desc);

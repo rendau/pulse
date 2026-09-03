@@ -20,6 +20,7 @@ type Service struct {
 	registry registryClientI
 	svc      svcServiceI
 	workload workloadServiceI
+	deploy   deployServiceI
 
 	mapper *imageMapper
 	wg     sync.WaitGroup
@@ -32,6 +33,7 @@ func New(
 	registry registryClientI,
 	svc svcServiceI,
 	workload workloadServiceI,
+	deploy deployServiceI,
 ) *Service {
 	return &Service{
 		conf:     conf,
@@ -40,6 +42,7 @@ func New(
 		registry: registry,
 		svc:      svc,
 		workload: workload,
+		deploy:   deploy,
 		mapper:   newImageMapper(conf.ImageMapping),
 	}
 }

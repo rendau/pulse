@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mechta-market/pulse/internal/constant"
+	eventService "github.com/mechta-market/pulse/internal/domain/event/service"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
@@ -110,7 +111,7 @@ func newUsecase(k8s *fakeK8s, prom PrometheusI, am AlertmanagerI) *Usecase {
 		Deadline: 2 * time.Second, MaxEvents: 50, MaxAlerts: 50,
 		DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: `sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))`}},
 		MaxWindow:      7 * 24 * time.Hour, MaxSeries: 20, MaxPoints: 200,
-	}, svc, wl, k8s, prom, am, nil, snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
+	}, svc, wl, k8s, prom, am, nil, eventService.New(), snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
 }
 
 func TestSnapshot_Degraded(t *testing.T) {

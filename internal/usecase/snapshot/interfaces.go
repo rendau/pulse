@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
@@ -50,8 +51,15 @@ type LogsI interface {
 	TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, window time.Duration, top int) ([]logsModel.Pattern, error)
 }
 
+type eventServiceI interface {
+	FromCluster(e eventModel.ClusterEvent, service string) (eventModel.Event, bool)
+	FromTermination(t eventModel.ContainerTermination, service string) (eventModel.Event, bool)
+}
+
 type rulesServiceI interface {
 	ComputeHealth(snap *snapshotModel.Snapshot, podsUnavailable bool) string
 	SummaryHints(snap *snapshotModel.Snapshot, now time.Time) []string
 	ApplyBaseline(m *snapshotModel.Metric)
+	AlertMatches(labels map[string]string, names []string) bool
+	AlertSeverity(s string) string
 }

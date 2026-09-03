@@ -13,7 +13,7 @@ go run ./cmd/
 ```
 
 Адреса и токены источников — только через env (см. `.env.example`): `PROMETHEUS_URL`/`_TOKEN`/`_ORG_ID`,
-`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
+`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `KUSEC_URL`/`_TOKEN`, `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
 Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.
 
 MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTTP, stateless),
@@ -31,6 +31,8 @@ MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTT
 | `get_service_snapshot` | срез состояния: алерты, поды, метрики с базовой линией, события, health |
 | `query_metrics` | временной ряд по `metric_id` сервиса или произвольному PromQL |
 | `query_logs` | логи из Loki: агрегированные паттерны со счётчиком или последние строки |
+| `get_timeline` | деплои, коммиты, конфигурация, алерты, рестарты на одной оси времени |
+| `get_changes` | коммиты, что не в проде, история деплоев, диффы конфигурации (секреты маскированы) |
 
 ## service.yaml
 

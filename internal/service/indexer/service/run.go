@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/labels"
 
+	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	localConstant "github.com/mechta-market/pulse/internal/service/indexer/service/constant"
@@ -55,7 +56,10 @@ func (s *Service) Run(ctx context.Context) error {
 	// 3. digest → коммит (параллельно, кэш живёт в registry-клиенте)
 	s.resolveCommits(ctx, drafts, &stats)
 
-	// 4. группировка по сервисам и запись каталога
+	// 4. история деплоев: смена образа/digest относительно прошлого цикла
+	stats.Deploys = s.recordDeploys(ctx, drafts)
+
+	// 5. группировка по сервисам и запись каталога
 	services := s.buildServices(ctx, drafts, metadata, now)
 	stats.Services = len(services)
 
@@ -72,7 +76,7 @@ func (s *Service) Run(ctx context.Context) error {
 		return fmt.Errorf("workload.UpdateOrCreateMany: %w", err)
 	}
 
-	// 5. чистка: что не видели дольше stale_after, того больше нет
+	// 6. чистка: что не видели дольше stale_after, того больше нет
 	staleBefore := now.Add(-s.conf.StaleAfter)
 	if stats.StaleWorkloads, err = s.workload.DeleteStale(ctx, s.conf.Cluster, staleBefore); err != nil {
 		return fmt.Errorf("workload.DeleteStale: %w", err)
@@ -90,6 +94,7 @@ func (s *Service) Run(ctx context.Context) error {
 		"with_metadata", stats.WithMetadata,
 		"metadata_errors", stats.MetadataErrors,
 		"commits_resolved", stats.CommitsResolved,
+		"deploys", stats.Deploys,
 		"stale_workloads", stats.StaleWorkloads,
 		"stale_services", stats.StaleServices,
 		"github_unavailable", stats.GithubUnavailable,
@@ -105,6 +110,7 @@ type indexerStats struct {
 	WithMetadata      int
 	MetadataErrors    int
 	CommitsResolved   int
+	Deploys           int
 	StaleWorkloads    int64
 	StaleServices     int
 	Duration          time.Duration
@@ -347,4 +353,49 @@ func (s *Service) previousNamesByRepo(ctx context.Context) map[string]string {
 		lo.Filter(services, func(v *svcModel.Main, _ int) bool { return v.RepoUrl != "" }),
 		func(v *svcModel.Main) (string, string) { return v.RepoUrl, v.Name },
 	)
+}
+
+// recordDeploys сравнивает черновики с прошлым состоянием каталога и пишет факт деплоя,
+// когда у workload'а сменился образ или digest запущенного образа. Первое появление
+// workload'а деплоем не считается.
+func (s *Service) recordDeploys(ctx context.Context, drafts []*workloadDraft) int {
+	previous, _, err := s.workload.List(ctx, &workloadModel.ListReq{Cluster: new(s.conf.Cluster)})
+	if err != nil {
+		slog.Warn("indexer: previous workloads are unavailable, deploys will not be recorded", "error", err)
+		return 0
+	}
+	byKey := lo.SliceToMap(previous, func(w *workloadModel.Main) (workloadModel.Key, *workloadModel.Main) { return w.Key(), w })
+
+	count := 0
+	for _, d := range drafts {
+		prev, ok := byKey[workloadModel.Key{Cluster: s.conf.Cluster, Namespace: d.Namespace, Kind: d.Kind, Name: d.Name}]
+		if !ok {
+			continue
+		}
+		digestChanged := d.digest != "" && prev.ImageDigest != "" && d.digest != prev.ImageDigest
+		imageChanged := d.imageRaw != "" && prev.Image != "" && d.imageRaw != prev.Image
+		if !digestChanged && !imageChanged {
+			continue
+		}
+
+		_, err = s.deploy.Create(ctx, &deployModel.Edit{
+			Cluster: new(s.conf.Cluster), Namespace: new(d.Namespace), Kind: new(d.Kind), Name: new(d.Name),
+			ServiceName:     new(prev.ServiceName),
+			Image:           new(d.imageRaw),
+			ImageDigest:     new(d.digest),
+			DeployedCommit:  new(d.commit),
+			PrevImage:       new(prev.Image),
+			PrevImageDigest: new(prev.ImageDigest),
+			PrevCommit:      new(prev.DeployedCommit),
+		})
+		if err != nil {
+			slog.Warn("indexer: deploy record failed", "workload", d.Namespace+"/"+d.Name, "error", err)
+			continue
+		}
+		count++
+		slog.Info("indexer: deploy detected", "workload", d.Kind+"/"+d.Namespace+"/"+d.Name,
+			"image", d.imageRaw, "digest", d.digest, "commit", d.commit, "prev_digest", prev.ImageDigest, "prev_commit", prev.DeployedCommit)
+	}
+
+	return count
 }

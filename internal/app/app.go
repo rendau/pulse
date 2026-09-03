@@ -17,6 +17,9 @@ import (
 
 	"github.com/mechta-market/pulse/internal/config"
 	"github.com/mechta-market/pulse/internal/constant"
+	domainDeployRepoDbP "github.com/mechta-market/pulse/internal/domain/deploy/repo/db"
+	domainDeployServiceP "github.com/mechta-market/pulse/internal/domain/deploy/service"
+	domainEventServiceP "github.com/mechta-market/pulse/internal/domain/event/service"
 	domainLogsServiceP "github.com/mechta-market/pulse/internal/domain/logs/service"
 	domainSnapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	domainSnapshotServiceP "github.com/mechta-market/pulse/internal/domain/snapshot/service"
@@ -30,6 +33,7 @@ import (
 	serviceIndexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
 	serviceIndexerServiceP "github.com/mechta-market/pulse/internal/service/indexer/service"
 	serviceK8sServiceP "github.com/mechta-market/pulse/internal/service/k8s/service"
+	serviceKusecServiceP "github.com/mechta-market/pulse/internal/service/kusec/service"
 	serviceLokiServiceP "github.com/mechta-market/pulse/internal/service/loki/service"
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
@@ -37,6 +41,7 @@ import (
 	usecaseLogsP "github.com/mechta-market/pulse/internal/usecase/logs"
 	usecaseSnapshotP "github.com/mechta-market/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
+	usecaseTimelineP "github.com/mechta-market/pulse/internal/usecase/timeline"
 )
 
 type App struct {
@@ -101,6 +106,11 @@ func (a *App) Init() {
 			serviceAlertmanagerServiceP.Auth{Token: config.Conf.AlertmanagerToken})
 	}
 
+	var kusecService *serviceKusecServiceP.Service
+	if config.Conf.KusecUrl != "" {
+		kusecService = serviceKusecServiceP.New(config.Conf.KusecUrl, serviceKusecServiceP.Auth{Token: config.Conf.KusecToken})
+	}
+
 	// system
 	var systemUsecase *usecaseSystemP.Usecase
 	{
@@ -119,6 +129,7 @@ func (a *App) Init() {
 			usecaseSystemP.Source{Name: constant.SourcePrometheus, Ping: optionalPing(prometheusService)},
 			usecaseSystemP.Source{Name: constant.SourceLoki, Ping: optionalPing(lokiService)},
 			usecaseSystemP.Source{Name: constant.SourceAlertmanager, Ping: optionalPing(alertmanagerService)},
+			usecaseSystemP.Source{Name: constant.SourceKusec, Ping: optionalPing(kusecService)},
 		)
 
 		systemUsecase = usecaseSystemP.New(sources)
@@ -132,6 +143,13 @@ func (a *App) Init() {
 	workloadRepo := domainWorkloadRepoDbP.New(a.pgpool)
 	workloadService := domainWorkloadServiceP.New(workloadRepo)
 
+	// deploy (история деплоев)
+	deployRepo := domainDeployRepoDbP.New(a.pgpool)
+	deployService := domainDeployServiceP.New(deployRepo)
+
+	// event (нормализация событий)
+	eventService := domainEventServiceP.New()
+
 	// indexer
 	if config.Conf.IndexerEnabled {
 		a.indexer = serviceIndexerServiceP.New(
@@ -143,7 +161,7 @@ func (a *App) Init() {
 					return serviceIndexerModel.ImageMapping{Registry: m.Registry, RepoTemplate: m.RepoTemplate, Org: m.Org}
 				}),
 			},
-			k8sService, githubService, registryService, svcService, workloadService,
+			k8sService, githubService, registryService, svcService, workloadService, deployService,
 		)
 	}
 
@@ -205,13 +223,37 @@ func (a *App) Init() {
 				MaxPoints: rules.Metrics.MaxPoints,
 				TopErrors: rules.Logs.TopErrors,
 			},
-			svcService, workloadService, k8sService, prometheusClient, alertmanagerClient, logsClient, rulesService,
+			svcService, workloadService, k8sService, prometheusClient, alertmanagerClient, logsClient, eventService, rulesService,
+		)
+	}
+
+	// timeline
+	var timelineUsecase *usecaseTimelineP.Usecase
+	{
+		var kusecClient usecaseTimelineP.KusecI
+		if kusecService != nil {
+			kusecClient = kusecService
+		}
+		var prometheusClient usecaseTimelineP.PrometheusI
+		if prometheusService != nil {
+			prometheusClient = prometheusService
+		}
+
+		timelineUsecase = usecaseTimelineP.New(
+			usecaseTimelineP.Config{
+				Deadline:              rules.Timeline.Deadline,
+				MaxEvents:             rules.Timeline.MaxEvents,
+				CommitsLimit:          rules.Timeline.CommitsLimit,
+				MaxServicesForCommits: rules.Timeline.MaxServicesForCommits,
+			},
+			svcService, workloadService, deployService, k8sService, githubService, kusecClient, prometheusClient,
+			eventService, domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
 		)
 	}
 
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}

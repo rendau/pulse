@@ -44,6 +44,14 @@ logs:
   # Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads}
   default_selector: '{namespace="{namespace}", pod=~"{pod_regex}"}'
 
+timeline:
+  # общий дедлайн сбора изменений; потолок событий в ответе; коммитов на репозиторий за окно
+  deadline: 8s
+  max_events: 200
+  commits_limit: 100
+  # выше этого числа сервисов в запросе коммиты не собираются (запрос на репозиторий)
+  max_services_for_commits: 10
+
 metrics:
   # ограничения произвольного PromQL в query_metrics
   max_window: 168h

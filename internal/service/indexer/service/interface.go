@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
@@ -29,6 +30,11 @@ type svcServiceI interface {
 }
 
 type workloadServiceI interface {
+	List(ctx context.Context, pars *workloadModel.ListReq) ([]*workloadModel.Main, int64, error)
 	UpdateOrCreateMany(ctx context.Context, objs []*workloadModel.Edit) error
 	DeleteStale(ctx context.Context, cluster string, before time.Time) (int64, error)
+}
+
+type deployServiceI interface {
+	Create(ctx context.Context, obj *deployModel.Edit) (int64, error)
 }

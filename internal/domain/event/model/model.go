@@ -13,3 +13,23 @@ type Event struct {
 	Summary  string
 	Details  map[string]any
 }
+
+// ClusterEvent — событие кластера в доменном виде (вход для нормализации).
+type ClusterEvent struct {
+	TS         time.Time
+	ObjectKind string
+	ObjectName string
+	Reason     string
+	Type       string // Normal | Warning
+	Message    string
+	Count      int32
+}
+
+// ContainerTermination — последнее завершение контейнера из статуса пода.
+type ContainerTermination struct {
+	At        time.Time
+	Pod       string
+	Container string
+	Reason    string // OOMKilled | Error | Completed …
+	Restarts  int32
+}

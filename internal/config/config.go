@@ -48,6 +48,10 @@ var Conf = struct {
 	AlertmanagerUrl   string `env:"ALERTMANAGER_URL"`
 	AlertmanagerToken string `env:"ALERTMANAGER_TOKEN"`
 
+	// kusec: configmaps, secrets, env (интеграция после получения проекта kusec)
+	KusecUrl   string `env:"KUSEC_URL"`
+	KusecToken string `env:"KUSEC_TOKEN"`
+
 	// индексер топологии
 	IndexerInterval time.Duration `env:"INDEXER_INTERVAL" envDefault:"5m"`
 	IndexerEnabled  bool          `env:"INDEXER_ENABLED" envDefault:"true"`

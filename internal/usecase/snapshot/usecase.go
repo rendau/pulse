@@ -51,6 +51,7 @@ type Usecase struct {
 	prometheus   PrometheusI
 	alertmanager AlertmanagerI
 	logs         LogsI
+	events       eventServiceI
 	rules        rulesServiceI
 }
 
@@ -62,6 +63,7 @@ func New(
 	prometheus PrometheusI,
 	alertmanager AlertmanagerI,
 	logs LogsI,
+	events eventServiceI,
 	rules rulesServiceI,
 ) *Usecase {
 	if conf.Deadline <= 0 {
@@ -81,6 +83,7 @@ func New(
 		prometheus:   prometheus,
 		alertmanager: alertmanager,
 		logs:         logs,
+		events:       events,
 		rules:        rules,
 	}
 }
@@ -185,7 +188,7 @@ func (c *collector) pods(ctx context.Context) {
 				return nil
 			}
 
-			state, events := podsState(pods, c.service.Name, c.now, c.snap.Window)
+			state, events := podsState(c.u.events, pods, c.service.Name, c.now, c.snap.Window)
 			c.mu.Lock()
 			c.snap.Workloads[i].Pods = state
 			c.podEvents = append(c.podEvents, events...)
@@ -216,7 +219,9 @@ func (c *collector) events(ctx context.Context) {
 			if e.Namespace != ns || !c.belongs(e.ObjectName) {
 				continue
 			}
-			if converted, ok := convertK8sEvent(e, c.service.Name); ok {
+			if converted, ok := c.u.events.FromCluster(eventModel.ClusterEvent{
+				TS: e.LastTS, ObjectKind: e.ObjectKind, ObjectName: e.ObjectName, Reason: e.Reason, Type: e.Type, Message: e.Message, Count: e.Count,
+			}, c.service.Name); ok {
 				collected = append(collected, converted)
 			}
 		}
@@ -257,7 +262,7 @@ func (c *collector) alerts(ctx context.Context) {
 	result := make([]snapshotModel.Alert, 0)
 	var events []eventModel.Event
 	for _, a := range alerts {
-		if !alertMatches(a.Labels, names) {
+		if !c.u.rules.AlertMatches(a.Labels, names) {
 			continue
 		}
 		alert := snapshotModel.Alert{
@@ -277,7 +282,7 @@ func (c *collector) alerts(ctx context.Context) {
 				Source:   constant.SourceAlertmanager,
 				Type:     constant.EventTypeAlertFiring,
 				Service:  c.service.Name,
-				Severity: alertSeverity(alert.Severity),
+				Severity: c.u.rules.AlertSeverity(alert.Severity),
 				Summary:  fmt.Sprintf("%s: сработал алерт %s (%s)", c.service.Name, alert.Name, lo.CoalesceOrEmpty(alert.Summary, alert.Severity)),
 				Details:  map[string]any{"labels": a.Labels},
 			})
@@ -413,32 +418,4 @@ func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.
 		m.PromQL = replacer.Replace(m.PromQL)
 		return m
 	})
-}
-
-// alertMatches — алерт относится к сервису, если значение одного из типовых лейблов
-// совпадает с именем сервиса/workload'а или является именем пода этого workload'а.
-func alertMatches(labels map[string]string, names []string) bool {
-	for _, key := range []string{"service", "app", "job", "deployment", "statefulset", "daemonset", "container", "pod", "workload"} {
-		value, ok := labels[key]
-		if !ok || value == "" {
-			continue
-		}
-		for _, name := range names {
-			if value == name || (key == "pod" && strings.HasPrefix(value, name+"-")) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func alertSeverity(s string) string {
-	switch strings.ToLower(s) {
-	case "critical", "page", "error":
-		return constant.SeverityCritical
-	case "warning", "warn":
-		return constant.SeverityWarning
-	default:
-		return constant.SeverityInfo
-	}
 }

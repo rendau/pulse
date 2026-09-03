@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v82/github"
@@ -16,6 +17,8 @@ import (
 
 type Service struct {
 	client *github.Client
+	// branches — кэш веток по умолчанию: owner/repo → branch
+	branches sync.Map
 }
 
 func New(token string) *Service {

@@ -64,8 +64,14 @@ func (h *Handler) QueryMetrics(ctx context.Context, _ *mcp.CallToolRequest, req 
 	return nil, dto.EncodeQueryMetricsRep(result), nil
 }
 
+const timelineDefaultWindow = 24 * time.Hour
+
 func parseWindow(s string) (time.Duration, error) {
-	win, err := window.Parse(s, window.Default, window.Max)
+	return parseWindowDefault(s, window.Default)
+}
+
+func parseWindowDefault(s string, def time.Duration) (time.Duration, error) {
+	win, err := window.Parse(s, def, window.Max)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", errs.InvalidRequest, err)
 	}

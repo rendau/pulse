@@ -49,6 +49,14 @@ type Rules struct {
 		DefaultSelector string `yaml:"default_selector"`
 	} `yaml:"logs"`
 
+	Timeline struct {
+		Deadline     time.Duration `yaml:"deadline"`
+		MaxEvents    int           `yaml:"max_events"`
+		CommitsLimit int           `yaml:"commits_limit"`
+		// MaxServicesForCommits — выше этого числа сервисов коммиты в таймлайн не собираются
+		MaxServicesForCommits int `yaml:"max_services_for_commits"`
+	} `yaml:"timeline"`
+
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
 		MaxWindow time.Duration `yaml:"max_window"`
@@ -139,6 +147,18 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Logs.DefaultSelector == "" {
 		r.Logs.DefaultSelector = `{namespace="{namespace}", pod=~"{pod_regex}"}`
+	}
+	if r.Timeline.Deadline <= 0 {
+		r.Timeline.Deadline = 8 * time.Second
+	}
+	if r.Timeline.MaxEvents <= 0 {
+		r.Timeline.MaxEvents = 200
+	}
+	if r.Timeline.CommitsLimit <= 0 {
+		r.Timeline.CommitsLimit = 100
+	}
+	if r.Timeline.MaxServicesForCommits <= 0 {
+		r.Timeline.MaxServicesForCommits = 10
 	}
 	if r.Metrics.MaxWindow <= 0 {
 		r.Metrics.MaxWindow = 7 * 24 * time.Hour

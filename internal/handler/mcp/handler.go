@@ -9,6 +9,7 @@ import (
 	"github.com/mechta-market/pulse/internal/usecase/logs"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot"
 	"github.com/mechta-market/pulse/internal/usecase/system"
+	"github.com/mechta-market/pulse/internal/usecase/timeline"
 )
 
 type Handler struct {
@@ -16,10 +17,11 @@ type Handler struct {
 	catalog  catalog.CatalogI
 	snapshot snapshot.SnapshotI
 	logs     logs.LogsI
+	timeline timeline.TimelineI
 }
 
-func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI, logs logs.LogsI) *Handler {
-	return &Handler{system: system, catalog: catalog, snapshot: snapshot, logs: logs}
+func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI, logs logs.LogsI, timeline timeline.TimelineI) *Handler {
+	return &Handler{system: system, catalog: catalog, snapshot: snapshot, logs: logs, timeline: timeline}
 }
 
 // Register добавляет все инструменты на сервер. Описания инструментов — часть продукта:
@@ -68,4 +70,16 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: queryLogsDescription,
 		Annotations: readOnly,
 	}, h.QueryLogs)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_timeline",
+		Description: getTimelineDescription,
+		Annotations: readOnly,
+	}, h.GetTimeline)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_changes",
+		Description: getChangesDescription,
+		Annotations: readOnly,
+	}, h.GetChanges)
 }
