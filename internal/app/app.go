@@ -17,6 +17,8 @@ import (
 
 	"github.com/mechta-market/pulse/internal/config"
 	"github.com/mechta-market/pulse/internal/constant"
+	domainSnapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	domainSnapshotServiceP "github.com/mechta-market/pulse/internal/domain/snapshot/service"
 	domainSvcRepoDbP "github.com/mechta-market/pulse/internal/domain/svc/repo/db"
 	domainSvcServiceP "github.com/mechta-market/pulse/internal/domain/svc/service"
 	domainWorkloadRepoDbP "github.com/mechta-market/pulse/internal/domain/workload/repo/db"
@@ -31,6 +33,7 @@ import (
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
+	usecaseSnapshotP "github.com/mechta-market/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
 )
 
@@ -75,21 +78,25 @@ func (a *App) Init() {
 	// sources
 	k8sService := serviceK8sServiceP.New(config.Conf.KubeConfig, config.Conf.KubeContext, rules.Indexer.ExcludeNamespaces)
 	githubService := serviceGithubServiceP.New(config.Conf.GithubToken)
-	registryService := serviceRegistryServiceP.New(map[string]string{"ghcr.io": config.Conf.GithubToken})
+	registryService := serviceRegistryServiceP.New(map[string]string{"ghcr.io": config.Conf.RegistryToken})
 
+	// опциональные источники: nil-указатель = не сконфигурирован (виден в ping как disabled)
 	var prometheusService *servicePrometheusServiceP.Service
 	if config.Conf.PrometheusUrl != "" {
-		prometheusService = servicePrometheusServiceP.New(config.Conf.PrometheusUrl)
+		prometheusService = servicePrometheusServiceP.New(config.Conf.PrometheusUrl,
+			servicePrometheusServiceP.Auth{Token: config.Conf.PrometheusToken, OrgId: config.Conf.PrometheusOrgId})
 	}
 
 	var lokiService *serviceLokiServiceP.Service
 	if config.Conf.LokiUrl != "" {
-		lokiService = serviceLokiServiceP.New(config.Conf.LokiUrl)
+		lokiService = serviceLokiServiceP.New(config.Conf.LokiUrl,
+			serviceLokiServiceP.Auth{Token: config.Conf.LokiToken, OrgId: config.Conf.LokiOrgId})
 	}
 
 	var alertmanagerService *serviceAlertmanagerServiceP.Service
 	if config.Conf.AlertmanagerUrl != "" {
-		alertmanagerService = serviceAlertmanagerServiceP.New(config.Conf.AlertmanagerUrl)
+		alertmanagerService = serviceAlertmanagerServiceP.New(config.Conf.AlertmanagerUrl,
+			serviceAlertmanagerServiceP.Auth{Token: config.Conf.AlertmanagerToken})
 	}
 
 	// system
@@ -141,9 +148,42 @@ func (a *App) Init() {
 	// catalog
 	catalogUsecase := usecaseCatalogP.New(svcService, workloadService, k8sService)
 
+	// snapshot
+	var snapshotUsecase *usecaseSnapshotP.Usecase
+	{
+		rulesService := domainSnapshotServiceP.New(domainSnapshotServiceP.Config{
+			AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct,
+		})
+
+		// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
+		var prometheusClient usecaseSnapshotP.PrometheusI
+		if prometheusService != nil {
+			prometheusClient = prometheusService
+		}
+		var alertmanagerClient usecaseSnapshotP.AlertmanagerI
+		if alertmanagerService != nil {
+			alertmanagerClient = alertmanagerService
+		}
+
+		snapshotUsecase = usecaseSnapshotP.New(
+			usecaseSnapshotP.Config{
+				Deadline:  rules.Snapshot.Deadline,
+				MaxEvents: rules.Snapshot.MaxEvents,
+				MaxAlerts: rules.Snapshot.MaxAlerts,
+				DefaultMetrics: lo.Map(rules.Snapshot.DefaultMetrics, func(m config.MetricDef, _ int) domainSnapshotModel.MetricDef {
+					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
+				}),
+				MaxWindow: rules.Metrics.MaxWindow,
+				MaxSeries: rules.Metrics.MaxSeries,
+				MaxPoints: rules.Metrics.MaxPoints,
+			},
+			svcService, workloadService, k8sService, prometheusClient, alertmanagerClient, rulesService,
+		)
+	}
+
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}

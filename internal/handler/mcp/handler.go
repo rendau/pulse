@@ -6,16 +6,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mechta-market/pulse/internal/usecase/catalog"
+	"github.com/mechta-market/pulse/internal/usecase/snapshot"
 	"github.com/mechta-market/pulse/internal/usecase/system"
 )
 
 type Handler struct {
-	system  system.SystemI
-	catalog catalog.CatalogI
+	system   system.SystemI
+	catalog  catalog.CatalogI
+	snapshot snapshot.SnapshotI
 }
 
-func New(system system.SystemI, catalog catalog.CatalogI) *Handler {
-	return &Handler{system: system, catalog: catalog}
+func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI) *Handler {
+	return &Handler{system: system, catalog: catalog, snapshot: snapshot}
 }
 
 // Register добавляет все инструменты на сервер. Описания инструментов — часть продукта:
@@ -46,4 +48,16 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: getServiceInfoDescription,
 		Annotations: readOnly,
 	}, h.GetServiceInfo)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_service_snapshot",
+		Description: getServiceSnapshotDescription,
+		Annotations: readOnly,
+	}, h.GetServiceSnapshot)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "query_metrics",
+		Description: queryMetricsDescription,
+		Annotations: readOnly,
+	}, h.QueryMetrics)
 }

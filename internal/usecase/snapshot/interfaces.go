@@ -1,0 +1,51 @@
+package snapshot
+
+import (
+	"context"
+	"time"
+
+	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	"github.com/mechta-market/pulse/internal/usecase/snapshot/model"
+)
+
+type SnapshotI interface {
+	Snapshot(ctx context.Context, service string, window time.Duration) (*snapshotModel.Snapshot, error)
+	QueryMetrics(ctx context.Context, req *model.QueryMetricsReq) (*model.QueryMetricsResult, error)
+}
+
+// ports
+
+type svcServiceI interface {
+	GetOrSuggest(ctx context.Context, name string) (*svcModel.Main, error)
+}
+
+type workloadServiceI interface {
+	List(ctx context.Context, pars *workloadModel.ListReq) ([]*workloadModel.Main, int64, error)
+}
+
+type k8sClientI interface {
+	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
+	ListEvents(ctx context.Context, namespace string, since time.Time) ([]k8sModel.Event, error)
+}
+
+// PrometheusI и AlertmanagerI экспортированы: источники опциональны, композиционный корень
+// передаёт nil, когда источник не сконфигурирован.
+type PrometheusI interface {
+	Query(ctx context.Context, promql string, at time.Time) ([]prometheusModel.Sample, error)
+	QueryRange(ctx context.Context, promql string, start, end time.Time, step time.Duration) ([]prometheusModel.Series, error)
+}
+
+type AlertmanagerI interface {
+	ListAlerts(ctx context.Context) ([]alertmanagerModel.Alert, error)
+}
+
+type rulesServiceI interface {
+	ComputeHealth(snap *snapshotModel.Snapshot, podsUnavailable bool) string
+	SummaryHints(snap *snapshotModel.Snapshot, now time.Time) []string
+	ApplyBaseline(m *snapshotModel.Metric)
+}

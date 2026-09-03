@@ -14,7 +14,7 @@ import (
 
 const mcpInstructions = `pulse — единая точка доступа к инфраструктурному контексту компании: ` +
 	`каталог сервисов, их состояние в Kubernetes, метрики, логи и изменения. ` +
-	`Все инструменты read-only. Порядок диагностики: resolve_service → get_service_info; ` +
+	`Все инструменты read-only. Порядок диагностики: resolve_service → get_service_snapshot → при необходимости get_service_info / query_metrics; ` +
 	`при ошибках источников — ping. Имена сервисов бери только из resolve_service/list_services.`
 
 // MCPServerCreate собирает MCP-сервер и регистрирует инструменты.

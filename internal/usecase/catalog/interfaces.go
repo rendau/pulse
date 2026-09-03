@@ -19,7 +19,7 @@ type CatalogI interface {
 
 type svcServiceI interface {
 	List(ctx context.Context, pars *svcModel.ListReq) ([]*svcModel.Main, int64, error)
-	Get(ctx context.Context, name string, errNE bool) (*svcModel.Main, bool, error)
+	GetOrSuggest(ctx context.Context, name string) (*svcModel.Main, error)
 	Resolve(ctx context.Context, query string) ([]*svcModel.Candidate, error)
 }
 

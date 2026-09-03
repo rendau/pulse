@@ -12,6 +12,10 @@ cp conf.example.yml conf.yml # правила маппинга образов, �
 go run ./cmd/
 ```
 
+Адреса и токены источников — только через env (см. `.env.example`): `PROMETHEUS_URL`/`_TOKEN`/`_ORG_ID`,
+`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
+Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.
+
 MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTTP, stateless),
 авторизация — `Authorization: Bearer ${MCP_AUTH_TOKEN}`.
 Служебные ручки на `SYSTEM_HTTP_PORT`: `/healthcheck`, `/readiness`, `/metrics`, `/docs/*`.
@@ -24,6 +28,8 @@ MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTT
 | `resolve_service` | человеческая формулировка → кандидаты каталога |
 | `list_services` | обзорный список с фильтрами (team, namespace, criticality, has_metadata) |
 | `get_service_info` | карточка сервиса: метаданные, workloads, живое состояние подов |
+| `get_service_snapshot` | срез состояния: алерты, поды, метрики с базовой линией, события, health |
+| `query_metrics` | временной ряд по `metric_id` сервиса или произвольному PromQL |
 
 ## service.yaml
 

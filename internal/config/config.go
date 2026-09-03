@@ -30,13 +30,23 @@ var Conf = struct {
 	KubeContext string `env:"KUBE_CONTEXT"`
 	ClusterName string `env:"CLUSTER_NAME" envDefault:"default"`
 
-	// github
-	GithubToken string `env:"GITHUB_TOKEN"`
+	// github; RegistryToken — доступ к ghcr.io (по умолчанию тот же GITHUB_TOKEN)
+	GithubToken   string `env:"GITHUB_TOKEN"`
+	RegistryToken string `env:"REGISTRY_TOKEN" envDefault:"${GITHUB_TOKEN}" envExpand:"true"`
 
-	// источники телеметрии: пустой URL — источник выключен
+	// источники телеметрии: пустой URL — источник выключен.
+	// Авторизация: *_TOKEN — bearer; basic-auth — через userinfo в URL (https://user:pass@host);
+	// *_ORG_ID — заголовок X-Scope-OrgID для мультитенантных Loki/Mimir/Cortex.
 	PrometheusUrl   string `env:"PROMETHEUS_URL"`
-	LokiUrl         string `env:"LOKI_URL"`
-	AlertmanagerUrl string `env:"ALERTMANAGER_URL"`
+	PrometheusToken string `env:"PROMETHEUS_TOKEN"`
+	PrometheusOrgId string `env:"PROMETHEUS_ORG_ID"`
+
+	LokiUrl   string `env:"LOKI_URL"`
+	LokiToken string `env:"LOKI_TOKEN"`
+	LokiOrgId string `env:"LOKI_ORG_ID"`
+
+	AlertmanagerUrl   string `env:"ALERTMANAGER_URL"`
+	AlertmanagerToken string `env:"ALERTMANAGER_TOKEN"`
 
 	// индексер топологии
 	IndexerInterval time.Duration `env:"INDEXER_INTERVAL" envDefault:"5m"`

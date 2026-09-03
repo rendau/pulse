@@ -48,3 +48,17 @@ type PodContainer struct {
 	LastTerminationReason string
 	LastTerminatedAt      time.Time
 }
+
+// Event — событие кластера, привязанное к объекту (Pod, ReplicaSet, Deployment…).
+type Event struct {
+	Namespace  string
+	ObjectKind string
+	ObjectName string
+	Reason     string
+	// Type — Normal | Warning
+	Type    string
+	Message string
+	Count   int32
+	FirstTS time.Time
+	LastTS  time.Time
+}

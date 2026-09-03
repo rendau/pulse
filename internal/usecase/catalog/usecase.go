@@ -104,9 +104,9 @@ func (u *Usecase) List(ctx context.Context, pars *model.ListReq) ([]*model.Servi
 }
 
 func (u *Usecase) Info(ctx context.Context, name string) (*model.ServiceInfo, error) {
-	service, err := u.getService(ctx, name)
+	service, err := u.svc.GetOrSuggest(ctx, name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("svc.GetOrSuggest: %w", err)
 	}
 
 	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceName: new(service.Name)})
@@ -145,37 +145,6 @@ func (u *Usecase) Info(ctx context.Context, name string) (*model.ServiceInfo, er
 	}
 
 	return result, nil
-}
-
-// getService ищет сервис по имени; неизвестное имя — ошибка со списком похожих (1.3 ТЗ).
-func (u *Usecase) getService(ctx context.Context, name string) (*svcModel.Main, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("%w: service is required", errs.InvalidRequest)
-	}
-
-	service, found, err := u.svc.Get(ctx, name, false)
-	if err != nil {
-		return nil, fmt.Errorf("svc.Get: %w", err)
-	}
-	if found {
-		return service, nil
-	}
-
-	candidates, err := u.svc.Resolve(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("svc.Resolve: %w", err)
-	}
-
-	desc := fmt.Sprintf("unknown service %q", name)
-	if len(candidates) > 0 {
-		similar := lo.Map(candidates, func(c *svcModel.Candidate, _ int) string { return c.Service.Name })
-		desc += "; similar: " + strings.Join(similar, ", ") + " (use resolve_service to pick one)"
-	} else {
-		desc += "; no similar names in catalog (use list_services)"
-	}
-
-	return nil, errs.ErrFull{Err: errs.ObjectNotFound, Desc: desc}
 }
 
 func (u *Usecase) namespacesByService(ctx context.Context, names []string) (map[string][]string, error) {

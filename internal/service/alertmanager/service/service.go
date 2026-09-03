@@ -19,16 +19,37 @@ const (
 	maxBodyBytes = 8 << 20
 )
 
+// Auth — авторизация к источнику. Token — bearer; OrgId — X-Scope-OrgID (мультитенантность).
+// Basic-auth задаётся через userinfo в URL (https://user:pass@host) и снимается в New.
+type Auth struct {
+	Token string
+	OrgId string
+}
+
 type Service struct {
 	baseUrl    string
+	auth       Auth
+	basicUser  string
+	basicPass  string
 	httpClient *http.Client
 }
 
-func New(baseUrl string) *Service {
-	return &Service{
-		baseUrl:    strings.TrimRight(baseUrl, "/"),
+func New(baseUrl string, auth Auth) *Service {
+	s := &Service{
+		auth:       auth,
 		httpClient: httpx.New(httpx.Config{Timeout: 15 * time.Second}),
 	}
+
+	baseUrl = strings.TrimRight(baseUrl, "/")
+	if u, err := url.Parse(baseUrl); err == nil && u.User != nil {
+		s.basicUser = u.User.Username()
+		s.basicPass, _ = u.User.Password()
+		u.User = nil
+		baseUrl = u.String()
+	}
+	s.baseUrl = baseUrl
+
+	return s
 }
 
 func (s *Service) Ping(ctx context.Context) error {
@@ -36,8 +57,8 @@ func (s *Service) Ping(ctx context.Context) error {
 	return err
 }
 
-// sendRequest — единственная точка отправки запросов: собирает URI, проверяет статус,
-// десериализует тело в repObj (если задан) и возвращает сырое тело.
+// sendRequest — единственная точка отправки запросов: собирает URI, добавляет авторизацию,
+// проверяет статус, десериализует тело в repObj (если задан) и возвращает сырое тело.
 func (s *Service) sendRequest(ctx context.Context, method, path string, query url.Values, repObj any) ([]byte, error) {
 	uri := s.baseUrl + path
 	if len(query) > 0 {
@@ -47,6 +68,16 @@ func (s *Service) sendRequest(ctx context.Context, method, path string, query ur
 	req, err := http.NewRequestWithContext(ctx, method, uri, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
+	}
+
+	switch {
+	case s.auth.Token != "":
+		req.Header.Set("Authorization", "Bearer "+s.auth.Token)
+	case s.basicUser != "":
+		req.SetBasicAuth(s.basicUser, s.basicPass)
+	}
+	if s.auth.OrgId != "" {
+		req.Header.Set("X-Scope-OrgID", s.auth.OrgId)
 	}
 
 	resp, err := s.httpClient.Do(req)

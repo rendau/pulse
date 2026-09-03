@@ -35,15 +35,20 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
     /healthcheck, /readiness, /docs/*, /metrics.
   - `migration.go` — запуск миграций из `migrations/`.
-- `internal/config/` — `config.go` (env) и `rules.go` (yaml-правила: `image_mapping`,
-  `indexer.exclude_namespaces`, `stale_after`).
+- `internal/config/` — `config.go` (env: адреса, токены, порты — **все адреса и токены источников
+  только через env**) и `rules.go` (yaml-правила: `image_mapping`, `indexer.*`, `snapshot.*`,
+  `metrics.*`).
 - `internal/handler/` — транспортный слой.
   - `mcp/` — MCP-инструменты (`handler.go` — регистрация и описания, по файлу на группу).
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение).
-- `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов).
+- `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
+  `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics).
 - `internal/domain/` — доменная модель, сервисы и репозитории.
+  - `svc`, `workload` — каталог (Postgres); `snapshot` — детерминированные правила снапшота
+    (health, summary_hints, базовая линия) без обращения к источникам; `event` — нормализованное
+    событие (ТЗ 1.2).
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
@@ -93,6 +98,14 @@ domain service → repo
 ```
 - Обратные зависимости **запрещены**.
 - К `repo` слою доступ только из `domain service`.
+
+### Источники и авторизация
+- Опциональные источники (`PROMETHEUS_URL`, `LOKI_URL`, `ALERTMANAGER_URL`) — nil-указатель при пустом URL;
+  в usecase передаётся nil-интерфейс (не nil-указатель в интерфейсе), ответ содержит `errors` с
+  `not configured`.
+- Авторизация клиента: `*_TOKEN` (bearer), userinfo в URL (basic), `*_ORG_ID` (X-Scope-OrgID) —
+  всё в `Auth` конструктора `New(baseUrl, Auth)`; заголовки ставит только `sendRequest`.
+- Параметр `window` разбирается `internal/util/window` (дефолт 1h, максимум 7d, понимает `7d`).
 
 ### Хранилища
 - Postgres: только топология и метаданные (`service`, `workload`). Значений метрик, логов и

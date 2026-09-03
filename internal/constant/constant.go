@@ -52,3 +52,29 @@ const (
 	MatchedByFuzzy       = "fuzzy"
 	MatchedByDescription = "description"
 )
+
+// типы нормализованных событий (Event.Type)
+const (
+	EventTypeDeploy       = "deploy"
+	EventTypeRestart      = "restart"
+	EventTypeOOMKill      = "oom_kill"
+	EventTypeAlertFiring  = "alert_firing"
+	EventTypeConfigChange = "config_change"
+	EventTypeCommit       = "commit"
+	EventTypeScale        = "scale"
+	EventTypeWarning      = "warning"
+	EventTypeInfo         = "info"
+)
+
+// severity событий
+const (
+	SeverityInfo     = "info"
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// направление метрики
+const (
+	MetricDirectionHigherIsBetter = "higher_is_better"
+	MetricDirectionLowerIsBetter  = "lower_is_better"
+)

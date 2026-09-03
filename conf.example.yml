@@ -14,3 +14,25 @@ indexer:
 image_mapping:
   - registry: ghcr.io
     repo_template: "https://github.com/{path}"
+
+snapshot:
+  # общий дедлайн параллельного сбора из источников
+  deadline: 5s
+  # отклонение от вчера (в %), после которого метрика помечается anomaly
+  anomaly_threshold_pct: 30
+  max_events: 50
+  max_alerts: 50
+  # golden signals, когда в service.yaml нет metrics. Плейсхолдеры: {namespace}, {pod_regex}, {service}.
+  # Раскомментируй и поправь под имена метрик кластера; без секции берётся встроенный набор
+  # (rps, error_rate_5xx, latency_p95, cpu_cores, memory_bytes, restarts_1h).
+  # default_metrics:
+  #   - id: rps
+  #     title: Запросов в секунду
+  #     promql: 'sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))'
+  #     unit: rps
+
+metrics:
+  # ограничения произвольного PromQL в query_metrics
+  max_window: 168h
+  max_series: 20
+  max_points: 200
