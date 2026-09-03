@@ -73,6 +73,12 @@ const (
 	SeverityCritical = "critical"
 )
 
+// причины проблемных состояний подов, вычисляемые сервисом (остальные приходят из kubernetes)
+const (
+	// PodProblemRestarting — контейнер работает, но перезапускался внутри окна
+	PodProblemRestarting = "Restarting"
+)
+
 // направление метрики
 const (
 	MetricDirectionHigherIsBetter = "higher_is_better"

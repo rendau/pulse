@@ -66,9 +66,11 @@ endpoints:
   default_port: 80
 
 cluster:
-  # get_cluster_health: дедлайн сбора, порог pending-подов для деградации, усечение списков
+  # get_cluster_health: дедлайн сбора, пороги деградации (pending-поды, поды в проблемных
+  # состояниях: CrashLoopBackOff, ImagePullBackOff, OOMKilled, Restarting), усечение списков
   deadline: 8s
   pending_pods_threshold: 5
+  problem_pods_threshold: 3
   max_problem_pods: 50
   max_event_reasons: 15
   max_infra_alerts: 30

@@ -18,6 +18,9 @@ import (
 type Config struct {
 	// PendingPodsThreshold — с этого числа pending-подов кластер считается деградировавшим
 	PendingPodsThreshold int
+	// ProblemPodsThreshold — с этого числа подов в проблемных состояниях (CrashLoopBackOff,
+	// ImagePullBackOff, OOMKilled, Restarting…) кластер считается деградировавшим
+	ProblemPodsThreshold int
 	// NotReadyDownRatio — доля неготовых нод, с которой кластер считается упавшим
 	NotReadyDownRatio float64
 }
@@ -30,6 +33,9 @@ func New(conf Config) *Service {
 	if conf.PendingPodsThreshold <= 0 {
 		conf.PendingPodsThreshold = 5
 	}
+	if conf.ProblemPodsThreshold <= 0 {
+		conf.ProblemPodsThreshold = 3
+	}
 	if conf.NotReadyDownRatio <= 0 {
 		conf.NotReadyDownRatio = 0.5
 	}
@@ -37,7 +43,8 @@ func New(conf Config) *Service {
 }
 
 // ComputeHealth: нет данных о нодах → unknown; неготовых нод ≥ порога или ни одной готовой → down;
-// неготовая нода, давление, много pending-подов, critical инфра-алерт или аномалия метрики → degraded.
+// неготовая нода, давление, много pending-подов, много подов в проблемных состояниях,
+// critical инфра-алерт или аномалия метрики → degraded.
 func (s *Service) ComputeHealth(h *model.Health, nodesUnavailable bool) string {
 	if nodesUnavailable || h.Nodes.Total == 0 {
 		return snapshotModel.HealthUnknown
@@ -48,7 +55,9 @@ func (s *Service) ComputeHealth(h *model.Health, nodesUnavailable bool) string {
 		return snapshotModel.HealthDown
 	}
 
-	if len(h.Nodes.Problems) > 0 || h.Pods.Pending >= s.conf.PendingPodsThreshold {
+	if len(h.Nodes.Problems) > 0 ||
+		h.Pods.Pending >= s.conf.PendingPodsThreshold ||
+		h.Pods.ProblemsTotal >= s.conf.ProblemPodsThreshold {
 		return snapshotModel.HealthDegraded
 	}
 	for _, a := range h.InfraAlerts {

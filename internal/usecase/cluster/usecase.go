@@ -181,12 +181,17 @@ func (c *collector) pods(ctx context.Context) {
 			add("Failed", "", pod.StartedAt)
 		}
 		for _, ct := range pod.Containers {
-			if ct.State != "running" && ct.Reason != "" && ct.Reason != "Completed" && ct.Reason != "ContainerCreating" {
+			switch {
+			case ct.State != "running" && ct.Reason != "" && ct.Reason != "Completed" && ct.Reason != "ContainerCreating":
 				add(ct.Reason, ct.Name, ct.LastTerminatedAt)
-				continue
-			}
-			if ct.LastTerminationReason == "OOMKilled" && !ct.LastTerminatedAt.Before(since) {
+			case ct.LastTerminationReason == "OOMKilled" && !ct.LastTerminatedAt.Before(since):
 				add("OOMKilled", ct.Name, ct.LastTerminatedAt)
+			// контейнер уже поднялся, но перезапускался внутри окна: флапающий под виден,
+			// даже если опрос не попал в момент back-off (счётчик рестартов — за всю жизнь пода,
+			// поэтому фильтр только по времени последнего завершения)
+			case ct.Restarts > 0 && !ct.LastTerminatedAt.IsZero() && !ct.LastTerminatedAt.Before(since) &&
+				ct.LastTerminationReason != "Completed":
+				add(constant.PodProblemRestarting, fmt.Sprintf("%s: рестартов всего %d", ct.Name, ct.Restarts), ct.LastTerminatedAt)
 			}
 		}
 	}

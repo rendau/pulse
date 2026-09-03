@@ -3,6 +3,8 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,4 +141,57 @@ func TestHealth_DownAndUnknown(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, snapshotModel.HealthUnknown, h.Health)
 	assert.Contains(t, lo.Map(h.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source }), constant.SourceK8s)
+}
+
+// TestHealth_RestartingPods: контейнер уже поднялся, но перезапускался внутри окна — под
+// проблемный (иначе флапающий под виден, только если опрос попал в момент back-off).
+func TestHealth_RestartingPods(t *testing.T) {
+	now := time.Now()
+	k8s := &fakeK8s{
+		nodes: []k8sModel.Node{{Name: "n1", Ready: true, CPUMillis: 4000, MemoryBytes: 8 << 30}},
+		pods: []k8sModel.Pod{
+			{Namespace: "prod", Name: "payments-api-1", Phase: "Running", Ready: true, Containers: []k8sModel.PodContainer{
+				{Name: "app", State: "running", Restarts: 27, LastTerminationReason: "Error", LastTerminatedAt: now.Add(-10 * time.Minute)},
+			}},
+			{Namespace: "prod", Name: "payments-api-2", Phase: "Running", Ready: true, Containers: []k8sModel.PodContainer{
+				{Name: "app", State: "running", Restarts: 68, LastTerminationReason: "Error", LastTerminatedAt: now.Add(-5 * time.Hour)},
+			}},
+			{Namespace: "batch", Name: "job-1", Phase: "Running", Ready: true, Containers: []k8sModel.PodContainer{
+				{Name: "app", State: "running", Restarts: 3, LastTerminationReason: "Completed", LastTerminatedAt: now.Add(-time.Minute)},
+			}},
+			{Namespace: "prod", Name: "no-restarts-1", Phase: "Running", Ready: true, Containers: []k8sModel.PodContainer{
+				{Name: "app", State: "running"},
+			}},
+		},
+	}
+
+	h, err := newUsecase(k8s, nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+
+	require.Len(t, h.Pods.Problems, 1, "рестарт вне окна и штатное завершение проблемой не считаются")
+	assert.Equal(t, constant.PodProblemRestarting, h.Pods.Problems[0].Reason)
+	assert.Equal(t, "payments-api-1", h.Pods.Problems[0].Pod)
+	assert.Contains(t, h.Pods.Problems[0].Message, "27")
+	assert.Equal(t, snapshotModel.HealthHealthy, h.Health, "один проблемный под ниже порога деградации")
+}
+
+// TestHealth_ProblemPodsThreshold: с порога проблемных подов кластер деградировал.
+func TestHealth_ProblemPodsThreshold(t *testing.T) {
+	pods := lo.Map(lo.Range(3), func(i int, _ int) k8sModel.Pod {
+		return k8sModel.Pod{
+			Namespace: "prod", Name: fmt.Sprintf("payments-api-%d", i), Phase: "Running",
+			Containers: []k8sModel.PodContainer{{Name: "app", State: "waiting", Reason: "ImagePullBackOff"}},
+		}
+	})
+	k8s := &fakeK8s{
+		nodes: []k8sModel.Node{{Name: "n1", Ready: true, CPUMillis: 4000, MemoryBytes: 8 << 30}},
+		pods:  pods,
+	}
+
+	h, err := newUsecase(k8s, nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, h.Pods.ProblemsTotal)
+	assert.Equal(t, snapshotModel.HealthDegraded, h.Health)
+	assert.Contains(t, strings.Join(h.SummaryHints, "\n"), "ImagePullBackOff")
 }

@@ -74,6 +74,7 @@ type Rules struct {
 	Cluster struct {
 		Deadline             time.Duration `yaml:"deadline"`
 		PendingPodsThreshold int           `yaml:"pending_pods_threshold"`
+		ProblemPodsThreshold int           `yaml:"problem_pods_threshold"`
 		MaxProblemPods       int           `yaml:"max_problem_pods"`
 		MaxEventReasons      int           `yaml:"max_event_reasons"`
 		MaxInfraAlerts       int           `yaml:"max_infra_alerts"`
@@ -207,6 +208,9 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Cluster.PendingPodsThreshold <= 0 {
 		r.Cluster.PendingPodsThreshold = 5
+	}
+	if r.Cluster.ProblemPodsThreshold <= 0 {
+		r.Cluster.ProblemPodsThreshold = 3
 	}
 	if r.Cluster.MaxProblemPods <= 0 {
 		r.Cluster.MaxProblemPods = 50

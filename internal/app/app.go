@@ -313,7 +313,10 @@ func (a *App) Init() {
 				}),
 			},
 			workloadService, k8sService, prometheusClient, alertmanagerClient,
-			domainClusterServiceP.New(domainClusterServiceP.Config{PendingPodsThreshold: rules.Cluster.PendingPodsThreshold}),
+			domainClusterServiceP.New(domainClusterServiceP.Config{
+				PendingPodsThreshold: rules.Cluster.PendingPodsThreshold,
+				ProblemPodsThreshold: rules.Cluster.ProblemPodsThreshold,
+			}),
 			domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
 		)
 	}
