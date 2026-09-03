@@ -17,6 +17,7 @@ import (
 
 	"github.com/mechta-market/pulse/internal/config"
 	"github.com/mechta-market/pulse/internal/constant"
+	domainClusterServiceP "github.com/mechta-market/pulse/internal/domain/cluster/service"
 	domainDependencyRepoDbP "github.com/mechta-market/pulse/internal/domain/dependency/repo/db"
 	domainDependencyServiceP "github.com/mechta-market/pulse/internal/domain/dependency/service"
 	domainDeployRepoDbP "github.com/mechta-market/pulse/internal/domain/deploy/repo/db"
@@ -42,6 +43,7 @@ import (
 	serviceSvcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	serviceSvcproxyServiceP "github.com/mechta-market/pulse/internal/service/svcproxy/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
+	usecaseClusterP "github.com/mechta-market/pulse/internal/usecase/cluster"
 	usecaseDependenciesP "github.com/mechta-market/pulse/internal/usecase/dependencies"
 	usecaseEndpointsP "github.com/mechta-market/pulse/internal/usecase/endpoints"
 	usecaseLogsP "github.com/mechta-market/pulse/internal/usecase/logs"
@@ -288,9 +290,37 @@ func (a *App) Init() {
 		)
 	}
 
+	// cluster (здоровье кластера)
+	var clusterUsecase *usecaseClusterP.Usecase
+	{
+		var prometheusClient usecaseClusterP.PrometheusI
+		if prometheusService != nil {
+			prometheusClient = prometheusService
+		}
+		var alertmanagerClient usecaseClusterP.AlertmanagerI
+		if alertmanagerService != nil {
+			alertmanagerClient = alertmanagerService
+		}
+
+		clusterUsecase = usecaseClusterP.New(
+			usecaseClusterP.Config{
+				Deadline:        rules.Cluster.Deadline,
+				MaxProblemPods:  rules.Cluster.MaxProblemPods,
+				MaxEventReasons: rules.Cluster.MaxEventReasons,
+				MaxInfraAlerts:  rules.Cluster.MaxInfraAlerts,
+				Metrics: lo.Map(rules.Cluster.Metrics, func(m config.MetricDef, _ int) domainSnapshotModel.MetricDef {
+					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
+				}),
+			},
+			workloadService, k8sService, prometheusClient, alertmanagerClient,
+			domainClusterServiceP.New(domainClusterServiceP.Config{PendingPodsThreshold: rules.Cluster.PendingPodsThreshold}),
+			domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
+		)
+	}
+
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, endpointsUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, endpointsUsecase, clusterUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}

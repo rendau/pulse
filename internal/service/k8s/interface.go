@@ -18,6 +18,8 @@ type Client interface {
 	ListConfigMaps(ctx context.Context, namespace string) ([]k8sModel.ConfigMap, error)
 	// ListServices возвращает k8s Services (пусто — все namespace'ы).
 	ListServices(ctx context.Context, namespace string) ([]k8sModel.Service, error)
+	// ListNodes возвращает ноды кластера с условиями готовности и давления.
+	ListNodes(ctx context.Context) ([]k8sModel.Node, error)
 	// ProxyGet выполняет GET к k8s Service через API-сервер (services/proxy). Для локальной
 	// разработки, когда ClusterIP недоступен напрямую.
 	ProxyGet(ctx context.Context, namespace, service string, port int, path string, query map[string]string) ([]byte, error)

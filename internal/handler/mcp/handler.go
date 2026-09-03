@@ -6,6 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mechta-market/pulse/internal/usecase/catalog"
+	"github.com/mechta-market/pulse/internal/usecase/cluster"
 	"github.com/mechta-market/pulse/internal/usecase/dependencies"
 	"github.com/mechta-market/pulse/internal/usecase/endpoints"
 	"github.com/mechta-market/pulse/internal/usecase/logs"
@@ -22,6 +23,7 @@ type Handler struct {
 	timeline     timeline.TimelineI
 	dependencies dependencies.DependenciesI
 	endpoints    endpoints.EndpointsI
+	cluster      cluster.ClusterI
 }
 
 func New(
@@ -32,10 +34,11 @@ func New(
 	timeline timeline.TimelineI,
 	dependencies dependencies.DependenciesI,
 	endpoints endpoints.EndpointsI,
+	cluster cluster.ClusterI,
 ) *Handler {
 	return &Handler{
 		system: system, catalog: catalog, snapshot: snapshot, logs: logs,
-		timeline: timeline, dependencies: dependencies, endpoints: endpoints,
+		timeline: timeline, dependencies: dependencies, endpoints: endpoints, cluster: cluster,
 	}
 }
 
@@ -109,4 +112,10 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: callServiceEndpointDescription,
 		Annotations: readOnly,
 	}, h.CallServiceEndpoint)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_cluster_health",
+		Description: getClusterHealthDescription,
+		Annotations: readOnly,
+	}, h.GetClusterHealth)
 }

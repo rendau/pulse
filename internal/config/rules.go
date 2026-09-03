@@ -71,6 +71,16 @@ type Rules struct {
 		DefaultPort int `yaml:"default_port"`
 	} `yaml:"endpoints"`
 
+	Cluster struct {
+		Deadline             time.Duration `yaml:"deadline"`
+		PendingPodsThreshold int           `yaml:"pending_pods_threshold"`
+		MaxProblemPods       int           `yaml:"max_problem_pods"`
+		MaxEventReasons      int           `yaml:"max_event_reasons"`
+		MaxInfraAlerts       int           `yaml:"max_infra_alerts"`
+		// Metrics — метрики кластера с базовой линией (node-exporter / kube-state-metrics)
+		Metrics []MetricDef `yaml:"metrics"`
+	} `yaml:"cluster"`
+
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
 		MaxWindow time.Duration `yaml:"max_window"`
@@ -192,6 +202,24 @@ func (r *Rules) applyDefaults() {
 	if r.Endpoints.DefaultPort <= 0 {
 		r.Endpoints.DefaultPort = 80
 	}
+	if r.Cluster.Deadline <= 0 {
+		r.Cluster.Deadline = 8 * time.Second
+	}
+	if r.Cluster.PendingPodsThreshold <= 0 {
+		r.Cluster.PendingPodsThreshold = 5
+	}
+	if r.Cluster.MaxProblemPods <= 0 {
+		r.Cluster.MaxProblemPods = 50
+	}
+	if r.Cluster.MaxEventReasons <= 0 {
+		r.Cluster.MaxEventReasons = 15
+	}
+	if r.Cluster.MaxInfraAlerts <= 0 {
+		r.Cluster.MaxInfraAlerts = 30
+	}
+	if len(r.Cluster.Metrics) == 0 {
+		r.Cluster.Metrics = defaultClusterMetrics()
+	}
 	if r.Metrics.MaxWindow <= 0 {
 		r.Metrics.MaxWindow = 7 * 24 * time.Hour
 	}
@@ -230,5 +258,19 @@ func defaultMetrics() []MetricDef {
 			PromQL: `sum(container_memory_working_set_bytes{namespace="{namespace}", pod=~"{pod_regex}", container!=""})`},
 		{Id: "restarts_1h", Title: "Рестарты контейнеров за час", Unit: "count", Direction: "lower_is_better",
 			PromQL: `sum(increase(kube_pod_container_status_restarts_total{namespace="{namespace}", pod=~"{pod_regex}"}[1h]))`},
+	}
+}
+
+// defaultClusterMetrics — загрузка кластера по node-exporter и kube-state-metrics.
+func defaultClusterMetrics() []MetricDef {
+	return []MetricDef{
+		{Id: "cluster_cpu_usage_ratio", Title: "Загрузка CPU кластера", Unit: "ratio", Direction: "lower_is_better",
+			PromQL: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`},
+		{Id: "cluster_memory_usage_ratio", Title: "Использование памяти кластера", Unit: "ratio", Direction: "lower_is_better",
+			PromQL: `1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)`},
+		{Id: "pods_not_ready", Title: "Подов не ready", Unit: "count", Direction: "lower_is_better",
+			PromQL: `sum(kube_pod_status_ready{condition="false"})`},
+		{Id: "container_restarts_1h", Title: "Рестарты контейнеров за час", Unit: "count", Direction: "lower_is_better",
+			PromQL: `sum(increase(kube_pod_container_status_restarts_total[1h]))`},
 	}
 }

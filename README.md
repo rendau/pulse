@@ -35,6 +35,7 @@ MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTT
 | `get_changes` | коммиты, что не в проде, история деплоев, диффы конфигурации (секреты маскированы) |
 | `get_dependencies` | граф сконфигурированных связей (env/configmap) с кратким здоровьем соседей |
 | `call_service_endpoint` | вызов диагностической ручки из `service.yaml` (только объявленный id, только GET, PII маскированы) |
+| `get_cluster_health` | ноды, проблемные и pending-поды, Warning-события, инфра-алерты, загрузка кластера |
 
 Диагностические ручки (`endpoints` в `service.yaml`) вызываются на ClusterIP сервиса по DNS
 `<k8s_service>.<namespace>.svc:<port>`; для локальной разработки `ENDPOINT_CALL_MODE=k8s-proxy`

@@ -1,0 +1,142 @@
+package cluster
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mechta-market/pulse/internal/constant"
+	clusterService "github.com/mechta-market/pulse/internal/domain/cluster/service"
+	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
+	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+)
+
+type fakeWorkload struct{}
+
+func (fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloadModel.Main, int64, error) {
+	return []*workloadModel.Main{{Namespace: "prod", Name: "payments-api", ServiceName: "payments-api"}}, 1, nil
+}
+
+type fakeK8s struct {
+	nodes    []k8sModel.Node
+	pods     []k8sModel.Pod
+	events   []k8sModel.Event
+	nodesErr error
+}
+
+func (f *fakeK8s) ListNodes(context.Context) ([]k8sModel.Node, error) { return f.nodes, f.nodesErr }
+func (f *fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, error) {
+	return f.pods, nil
+}
+func (f *fakeK8s) ListEvents(context.Context, string, time.Time) ([]k8sModel.Event, error) {
+	return f.events, nil
+}
+
+type fakeProm struct{}
+
+func (fakeProm) Query(_ context.Context, promql string, at time.Time) ([]prometheusModel.Sample, error) {
+	v := 0.9
+	if time.Since(at) > 23*time.Hour {
+		v = 0.5
+	}
+	if promql != `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))` {
+		v = 1
+	}
+	return []prometheusModel.Sample{{Value: v}}, nil
+}
+
+type fakeAM struct{ alerts []alertmanagerModel.Alert }
+
+func (f fakeAM) ListAlerts(context.Context) ([]alertmanagerModel.Alert, error) { return f.alerts, nil }
+
+func newUsecase(k8s *fakeK8s, am AlertmanagerI, prom PrometheusI) *Usecase {
+	return New(Config{Deadline: 2 * time.Second, Metrics: []snapshotModel.MetricDef{
+		{Id: "cluster_cpu_usage_ratio", PromQL: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`, Direction: "lower_is_better"},
+	}}, fakeWorkload{}, k8s, prom, am,
+		clusterService.New(clusterService.Config{PendingPodsThreshold: 2}),
+		snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
+}
+
+func TestHealth_Degraded(t *testing.T) {
+	now := time.Now()
+	k8s := &fakeK8s{
+		nodes: []k8sModel.Node{
+			{Name: "n1", Ready: true, CPUMillis: 4000, MemoryBytes: 8 << 30},
+			{Name: "n2", Ready: true, Pressures: []string{"MemoryPressure"}, CPUMillis: 4000, MemoryBytes: 8 << 30},
+			{Name: "n3", Ready: false, CPUMillis: 4000, MemoryBytes: 8 << 30},
+		},
+		pods: []k8sModel.Pod{
+			{Namespace: "prod", Name: "payments-api-1", Phase: "Running", Ready: true},
+			{Namespace: "prod", Name: "payments-api-2", Phase: "Running", Containers: []k8sModel.PodContainer{{Name: "app", State: "waiting", Reason: "CrashLoopBackOff"}}},
+			{Namespace: "prod", Name: "other-1", Phase: "Pending", StartedAt: now.Add(-10 * time.Minute)},
+			{Namespace: "prod", Name: "fresh-1", Phase: "Pending", StartedAt: now.Add(-10 * time.Second)},
+			{Namespace: "batch", Name: "job-1", Phase: "Succeeded"},
+		},
+		events: []k8sModel.Event{
+			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "other-1", Reason: "FailedScheduling", Type: "Warning", Message: "0/3 nodes are available", Count: 12, LastTS: now},
+			{Namespace: "dev", ObjectKind: "Pod", ObjectName: "x", Reason: "FailedScheduling", Type: "Warning", Count: 3, LastTS: now.Add(-time.Minute)},
+			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "y", Reason: "Pulled", Type: "Normal", LastTS: now},
+		},
+	}
+	am := fakeAM{alerts: []alertmanagerModel.Alert{
+		{Labels: map[string]string{"alertname": "NodeDiskFull", "severity": "critical", "instance": "n2"}, State: "active", StartsAt: now},
+		{Labels: map[string]string{"alertname": "HighErrorRate", "severity": "critical", "service": "payments-api"}, State: "active", StartsAt: now},
+		{Labels: map[string]string{"alertname": "Silenced"}, State: "suppressed"},
+	}}
+
+	h, err := newUsecase(k8s, am, fakeProm{}).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+
+	assert.Equal(t, snapshotModel.HealthDegraded, h.Health)
+	assert.Empty(t, h.Errors)
+
+	assert.Equal(t, 3, h.Nodes.Total)
+	assert.Equal(t, 2, h.Nodes.Ready)
+	assert.Len(t, h.Nodes.Problems, 2)
+	assert.Equal(t, int64(12000), h.Nodes.CPUMillis)
+
+	assert.Equal(t, 5, h.Pods.Total)
+	assert.Equal(t, 2, h.Pods.Pending)
+	reasons := lo.Map(h.Pods.Problems, func(p clusterPodProblem, _ int) string { return p.Reason })
+	assert.ElementsMatch(t, []string{"CrashLoopBackOff", "Pending"}, reasons, "свежий pending в grace-период не проблема")
+	crash, _ := lo.Find(h.Pods.Problems, func(p clusterPodProblem) bool { return p.Reason == "CrashLoopBackOff" })
+	assert.Equal(t, "payments-api", crash.Service)
+
+	require.Len(t, h.EventReasons, 1)
+	assert.Equal(t, "FailedScheduling", h.EventReasons[0].Reason)
+	assert.Equal(t, 15, h.EventReasons[0].Count)
+	assert.Equal(t, 2, h.EventReasons[0].Namespaces)
+
+	require.Len(t, h.InfraAlerts, 1, "алерт сервиса и подавленный не попадают в инфра")
+	assert.Equal(t, "NodeDiskFull", h.InfraAlerts[0].Name)
+	assert.Equal(t, 1, h.ServiceAlertsActive)
+
+	require.Len(t, h.Metrics, 1)
+	assert.True(t, h.Metrics[0].Anomaly, "CPU вырос на 80% относительно вчера")
+
+	assert.NotEmpty(t, h.SummaryHints)
+	t.Logf("hints: %v", h.SummaryHints)
+}
+
+func TestHealth_DownAndUnknown(t *testing.T) {
+	k8s := &fakeK8s{nodes: []k8sModel.Node{{Name: "n1", Ready: false}, {Name: "n2", Ready: false}, {Name: "n3", Ready: true}}}
+	h, err := newUsecase(k8s, nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, snapshotModel.HealthDown, h.Health, "2 из 3 нод не готовы")
+	sources := lo.Map(h.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source })
+	assert.ElementsMatch(t, []string{constant.SourceAlertmanager, constant.SourcePrometheus}, sources)
+
+	h, err = newUsecase(&fakeK8s{nodesErr: errors.New("forbidden")}, nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, snapshotModel.HealthUnknown, h.Health)
+	assert.Contains(t, lo.Map(h.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source }), constant.SourceK8s)
+}

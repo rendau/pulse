@@ -97,3 +97,17 @@ type Event struct {
 	FirstTS time.Time
 	LastTS  time.Time
 }
+
+// Node — нода кластера.
+type Node struct {
+	Name          string
+	Ready         bool
+	Unschedulable bool
+	// Pressures — активные условия давления: MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable
+	Pressures      []string
+	KubeletVersion string
+	Roles          []string
+	CPUMillis      int64 // allocatable
+	MemoryBytes    int64 // allocatable
+	CreatedAt      time.Time
+}

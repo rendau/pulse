@@ -65,6 +65,23 @@ endpoints:
   # порт ручки, если в декларации не задан (HTTP-порт сервиса в кластере)
   default_port: 80
 
+cluster:
+  # get_cluster_health: дедлайн сбора, порог pending-подов для деградации, усечение списков
+  deadline: 8s
+  pending_pods_threshold: 5
+  max_problem_pods: 50
+  max_event_reasons: 15
+  max_infra_alerts: 30
+  # метрики кластера с базовой линией; без секции — встроенный набор по node-exporter и
+  # kube-state-metrics (cluster_cpu_usage_ratio, cluster_memory_usage_ratio, pods_not_ready,
+  # container_restarts_1h)
+  # metrics:
+  #   - id: cluster_cpu_usage_ratio
+  #     title: Загрузка CPU кластера
+  #     promql: '1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))'
+  #     unit: ratio
+  #     direction: lower_is_better
+
 metrics:
   # ограничения произвольного PromQL в query_metrics
   max_window: 168h

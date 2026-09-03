@@ -49,7 +49,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
   (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам),
   `endpoints` (call_service_endpoint: allowlist по id, только GET, валидация параметров,
-  PII через redact, лимиты строк/байт/таймаута). Исключение из правила
+  PII через redact, лимиты строк/байт/таймаута), `cluster` (get_cluster_health: ноды, поды
+  по кластеру, Warning-события по причинам, инфра-алерты = не привязанные к каталогу,
+  метрики кластера с базовой линией). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
   селектор + выборку + агрегацию.
@@ -60,7 +62,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
     `logs` — нормализация строк и агрегация в паттерны (чистые функции); `deploy` — история
     деплоев (Postgres), пишется индексером при смене образа/digest; `dependency` — сконфигурированные
     связи «сервис → хост» (Postgres) и разбор адресов из значений конфигурации (`ParseEndpoints`,
-    `ClusterHost`).
+    `ClusterHost`); `cluster` — правила здоровья кластера и подсказки (фаза 7.1).
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
@@ -82,7 +84,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Не обращается напрямую к репозиториям и сервисам.
   - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
   - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
-  `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`).
+  `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 12
+  инструментов; 13-й зарезервирован под `get_public_api` (ruto).
+- RBAC индексера и инструментов: get/list на nodes, deployments, statefulsets, daemonsets, cronjobs,
+  pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy.
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).
   - Валидация входных параметров.
