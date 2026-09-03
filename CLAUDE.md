@@ -46,7 +46,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `window` (разбор окна), `redact` (маскирование конфигурации/секретов/PII, ТЗ 4.2 — с тестами).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
   `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
-  `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes). Исключение из правила
+  `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
+  (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
   селектор + выборку + агрегацию.
@@ -55,7 +56,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
     (health, summary_hints, базовая линия) без обращения к источникам; `event` — нормализованное
     событие (ТЗ 1.2) и его нормализация из фактов кластера/деплоев (`event/service`);
     `logs` — нормализация строк и агрегация в паттерны (чистые функции); `deploy` — история
-    деплоев (Postgres), пишется индексером при смене образа/digest.
+    деплоев (Postgres), пишется индексером при смене образа/digest; `dependency` — сконфигурированные
+    связи «сервис → хост» (Postgres) и разбор адресов из значений конфигурации (`ParseEndpoints`,
+    `ClusterHost`).
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
@@ -156,6 +159,11 @@ domain service → repo
   конфигурации перед выдачей проходит `redact.Value(key, value)` (deny-список имени → allowlist
   значения → маска), значения secret — только `redact.Secret()`.
 - История алертов: Alertmanager её не хранит, берётся из Prometheus (`ALERTS{alertstate="firing"}`).
+- Граф зависимостей (фаза 5) строится индексером из env подов: inline-значения и ссылки на configmap
+  (в helm-zeon env рендерится inline). Переменные из secret дают только факт ссылки, значение не
+  читается. Хост → сервис: k8s Service (селектор) → workload, иначе имя workload'а в namespace.
+  Источник kusec добавляется к тому же графу после получения проекта. RBAC индексера:
+  get/list на deployments, statefulsets, daemonsets, cronjobs, pods, events, configmaps, services.
 - В тестах всегда предпочитай `testify`: `require` для проверок, прерывающих тест,
   и `assert` для остальных утверждений.
 - При реализации worker pool / параллельной обработки используй `errgroup`

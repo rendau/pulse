@@ -57,6 +57,11 @@ type Rules struct {
 		MaxServicesForCommits int `yaml:"max_services_for_commits"`
 	} `yaml:"timeline"`
 
+	Dependencies struct {
+		MaxNodes int `yaml:"max_nodes"`
+		MaxDepth int `yaml:"max_depth"`
+	} `yaml:"dependencies"`
+
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
 		MaxWindow time.Duration `yaml:"max_window"`
@@ -159,6 +164,12 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Timeline.MaxServicesForCommits <= 0 {
 		r.Timeline.MaxServicesForCommits = 10
+	}
+	if r.Dependencies.MaxNodes <= 0 {
+		r.Dependencies.MaxNodes = 50
+	}
+	if r.Dependencies.MaxDepth <= 0 {
+		r.Dependencies.MaxDepth = 3
 	}
 	if r.Metrics.MaxWindow <= 0 {
 		r.Metrics.MaxWindow = 7 * 24 * time.Hour

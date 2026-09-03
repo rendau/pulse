@@ -6,6 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mechta-market/pulse/internal/usecase/catalog"
+	"github.com/mechta-market/pulse/internal/usecase/dependencies"
 	"github.com/mechta-market/pulse/internal/usecase/logs"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot"
 	"github.com/mechta-market/pulse/internal/usecase/system"
@@ -13,15 +14,16 @@ import (
 )
 
 type Handler struct {
-	system   system.SystemI
-	catalog  catalog.CatalogI
-	snapshot snapshot.SnapshotI
-	logs     logs.LogsI
-	timeline timeline.TimelineI
+	system       system.SystemI
+	catalog      catalog.CatalogI
+	snapshot     snapshot.SnapshotI
+	logs         logs.LogsI
+	timeline     timeline.TimelineI
+	dependencies dependencies.DependenciesI
 }
 
-func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI, logs logs.LogsI, timeline timeline.TimelineI) *Handler {
-	return &Handler{system: system, catalog: catalog, snapshot: snapshot, logs: logs, timeline: timeline}
+func New(system system.SystemI, catalog catalog.CatalogI, snapshot snapshot.SnapshotI, logs logs.LogsI, timeline timeline.TimelineI, dependencies dependencies.DependenciesI) *Handler {
+	return &Handler{system: system, catalog: catalog, snapshot: snapshot, logs: logs, timeline: timeline, dependencies: dependencies}
 }
 
 // Register добавляет все инструменты на сервер. Описания инструментов — часть продукта:
@@ -82,4 +84,10 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: getChangesDescription,
 		Annotations: readOnly,
 	}, h.GetChanges)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_dependencies",
+		Description: getDependenciesDescription,
+		Annotations: readOnly,
+	}, h.GetDependencies)
 }

@@ -17,6 +17,8 @@ import (
 
 	"github.com/mechta-market/pulse/internal/config"
 	"github.com/mechta-market/pulse/internal/constant"
+	domainDependencyRepoDbP "github.com/mechta-market/pulse/internal/domain/dependency/repo/db"
+	domainDependencyServiceP "github.com/mechta-market/pulse/internal/domain/dependency/service"
 	domainDeployRepoDbP "github.com/mechta-market/pulse/internal/domain/deploy/repo/db"
 	domainDeployServiceP "github.com/mechta-market/pulse/internal/domain/deploy/service"
 	domainEventServiceP "github.com/mechta-market/pulse/internal/domain/event/service"
@@ -38,6 +40,7 @@ import (
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
+	usecaseDependenciesP "github.com/mechta-market/pulse/internal/usecase/dependencies"
 	usecaseLogsP "github.com/mechta-market/pulse/internal/usecase/logs"
 	usecaseSnapshotP "github.com/mechta-market/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
@@ -147,6 +150,10 @@ func (a *App) Init() {
 	deployRepo := domainDeployRepoDbP.New(a.pgpool)
 	deployService := domainDeployServiceP.New(deployRepo)
 
+	// dependency (граф связей)
+	dependencyRepo := domainDependencyRepoDbP.New(a.pgpool)
+	dependencyService := domainDependencyServiceP.New(dependencyRepo)
+
 	// event (нормализация событий)
 	eventService := domainEventServiceP.New()
 
@@ -161,7 +168,7 @@ func (a *App) Init() {
 					return serviceIndexerModel.ImageMapping{Registry: m.Registry, RepoTemplate: m.RepoTemplate, Org: m.Org}
 				}),
 			},
-			k8sService, githubService, registryService, svcService, workloadService, deployService,
+			k8sService, githubService, registryService, svcService, workloadService, deployService, dependencyService,
 		)
 	}
 
@@ -251,9 +258,16 @@ func (a *App) Init() {
 		)
 	}
 
+	// dependencies
+	dependenciesUsecase := usecaseDependenciesP.New(
+		usecaseDependenciesP.Config{MaxNodes: rules.Dependencies.MaxNodes, MaxDepth: rules.Dependencies.MaxDepth, HealthDeadline: rules.Snapshot.Deadline},
+		svcService, workloadService, dependencyService, k8sService,
+		domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
+	)
+
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}

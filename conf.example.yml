@@ -52,6 +52,11 @@ timeline:
   # выше этого числа сервисов в запросе коммиты не собираются (запрос на репозиторий)
   max_services_for_commits: 10
 
+dependencies:
+  # потолок узлов графа в ответе get_dependencies и максимальная глубина обхода
+  max_nodes: 50
+  max_depth: 3
+
 metrics:
   # ограничения произвольного PromQL в query_metrics
   max_window: 168h

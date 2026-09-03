@@ -60,3 +60,24 @@ create table deploy (
 
 create index deploy_service_observed_idx on deploy (service_name, observed_at desc);
 create index deploy_observed_idx on deploy (observed_at desc);
+
+-- Сконфигурированные связи между сервисами (фаза 5): из env/configmap подов, позже — kusec.
+-- Это связи по конфигурации, а не фактический трафик.
+create table dependency (
+    cluster      text        not null,
+    from_service text        not null,
+    -- to_service пустой — внешний адрес (не резолвится в сервис каталога)
+    to_service   text        not null default '',
+    to_host      text        not null,
+    port         integer     not null default 0,
+    scheme       text        not null default '',
+    -- source — env | configmap | kusec; key — имя переменной/ключа, откуда взята связь
+    source       text        not null,
+    key          text        not null,
+    first_seen   timestamptz not null default now(),
+    last_seen    timestamptz not null default now(),
+    primary key (cluster, from_service, to_host, port, key)
+);
+
+create index dependency_to_service_idx on dependency (to_service);
+create index dependency_last_seen_idx on dependency (last_seen);

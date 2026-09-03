@@ -26,7 +26,7 @@ func TestMCPServer_Ping(t *testing.T) {
 		{Name: "broken_source", Ping: func(context.Context) error { return errors.New("connection refused") }},
 		{Name: "disabled_source"},
 	})
-	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil)
+	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil)
 	server := MCPServerCreate(handler.Register)
 
 	const token = "secret-token"

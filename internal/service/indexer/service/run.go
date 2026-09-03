@@ -76,7 +76,10 @@ func (s *Service) Run(ctx context.Context) error {
 		return fmt.Errorf("workload.UpdateOrCreateMany: %w", err)
 	}
 
-	// 6. чистка: что не видели дольше stale_after, того больше нет
+	// 6. связи между сервисами из env/configmap подов (фаза 5)
+	stats.Dependencies = s.recordDependencies(ctx, drafts, now)
+
+	// 7. чистка: что не видели дольше stale_after, того больше нет
 	staleBefore := now.Add(-s.conf.StaleAfter)
 	if stats.StaleWorkloads, err = s.workload.DeleteStale(ctx, s.conf.Cluster, staleBefore); err != nil {
 		return fmt.Errorf("workload.DeleteStale: %w", err)
@@ -84,6 +87,9 @@ func (s *Service) Run(ctx context.Context) error {
 	staleServices, err := s.svc.DeleteStale(ctx, staleBefore)
 	if err != nil {
 		return fmt.Errorf("svc.DeleteStale: %w", err)
+	}
+	if _, err = s.depend.DeleteStale(ctx, s.conf.Cluster, staleBefore); err != nil {
+		return fmt.Errorf("depend.DeleteStale: %w", err)
 	}
 	stats.StaleServices = len(staleServices)
 
@@ -95,6 +101,7 @@ func (s *Service) Run(ctx context.Context) error {
 		"metadata_errors", stats.MetadataErrors,
 		"commits_resolved", stats.CommitsResolved,
 		"deploys", stats.Deploys,
+		"dependencies", stats.Dependencies,
 		"stale_workloads", stats.StaleWorkloads,
 		"stale_services", stats.StaleServices,
 		"github_unavailable", stats.GithubUnavailable,
@@ -111,6 +118,7 @@ type indexerStats struct {
 	MetadataErrors    int
 	CommitsResolved   int
 	Deploys           int
+	Dependencies      int
 	StaleWorkloads    int64
 	StaleServices     int
 	Duration          time.Duration

@@ -18,6 +18,41 @@ type Workload struct {
 type Container struct {
 	Name  string
 	Image string
+	Env   []EnvVar
+	// EnvFromConfigMaps — имена configmap'ов из envFrom (значения читаются отдельно)
+	EnvFromConfigMaps []string
+}
+
+// EnvVar — переменная окружения контейнера. Значение из secret никогда не читается:
+// у такой переменной Value пустой и FromSecret=true.
+type EnvVar struct {
+	Name  string
+	Value string
+	// ConfigMapRef — «name/key», если значение берётся из configmap
+	ConfigMapRef string
+	FromSecret   bool
+}
+
+// ConfigMap — данные configmap'а (не секрет).
+type ConfigMap struct {
+	Namespace string
+	Name      string
+	Data      map[string]string
+}
+
+// Service — k8s Service: имя хоста внутри кластера и селектор подов.
+type Service struct {
+	Namespace string
+	Name      string
+	Selector  map[string]string
+	ClusterIP string
+	Ports     []ServicePort
+}
+
+type ServicePort struct {
+	Name       string
+	Port       int32
+	TargetPort string
 }
 
 // Pod — состояние пода в кластере.

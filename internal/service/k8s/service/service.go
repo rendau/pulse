@@ -198,8 +198,29 @@ func selectorString(sel *metav1.LabelSelector) string {
 
 func encodeContainers(containers []corev1.Container) []k8sModel.Container {
 	return lo.Map(containers, func(c corev1.Container, _ int) k8sModel.Container {
-		return k8sModel.Container{Name: c.Name, Image: c.Image}
+		result := k8sModel.Container{Name: c.Name, Image: c.Image, Env: lo.Map(c.Env, encodeEnvVar)}
+		for _, from := range c.EnvFrom {
+			if from.ConfigMapRef != nil {
+				result.EnvFromConfigMaps = append(result.EnvFromConfigMaps, from.ConfigMapRef.Name)
+			}
+		}
+		return result
 	})
+}
+
+// encodeEnvVar: значения из secret не читаются никогда (Р7), только факт ссылки.
+func encodeEnvVar(v corev1.EnvVar, _ int) k8sModel.EnvVar {
+	result := k8sModel.EnvVar{Name: v.Name, Value: v.Value}
+	if v.ValueFrom == nil {
+		return result
+	}
+	switch {
+	case v.ValueFrom.SecretKeyRef != nil:
+		result.FromSecret = true
+	case v.ValueFrom.ConfigMapKeyRef != nil:
+		result.ConfigMapRef = v.ValueFrom.ConfigMapKeyRef.Name + "/" + v.ValueFrom.ConfigMapKeyRef.Key
+	}
+	return result
 }
 
 func encodePod(p corev1.Pod, _ int) k8sModel.Pod {
