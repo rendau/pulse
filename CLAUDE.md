@@ -72,7 +72,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `common/` — общие модели/утилиты/PG базовый репозиторий.
 - `internal/service/` — сервисы (фоновые/инфраструктурные), для переиспользования или выделения логики:
   `k8s`, `github`, `registry`, `prometheus`, `loki`, `alertmanager`, `kusec` (клиенты источников,
-  read-only; kusec — заглушка до получения проекта, методы отдают `errs.NotImplemented`),
+  read-only; kusec — по контракту `docs/monitoring-api.md` проекта kusec, ключ scope=read_only),
   `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
   `svcproxy` (GET к ручке сервиса внутри кластера по DNS `name.namespace.svc`; локально —
   `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGet`),
@@ -177,15 +177,22 @@ domain service → repo
   конфигурации перед выдачей проходит `redact.Value(key, value)` (deny-список имени → allowlist
   значения → маска), значения secret — только `redact.Secret()`.
 - История алертов: Alertmanager её не хранит, берётся из Prometheus (`ALERTS{alertstate="firing"}`).
-- Смена конфигурации без kusec: reloader перекатывает поды после смены configmap/secret и пишет
+- Смена конфигурации: reloader перекатывает поды после смены configmap/secret и пишет
   в шаблон пода аннотацию `reloader.stakater.com/last-reloaded-from` (объект + хэш). Таймлайн и
   get_changes сравнивают соседние ревизии ReplicaSet (`source: reloader`); отпечаток secret скрыт.
+- kusec: приложение сервиса находится по `workload.config_refs` (имена configmap/secret шаблона пода)
+  → `/app/resolve`. Правки — из `/audit` (`source: kusec`; значение секрета — `***`, обычный конфиг —
+  через `redact.Value`), применение — из `/sync-run` (объекты только через Get). Sync, изменивший
+  объект выкатки reloader'а за ≤15 мин до неё, склеивается с выкаткой (автор + ключи), остальные —
+  `kusec_sync`. `/app/{id}/drift` → `unsynced_config` в get_changes. Аннотацию `kusec.io/sync-run-id`
+  с Secret не читаем: это потребовало бы RBAC на secrets.
 - Маршруты ruto индексер пишет в граф рёбрами `ruto-gateway → backend` (`source=ruto`, `key` —
   имя приложения ruto): по ним находятся приложения сервиса для get_public_api и `public_*` метрик.
 - Граф зависимостей (фаза 5) строится индексером из env подов: inline-значения и ссылки на configmap
   (в helm-zeon env рендерится inline). Переменные из secret дают только факт ссылки, значение не
   читается. Хост → сервис: k8s Service (селектор) → workload, иначе имя workload'а в namespace.
-  Источник kusec добавляется к тому же графу после получения проекта. RBAC индексера:
+  kusec графу ничего не добавляет: значения секретов (DSN) он не отдаёт, а configmap индексер
+  читает сам. RBAC индексера:
   get/list на deployments, statefulsets, daemonsets, cronjobs, pods, events, configmaps, services.
 - В тестах всегда предпочитай `testify`: `require` для проверок, прерывающих тест,
   и `assert` для остальных утверждений.

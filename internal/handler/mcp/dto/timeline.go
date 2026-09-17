@@ -15,7 +15,7 @@ import (
 type GetTimelineReq struct {
 	Service  string   `json:"service,omitempty" jsonschema:"точное имя сервиса"`
 	Services []string `json:"services,omitempty" jsonschema:"несколько сервисов сразу"`
-	Scope    string   `json:"scope,omitempty" jsonschema:"cluster — изменения по всему кластеру (без коммитов и конфигурации)"`
+	Scope    string   `json:"scope,omitempty" jsonschema:"cluster — изменения по всему кластеру (без коммитов и правок kusec)"`
 	Window   string   `json:"window,omitempty" jsonschema:"Go duration: 1h, 24h (по умолчанию), 7d (максимум)"`
 }
 
@@ -52,8 +52,10 @@ type ChangesRep struct {
 	Commits       []Commit       `json:"commits" jsonschema:"коммиты ветки по умолчанию за окно, новые первыми"`
 	Unreleased    *Unreleased    `json:"unreleased,omitempty" jsonschema:"смержено, но ещё не в проде; отсутствует, если задеплоенный коммит неизвестен"`
 	Deploys       []Deploy       `json:"deploys"`
-	ConfigChanges []ConfigChange `json:"config_changes" jsonschema:"значения секретов никогда не возвращаются; env/configmap — только безопасные значения, остальное ***"`
-	Errors        []SourceError  `json:"errors"`
+	ConfigChanges []ConfigChange `json:"config_changes" jsonschema:"по убыванию времени; значения секретов никогда не возвращаются, обычный конфиг — только безопасные значения, остальное ***"`
+	// UnsyncedConfig — nil, если kusec не подключён
+	UnsyncedConfig []UnsyncedConfig `json:"unsynced_config,omitempty" jsonschema:"конфигурация в kusec расходится с кластером: изменение не применено или значения отличаются"`
+	Errors         []SourceError    `json:"errors"`
 }
 
 type Commit struct {
@@ -82,14 +84,30 @@ type Deploy struct {
 }
 
 type ConfigChange struct {
-	TS       time.Time `json:"ts"`
-	Source   string    `json:"source" jsonschema:"kusec — изменение ключа; reloader — поды перекачены после смены configmap/secret (key — имя объекта, значения — отпечатки содержимого)"`
-	Workload string    `json:"workload,omitempty"`
-	Kind     string    `json:"kind" jsonschema:"configmap | secret | env"`
-	Key      string    `json:"key"`
-	OldValue string    `json:"old_value"`
-	NewValue string    `json:"new_value"`
-	Author   string    `json:"author,omitempty"`
+	TS          time.Time `json:"ts"`
+	Source      string    `json:"source" jsonschema:"kusec — правка в kusec (ещё не в кластере до sync); kusec_sync — kusec применил объект в кластер; reloader — поды перекачены после смены объекта (с автором и ключами, если найден sync kusec)"`
+	Action      string    `json:"action,omitempty"`
+	Kind        string    `json:"kind" jsonschema:"configmap | secret | app"`
+	Object      string    `json:"object" jsonschema:"имя k8s-объекта (kusec-<app>-main)"`
+	Key         string    `json:"key,omitempty"`
+	OldValue    string    `json:"old_value,omitempty" jsonschema:"значение обычного конфига (небезопасное — ***) или отпечаток содержимого у reloader; секреты — всегда ***"`
+	NewValue    string    `json:"new_value,omitempty"`
+	Fields      []string  `json:"fields,omitempty" jsonschema:"прочие изменённые поля ключа"`
+	ChangedKeys []string  `json:"changed_keys,omitempty" jsonschema:"ключи, применённые в кластер"`
+	Author      string    `json:"author,omitempty"`
+	Workload    string    `json:"workload,omitempty"`
+	SyncRunId   string    `json:"sync_run_id,omitempty"`
+	Status      string    `json:"status,omitempty" jsonschema:"статус sync, если не ok"`
+}
+
+type UnsyncedConfig struct {
+	Kind             string     `json:"kind"`
+	Object           string     `json:"object"`
+	NotSyncedSince   *time.Time `json:"not_synced_since,omitempty" jsonschema:"правка в kusec с этого момента не применена в кластер"`
+	ExistsInCluster  bool       `json:"exists_in_cluster"`
+	MissingInCluster []string   `json:"missing_in_cluster,omitempty"`
+	ExtraInCluster   []string   `json:"extra_in_cluster,omitempty"`
+	ValueDiffers     []string   `json:"value_differs,omitempty" jsonschema:"ключи, значение которых в кластере отличается от kusec (только имена)"`
 }
 
 func EncodeChangesRep(v *usecaseTimelineModel.ChangesResult) ChangesRep {
@@ -99,7 +117,13 @@ func EncodeChangesRep(v *usecaseTimelineModel.ChangesResult) ChangesRep {
 		Commits:       lo.Map(v.Commits, encodeCommit),
 		Deploys:       lo.Map(v.Deploys, encodeDeploy),
 		ConfigChanges: lo.Map(v.ConfigChanges, encodeConfigChange),
-		Errors:        lo.Map(v.Errors, encodeTimelineSourceError),
+		UnsyncedConfig: lo.Map(v.UnsyncedConfig, func(u usecaseTimelineModel.UnsyncedConfig, _ int) UnsyncedConfig {
+			return UnsyncedConfig{
+				Kind: u.Kind, Object: u.Object, NotSyncedSince: u.NotSyncedSince, ExistsInCluster: u.ExistsInCluster,
+				MissingInCluster: u.MissingInCluster, ExtraInCluster: u.ExtraInCluster, ValueDiffers: u.ValueDiffers,
+			}
+		}),
+		Errors: lo.Map(v.Errors, encodeTimelineSourceError),
 	}
 	if v.Unreleased != nil {
 		rep.Unreleased = &Unreleased{
@@ -124,7 +148,11 @@ func encodeDeploy(v *deployModel.Main, _ int) Deploy {
 }
 
 func encodeConfigChange(v usecaseTimelineModel.ConfigChange, _ int) ConfigChange {
-	return ConfigChange{TS: v.TS.UTC(), Source: v.Source, Workload: v.Workload, Kind: v.Kind, Key: v.Key, OldValue: v.OldValue, NewValue: v.NewValue, Author: v.Author}
+	return ConfigChange{
+		TS: v.TS.UTC(), Source: v.Source, Action: v.Action, Kind: v.Kind, Object: v.Object, Key: v.Key,
+		OldValue: v.OldValue, NewValue: v.NewValue, Fields: v.Fields, ChangedKeys: v.ChangedKeys,
+		Author: v.Author, Workload: v.Workload, SyncRunId: v.SyncRunId, Status: v.Status,
+	}
 }
 
 func encodeTimelineSourceError(v usecaseTimelineModel.SourceError, _ int) SourceError {

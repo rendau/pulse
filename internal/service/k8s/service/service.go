@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/samber/lo"
@@ -103,6 +104,7 @@ func (s *Service) ListWorkloads(ctx context.Context) ([]k8sModel.Workload, error
 			ReplicasDesired: lo.FromPtr(d.Spec.Replicas),
 			Selector:        selectorString(d.Spec.Selector),
 			Containers:      encodeContainers(d.Spec.Template.Spec.Containers),
+			ConfigRefs:      configRefs(d.Spec.Template.Spec),
 			CreatedAt:       d.CreationTimestamp.Time,
 		})
 	}
@@ -122,6 +124,7 @@ func (s *Service) ListWorkloads(ctx context.Context) ([]k8sModel.Workload, error
 			ReplicasDesired: lo.FromPtr(st.Spec.Replicas),
 			Selector:        selectorString(st.Spec.Selector),
 			Containers:      encodeContainers(st.Spec.Template.Spec.Containers),
+			ConfigRefs:      configRefs(st.Spec.Template.Spec),
 			CreatedAt:       st.CreationTimestamp.Time,
 		})
 	}
@@ -141,6 +144,7 @@ func (s *Service) ListWorkloads(ctx context.Context) ([]k8sModel.Workload, error
 			ReplicasDesired: ds.Status.DesiredNumberScheduled,
 			Selector:        selectorString(ds.Spec.Selector),
 			Containers:      encodeContainers(ds.Spec.Template.Spec.Containers),
+			ConfigRefs:      configRefs(ds.Spec.Template.Spec),
 			CreatedAt:       ds.CreationTimestamp.Time,
 		})
 	}
@@ -158,6 +162,7 @@ func (s *Service) ListWorkloads(ctx context.Context) ([]k8sModel.Workload, error
 			Namespace:  cj.Namespace,
 			Name:       cj.Name,
 			Containers: encodeContainers(cj.Spec.JobTemplate.Spec.Template.Spec.Containers),
+			ConfigRefs: configRefs(cj.Spec.JobTemplate.Spec.Template.Spec),
 			CreatedAt:  cj.CreationTimestamp.Time,
 		})
 	}
@@ -206,6 +211,50 @@ func encodeContainers(containers []corev1.Container) []k8sModel.Container {
 		}
 		return result
 	})
+}
+
+// configRefs — имена configmap/secret шаблона пода, отсортированные и без повторов.
+func configRefs(spec corev1.PodSpec) []string {
+	refs := make([]string, 0, 4)
+	for _, c := range append(append([]corev1.Container{}, spec.InitContainers...), spec.Containers...) {
+		for _, from := range c.EnvFrom {
+			if from.ConfigMapRef != nil {
+				refs = append(refs, from.ConfigMapRef.Name)
+			}
+			if from.SecretRef != nil {
+				refs = append(refs, from.SecretRef.Name)
+			}
+		}
+		for _, env := range c.Env {
+			switch {
+			case env.ValueFrom == nil:
+			case env.ValueFrom.ConfigMapKeyRef != nil:
+				refs = append(refs, env.ValueFrom.ConfigMapKeyRef.Name)
+			case env.ValueFrom.SecretKeyRef != nil:
+				refs = append(refs, env.ValueFrom.SecretKeyRef.Name)
+			}
+		}
+	}
+	for _, v := range spec.Volumes {
+		switch {
+		case v.ConfigMap != nil:
+			refs = append(refs, v.ConfigMap.Name)
+		case v.Secret != nil:
+			refs = append(refs, v.Secret.SecretName)
+		case v.Projected != nil:
+			for _, src := range v.Projected.Sources {
+				if src.ConfigMap != nil {
+					refs = append(refs, src.ConfigMap.Name)
+				}
+				if src.Secret != nil {
+					refs = append(refs, src.Secret.Name)
+				}
+			}
+		}
+	}
+	refs = lo.Uniq(lo.Compact(refs))
+	slices.Sort(refs)
+	return refs
 }
 
 // encodeEnvVar: значения из secret не читаются никогда (Р7), только факт ссылки.

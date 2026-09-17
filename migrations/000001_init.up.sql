@@ -33,6 +33,8 @@ create table workload (
     deployed_commit  text        not null default '',
     -- label-селектор подов workload'а, чтобы брать их состояние живьём
     selector         text        not null default '',
+    -- имена configmap/secret шаблона пода (envFrom, env valueFrom, volumes), без значений
+    config_refs      text[]      not null default '{}',
     first_seen       timestamptz not null default now(),
     last_seen        timestamptz not null default now(),
     primary key (cluster, namespace, kind, name)

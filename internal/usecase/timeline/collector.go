@@ -17,7 +17,6 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
 	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
 )
 
@@ -136,11 +135,9 @@ func (c *collector) clusterEvents(ctx context.Context, clusterScope bool) {
 	_ = eg.Wait()
 }
 
-// rollouts — выкатки из-за смены configmap/secret (reloader) и ручные рестарты.
-func (c *collector) rollouts(ctx context.Context) {
-	for _, r := range c.u.rollouts(ctx, c.workloads, c.since, c.addError) {
-		c.add(c.u.events.FromRollout(r.Rollout, r.service))
-	}
+// configuration — выкатки reloader'а, правки и sync kusec (withKusec — только в разрезе сервисов).
+func (c *collector) configuration(ctx context.Context, withKusec bool) {
+	c.add(c.u.configuration(ctx, c.workloads, c.since, c.now, withKusec, false, c.addError).events(c.u.events)...)
 }
 
 // alertHistory — интервалы firing из метрики ALERTS: начало серии = срабатывание.
@@ -230,31 +227,6 @@ func (c *collector) commits(ctx context.Context) {
 		})
 	}
 	_ = eg.Wait()
-}
-
-func (c *collector) configChanges(ctx context.Context) {
-	for _, service := range c.services {
-		changes, err := c.u.listConfigChanges(ctx, service.Name, c.since, c.now)
-		if err != nil {
-			c.addError(constant.SourceKusec, err)
-			return
-		}
-		c.add(lo.Map(changes, func(ch kusecModel.Change, _ int) eventModel.Event {
-			return eventModel.Event{
-				TS: ch.TS, Source: constant.SourceKusec, Type: constant.EventTypeConfigChange, Service: service.Name,
-				Severity: constant.SeverityInfo,
-				Summary:  fmt.Sprintf("%s: изменён %s %s (%s → %s)%s", service.Name, ch.Kind, ch.Key, ch.OldValue, ch.NewValue, authorSuffix(ch.Author)),
-				Details:  map[string]any{"kind": ch.Kind, "key": ch.Key, "old": ch.OldValue, "new": ch.NewValue, "author": ch.Author},
-			}
-		})...)
-	}
-}
-
-func authorSuffix(author string) string {
-	if author == "" {
-		return ""
-	}
-	return ", автор " + author
 }
 
 func encodeCommit(v githubModel.Commit, _ int) model.Commit {

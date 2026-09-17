@@ -20,9 +20,11 @@ type Main struct {
 	ImageDigest    string
 	DeployedCommit string
 	// Selector — label-селектор подов, чтобы брать их состояние живьём
-	Selector  string
-	FirstSeen time.Time
-	LastSeen  time.Time
+	Selector string
+	// ConfigRefs — имена configmap/secret шаблона пода (по ним находится приложение kusec)
+	ConfigRefs []string
+	FirstSeen  time.Time
+	LastSeen   time.Time
 }
 
 // Key — составной первичный ключ.
@@ -49,6 +51,7 @@ type Edit struct {
 	ImageDigest     *string
 	DeployedCommit  *string
 	Selector        *string
+	ConfigRefs      *[]string
 	// FirstSeen пишется только при вставке; при обновлении не трогается
 	FirstSeen *time.Time
 	LastSeen  *time.Time

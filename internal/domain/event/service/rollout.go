@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/mechta-market/pulse/internal/constant"
 	"github.com/mechta-market/pulse/internal/domain/event/model"
 )
@@ -67,13 +69,21 @@ func (s *Service) FromRollout(r model.Rollout, service string) model.Event {
 			Details: map[string]any{"workload": r.Workload, "revision": r.Revision},
 		}
 	}
+	summary := fmt.Sprintf("%s: изменён %s %s, поды %s перекачены (reloader, ревизия %d)", service, r.ConfigKind, r.ConfigName, r.Workload, r.Revision)
+	details := map[string]any{
+		"workload": r.Workload, "revision": r.Revision, "kind": r.ConfigKind, "name": r.ConfigName,
+		"hash": r.Hash, "prev_hash": r.PrevHash,
+	}
+	if r.Sync != nil {
+		keys := lo.FlatMap(lo.Filter(r.Sync.Objects, func(o model.ConfigSyncObject, _ int) bool { return o.ObjectName == r.ConfigName }),
+			func(o model.ConfigSyncObject, _ int) []string { return o.ChangedKeys })
+		summary = fmt.Sprintf("%s: kusec применил %s %s%s%s, поды %s перекачены (ревизия %d)",
+			service, r.ConfigKind, r.ConfigName, keysSuffix(keys), authorSuffix(r.Sync.Author), r.Workload, r.Revision)
+		details["sync_run_id"], details["author"], details["changed_keys"] = r.Sync.RunId, r.Sync.Author, keys
+	}
 	return model.Event{
 		TS: r.TS, Source: constant.SourceK8s, Type: constant.EventTypeConfigChange, Service: service, Severity: constant.SeverityInfo,
-		Summary: fmt.Sprintf("%s: изменён %s %s, поды %s перекачены (reloader, ревизия %d)", service, r.ConfigKind, r.ConfigName, r.Workload, r.Revision),
-		Details: map[string]any{
-			"workload": r.Workload, "revision": r.Revision, "kind": r.ConfigKind, "name": r.ConfigName,
-			"hash": r.Hash, "prev_hash": r.PrevHash,
-		},
+		Summary: summary, Details: details,
 	}
 }
 

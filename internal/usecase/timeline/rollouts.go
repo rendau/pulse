@@ -13,8 +13,6 @@ import (
 	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
 )
 
 // serviceRollout — выкатка с причиной и сервисом её workload'а.
@@ -57,20 +55,4 @@ func (u *Usecase) rollouts(ctx context.Context, workloads []*workloadModel.Main,
 	_ = eg.Wait()
 
 	return result
-}
-
-// encodeRolloutConfigChange — выкатка reloader'а как изменение конфигурации: имя объекта и
-// отпечатки содержимого; у secret отпечатки тоже скрыты (Р7).
-func encodeRolloutConfigChange(v serviceRollout) (model.ConfigChange, bool) {
-	if v.Cause != eventModel.RolloutCauseConfigReload {
-		return model.ConfigChange{}, false
-	}
-	change := model.ConfigChange{
-		TS: v.TS, Source: model.ConfigChangeSourceReloader, Workload: v.Workload,
-		Kind: v.ConfigKind, Key: v.ConfigName, OldValue: v.PrevHash, NewValue: v.Hash,
-	}
-	if v.ConfigKind == "secret" {
-		change.OldValue, change.NewValue = redact.Secret(), redact.Secret()
-	}
-	return change, true
 }

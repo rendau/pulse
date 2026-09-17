@@ -88,10 +88,47 @@ func (f *fakeGithub) CompareCommits(context.Context, string, string) (*githubMod
 	return f.cmp, f.err
 }
 
-type fakeKusec struct{ changes []kusecModel.Change }
+// fakeKusec — объекты kusec: kube_name → app id; аудит, sync и drift отдаются как есть.
+type fakeKusec struct {
+	apps  map[string]string
+	audit []kusecModel.AuditEntry
+	runs  []kusecModel.SyncRun
+	drift *kusecModel.Drift
+}
 
-func (f *fakeKusec) ListChanges(context.Context, string, time.Time, time.Time) ([]kusecModel.Change, error) {
-	return f.changes, nil
+func (f *fakeKusec) Resolve(_ context.Context, namespace, kubeName string) (*kusecModel.Resolved, error) {
+	id, ok := f.apps[kubeName]
+	if !ok {
+		return &kusecModel.Resolved{}, nil
+	}
+	return &kusecModel.Resolved{Found: true, AppId: id, Namespace: namespace}, nil
+}
+
+func (f *fakeKusec) ListAudit(context.Context, *kusecModel.AuditReq) ([]kusecModel.AuditEntry, error) {
+	return f.audit, nil
+}
+
+func (f *fakeKusec) ListSyncRuns(context.Context, *kusecModel.SyncRunReq) ([]kusecModel.SyncRun, error) {
+	return f.runs, nil
+}
+
+func (f *fakeKusec) GetDrift(context.Context, string) (*kusecModel.Drift, error) {
+	return f.drift, nil
+}
+
+// configItemUpdate — запись аудита об изменении значения ключа.
+func configItemUpdate(ts time.Time, kind, key, oldValue, newValue string) kusecModel.AuditEntry {
+	entry := kusecModel.AuditEntry{
+		CreatedAt: ts, ActorName: "ops", Source: "ui", Action: "update", Key: key,
+		KubeKind: kind, KubeName: "kusec-payments-api-main", EntityType: kusecModel.EntityConfigItem,
+	}
+	change := kusecModel.AuditChange{Field: kusecModel.ValueField, Old: &oldValue, New: &newValue}
+	if kind == kusecModel.KubeKindSecret {
+		entry.EntityType = kusecModel.EntityItem
+		change = kusecModel.AuditChange{Field: kusecModel.ValueField, OldHash: "a1", NewHash: "b2", OldSize: new(int64(2)), NewSize: new(int64(2))}
+	}
+	entry.Changes = []kusecModel.AuditChange{change, {Field: "description", Old: new("x"), New: new("y")}}
+	return entry
 }
 
 type fakePrometheus struct{ series []prometheusModel.Series }
@@ -108,7 +145,8 @@ func newUsecase(now time.Time, gh githubClientI, kusec KusecI, prom PrometheusI)
 		{Name: "delivery", RepoUrl: "https://github.com/org/delivery"},
 	}}
 	wl := &fakeWorkload{items: []*workloadModel.Main{
-		{Cluster: "zeon", Namespace: "prod", Kind: "Deployment", Name: "payments-api", ServiceName: "payments-api", Selector: "app=payments-api", DeployedCommit: "a3f9c21b7e1d02a3f9c21b7e1d02a3f9c21b7e1d"},
+		{Cluster: "zeon", Namespace: "prod", Kind: "Deployment", Name: "payments-api", ServiceName: "payments-api", Selector: "app=payments-api",
+			ConfigRefs: []string{"kube-root-ca.crt", "kusec-payments-api-main"}, DeployedCommit: "a3f9c21b7e1d02a3f9c21b7e1d02a3f9c21b7e1d"},
 		{Cluster: "zeon", Namespace: "prod", Kind: "Deployment", Name: "delivery", ServiceName: "delivery", Selector: "app=delivery"},
 	}}
 	deploy := &fakeDeploy{items: []*deployModel.Main{{
@@ -131,10 +169,13 @@ func newUsecase(now time.Time, gh githubClientI, kusec KusecI, prom PrometheusI)
 func TestTimeline_DeployBeforeErrors(t *testing.T) {
 	now := time.Now().UTC()
 	gh := &fakeGithub{commits: []githubModel.Commit{{SHA: "a3f9c21b7e1d02", Author: "i.petrov", Message: "fix acquirer retry", Date: now.Add(-40 * time.Minute)}}}
-	kusec := &fakeKusec{changes: []kusecModel.Change{
-		{TS: now.Add(-50 * time.Minute), Kind: kusecModel.KindEnv, Key: "ACQUIRER_URL", OldValue: "http://old.svc:8080", NewValue: "http://acquirer-gateway.prod.svc:8080", Author: "ops"},
-		{TS: now.Add(-49 * time.Minute), Kind: kusecModel.KindEnv, Key: "DB_PASSWORD", OldValue: "old-secret", NewValue: "new-secret"},
-		{TS: now.Add(-48 * time.Minute), Kind: kusecModel.KindSecret, Key: "acquirer-key", OldValue: "k1", NewValue: "k2"},
+	kusec := &fakeKusec{apps: map[string]string{"kusec-payments-api-main": "app-1"}, audit: []kusecModel.AuditEntry{
+		configItemUpdate(now.Add(-50*time.Minute), kusecModel.KubeKindConfigMap, "ACQUIRER_URL", "http://old.svc:8080", "http://acquirer-gateway.prod.svc:8080"),
+		configItemUpdate(now.Add(-49*time.Minute), kusecModel.KubeKindConfigMap, "DB_PASSWORD", "old-secret", "new-secret"),
+		configItemUpdate(now.Add(-48*time.Minute), kusecModel.KubeKindSecret, "ACQUIRER_KEY", "k1", "k2"),
+		// чужой объект приложения и служебные записи в историю сервиса не попадают
+		{CreatedAt: now.Add(-47 * time.Minute), EntityType: kusecModel.EntityItem, KubeKind: kusecModel.KubeKindSecret, KubeName: "kusec-other-main", Key: "X", Action: "update"},
+		{CreatedAt: now.Add(-46 * time.Minute), EntityType: "api_key", Action: "create"},
 	}}
 	prom := &fakePrometheus{series: []prometheusModel.Series{{
 		Labels: map[string]string{"alertname": "HighErrorRate", "severity": "critical", "service": "payments-api"},
@@ -213,7 +254,11 @@ func TestChanges_Unreleased(t *testing.T) {
 		commits: []githubModel.Commit{{SHA: "c2", Author: "a", Message: "two", Date: now.Add(-5 * time.Minute)}},
 		cmp:     &githubModel.Comparison{AheadBy: 2, Commits: []githubModel.Commit{{SHA: "c2"}, {SHA: "c1"}}},
 	}
-	kusec := &fakeKusec{changes: []kusecModel.Change{{TS: now, Kind: kusecModel.KindConfigMap, Key: "PG_DSN", OldValue: "postgres://u:p@h/db", NewValue: "postgres://u:p2@h/db"}}}
+	kusec := &fakeKusec{
+		apps:  map[string]string{"kusec-payments-api-main": "app-1"},
+		audit: []kusecModel.AuditEntry{configItemUpdate(now, kusecModel.KubeKindConfigMap, "PG_DSN", "postgres://u:p@h/db", "postgres://u:p2@h/db")},
+		drift: &kusecModel.Drift{InCluster: true},
+	}
 
 	res, err := newUsecase(now, gh, kusec, nil).Changes(context.Background(), "payments-api", time.Hour)
 	require.NoError(t, err)
@@ -225,6 +270,8 @@ func TestChanges_Unreleased(t *testing.T) {
 	assert.Len(t, res.Deploys, 1)
 	require.Len(t, res.ConfigChanges, 1)
 	assert.Equal(t, "***", res.ConfigChanges[0].NewValue, "DSN маскируется по имени ключа")
+	assert.Equal(t, []string{"description"}, res.ConfigChanges[0].Fields)
+	assert.NotNil(t, res.UnsyncedConfig, "kusec подключён — расхождений нет, но список есть")
 
 	// сервис без задеплоенного коммита: unreleased отсутствует, kusec не подключён — в errors
 	res, err = newUsecase(now, gh, nil, nil).Changes(context.Background(), "delivery", time.Hour)
@@ -256,7 +303,7 @@ func TestChanges_ReloaderRollouts(t *testing.T) {
 	assert.Equal(t, model.ConfigChangeSourceReloader, change.Source)
 	assert.Equal(t, "prod/payments-api", change.Workload)
 	assert.Equal(t, "secret", change.Kind)
-	assert.Equal(t, "kusec-payments-api-main", change.Key)
+	assert.Equal(t, "kusec-payments-api-main", change.Object)
 	assert.Equal(t, "***", change.NewValue, "отпечаток secret не отдаётся")
 
 	timeline, err := u.Timeline(context.Background(), &model.TimelineReq{Services: []string{"payments-api"}, Window: time.Hour})
@@ -265,4 +312,74 @@ func TestChanges_ReloaderRollouts(t *testing.T) {
 		return e.Type == constant.EventTypeConfigChange && e.Details["name"] == "kusec-payments-api-main"
 	})
 	assert.True(t, found, "выкатка reloader'а — событие config_change в таймлайне")
+}
+
+func TestChanges_KusecSyncLinkedToRollout(t *testing.T) {
+	now := time.Now().UTC()
+	kusec := &fakeKusec{
+		apps: map[string]string{"kusec-payments-api-main": "app-1"},
+		audit: []kusecModel.AuditEntry{
+			configItemUpdate(now.Add(-40*time.Minute), kusecModel.KubeKindSecret, "PG_PASSWORD", "", ""),
+		},
+		runs: []kusecModel.SyncRun{
+			{Id: "run-1", StartedAt: now.Add(-32 * time.Minute), Status: "ok", ActorName: "Dauren", Objects: []kusecModel.SyncObject{
+				{KubeKind: "Secret", KubeName: "kusec-payments-api-main", Op: "updated", ChangedKeys: []string{"PG_PASSWORD"}},
+				{KubeKind: "ConfigMap", KubeName: "kusec-payments-api-main", Op: "unchanged"},
+			}},
+			// sync без выкатки подов: отдельное изменение
+			{Id: "run-2", StartedAt: now.Add(-5 * time.Minute), Status: "partial", ActorName: "Dauren", Objects: []kusecModel.SyncObject{
+				{KubeKind: "ConfigMap", KubeName: "kusec-payments-api-main", Op: "updated", ChangedKeys: []string{"LOG_FORMAT"}},
+			}},
+		},
+		drift: &kusecModel.Drift{InCluster: true, Objects: []kusecModel.DriftObject{
+			{KubeKind: "ConfigMap", KubeName: "kusec-payments-api-main", ExistsInCluster: true, NotSyncedSince: new(now.Add(-2 * time.Minute)), MissingInCluster: []string{"NEW_KEY"}},
+			{KubeKind: "Secret", KubeName: "kusec-payments-api-main", ExistsInCluster: true},
+			{KubeKind: "Secret", KubeName: "kusec-other-main", ExistsInCluster: false},
+		}},
+	}
+	u := newUsecase(now, &fakeGithub{cmp: &githubModel.Comparison{}}, kusec, nil)
+	reloaded := func(hash string) map[string]string {
+		return map[string]string{"reloader.stakater.com/last-reloaded-from": `{"type":"SECRET","name":"kusec-payments-api-main","hash":"` + hash + `"}`}
+	}
+	u.k8s = &fakeK8s{replicaSets: []k8sModel.ReplicaSet{
+		{OwnerKind: "Deployment", OwnerName: "payments-api", Revision: 1, CreatedAt: now.Add(-48 * time.Hour), TemplateAnnotations: reloaded("aaaa")},
+		{OwnerKind: "Deployment", OwnerName: "payments-api", Revision: 2, CreatedAt: now.Add(-31 * time.Minute), TemplateAnnotations: reloaded("bbbb")},
+	}}
+
+	res, err := u.Changes(context.Background(), "payments-api", time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, res.Errors)
+
+	bySource := lo.GroupBy(res.ConfigChanges, func(c model.ConfigChange) string { return c.Source })
+	require.Len(t, bySource[model.ConfigChangeSourceKusec], 1, "правка ключа")
+	edit := bySource[model.ConfigChangeSourceKusec][0]
+	assert.Equal(t, "PG_PASSWORD", edit.Key)
+	assert.Equal(t, "***", edit.OldValue)
+
+	require.Len(t, bySource[model.ConfigChangeSourceReloader], 1)
+	rollout := bySource[model.ConfigChangeSourceReloader][0]
+	assert.Equal(t, "run-1", rollout.SyncRunId, "выкатка склеена с sync, отдельного kusec_sync нет")
+	assert.Equal(t, "Dauren", rollout.Author)
+	assert.Equal(t, []string{"PG_PASSWORD"}, rollout.ChangedKeys)
+
+	require.Len(t, bySource[model.ConfigChangeSourceKusecSync], 1)
+	sync := bySource[model.ConfigChangeSourceKusecSync][0]
+	assert.Equal(t, "run-2", sync.SyncRunId)
+	assert.Equal(t, "partial", sync.Status)
+	assert.Equal(t, []string{"LOG_FORMAT"}, sync.ChangedKeys)
+
+	for i := 1; i < len(res.ConfigChanges); i++ {
+		assert.False(t, res.ConfigChanges[i].TS.After(res.ConfigChanges[i-1].TS), "по убыванию времени")
+	}
+
+	require.Len(t, res.UnsyncedConfig, 1, "только объекты сервиса с расхождением")
+	assert.Equal(t, []string{"NEW_KEY"}, res.UnsyncedConfig[0].MissingInCluster)
+
+	timeline, err := u.Timeline(context.Background(), &model.TimelineReq{Services: []string{"payments-api"}, Window: time.Hour})
+	require.NoError(t, err)
+	configEvents := lo.Filter(timeline.Events, func(e eventModel_Event, _ int) bool { return e.Type == constant.EventTypeConfigChange })
+	require.Len(t, configEvents, 3, "правка, sync с выкаткой одним событием, sync без выкатки")
+	linked, _ := lo.Find(configEvents, func(e eventModel_Event) bool { return e.Details["sync_run_id"] == "run-1" })
+	assert.Contains(t, linked.Summary, "PG_PASSWORD")
+	assert.Contains(t, linked.Summary, "Dauren")
 }

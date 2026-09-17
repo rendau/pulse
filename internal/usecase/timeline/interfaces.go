@@ -48,7 +48,10 @@ type githubClientI interface {
 
 // KusecI и PrometheusI экспортированы: источники опциональны, композиционный корень передаёт nil.
 type KusecI interface {
-	ListChanges(ctx context.Context, service string, since, until time.Time) ([]kusecModel.Change, error)
+	Resolve(ctx context.Context, namespace, kubeName string) (*kusecModel.Resolved, error)
+	ListAudit(ctx context.Context, req *kusecModel.AuditReq) ([]kusecModel.AuditEntry, error)
+	ListSyncRuns(ctx context.Context, req *kusecModel.SyncRunReq) ([]kusecModel.SyncRun, error)
+	GetDrift(ctx context.Context, appId string) (*kusecModel.Drift, error)
 }
 
 type PrometheusI interface {
@@ -61,6 +64,9 @@ type eventServiceI interface {
 	FromDeploy(d *deployModel.Main) eventModel.Event
 	Rollouts(workload string, revisions []eventModel.PodTemplateRevision, since time.Time) []eventModel.Rollout
 	FromRollout(r eventModel.Rollout, service string) eventModel.Event
+	FromConfigEdit(e eventModel.ConfigEdit, service string) eventModel.Event
+	FromConfigSync(s eventModel.ConfigSync, service string) eventModel.Event
+	LinkSyncs(rollouts []eventModel.Rollout, syncs []eventModel.ConfigSync) ([]eventModel.Rollout, []eventModel.ConfigSync)
 }
 
 type rulesServiceI interface {

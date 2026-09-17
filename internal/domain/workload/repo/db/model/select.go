@@ -17,6 +17,7 @@ type Select struct {
 	ImageDigest     string
 	DeployedCommit  string
 	Selector        string
+	ConfigRefs      []string
 	FirstSeen       time.Time
 	LastSeen        time.Time
 }
@@ -33,6 +34,7 @@ func (m *Select) ListColumnMap() map[string]any {
 		"image_digest":     &m.ImageDigest,
 		"deployed_commit":  &m.DeployedCommit,
 		"selector":         &m.Selector,
+		"config_refs":      &m.ConfigRefs,
 		"first_seen":       &m.FirstSeen,
 		"last_seen":        &m.LastSeen,
 	}
@@ -65,6 +67,7 @@ func EncodeSelect(v *Select, _ int) *domainModel.Main {
 		ImageDigest:     v.ImageDigest,
 		DeployedCommit:  v.DeployedCommit,
 		Selector:        v.Selector,
+		ConfigRefs:      v.ConfigRefs,
 		FirstSeen:       v.FirstSeen,
 		LastSeen:        v.LastSeen,
 	}

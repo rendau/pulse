@@ -11,6 +11,9 @@ type Workload struct {
 	// Selector — label-селектор подов workload'а («app=x,tier=y»); у CronJob пустой.
 	Selector   string
 	Containers []Container
+	// ConfigRefs — имена configmap/secret, подключённых к шаблону пода (envFrom, env valueFrom,
+	// volumes); только имена, значения не читаются
+	ConfigRefs []string
 	CreatedAt  time.Time
 }
 

@@ -43,22 +43,46 @@ type Unreleased struct {
 
 // источники изменений конфигурации
 const (
+	// ConfigChangeSourceKusec — правка в kusec (аудит): ещё не в кластере, пока её не применил sync
 	ConfigChangeSourceKusec = "kusec"
-	// ConfigChangeSourceReloader — выкатка reloader'а: известен объект и отпечаток содержимого,
-	// но не ключи и не автор
+	// ConfigChangeSourceKusecSync — sync kusec применил объект в кластер без выкатки подов
+	ConfigChangeSourceKusecSync = "kusec_sync"
+	// ConfigChangeSourceReloader — выкатка reloader'а после смены объекта; если найден sync
+	// kusec, известны автор и изменённые ключи
 	ConfigChangeSourceReloader = "reloader"
 )
 
 // ConfigChange — изменение конфигурации с уже применённым маскированием.
 type ConfigChange struct {
-	TS       time.Time
-	Source   string // kusec | reloader
-	Workload string // namespace/name — для reloader
-	Kind     string // configmap | secret | env
-	Key      string
-	OldValue string
+	TS     time.Time
+	Source string // kusec | kusec_sync | reloader
+	// Action — create | update | delete | activate | deactivate | import (kusec);
+	// created | updated | deleted (kusec_sync); rollout (reloader)
+	Action   string
+	Kind     string // configmap | secret | app
+	Object   string // kusec-caravan-main
+	Key      string // ключ (kusec); пусто — объект целиком
+	OldValue string // значение (обычный конфиг, маскированное) или отпечаток (reloader); секрет — ***
 	NewValue string
-	Author   string
+	Fields   []string
+	// ChangedKeys — ключи, применённые sync'ом (kusec_sync, reloader)
+	ChangedKeys []string
+	Author      string
+	Workload    string // namespace/name — для reloader
+	SyncRunId   string
+	Status      string // статус sync, если не ok
+}
+
+// UnsyncedConfig — расхождение конфигурации в kusec и в кластере: правка не применена sync'ом
+// или содержимое объекта в кластере отличается (только имена ключей).
+type UnsyncedConfig struct {
+	Kind             string
+	Object           string
+	NotSyncedSince   *time.Time
+	ExistsInCluster  bool
+	MissingInCluster []string
+	ExtraInCluster   []string
+	ValueDiffers     []string
 }
 
 type ChangesResult struct {
@@ -68,7 +92,9 @@ type ChangesResult struct {
 	Unreleased    *Unreleased
 	Deploys       []*deployModel.Main
 	ConfigChanges []ConfigChange
-	Errors        []SourceError
+	// UnsyncedConfig — отсутствует, если kusec не подключён
+	UnsyncedConfig []UnsyncedConfig
+	Errors         []SourceError
 }
 
 type SourceError struct {

@@ -20,6 +20,7 @@ type Upsert struct {
 	ImageDigest     *string
 	DeployedCommit  *string
 	Selector        *string
+	ConfigRefs      *[]string
 	FirstSeen       *time.Time // только INSERT
 	LastSeen        *time.Time
 }
@@ -47,6 +48,9 @@ func (m *Upsert) CreateColumnMap() map[string]any {
 	}
 	if m.Selector != nil {
 		result["selector"] = *m.Selector
+	}
+	if m.ConfigRefs != nil {
+		result["config_refs"] = *m.ConfigRefs
 	}
 	if m.FirstSeen != nil {
 		result["first_seen"] = *m.FirstSeen
@@ -89,6 +93,7 @@ func DecodeUpsert(v *domainModel.Edit, _ int) *Upsert {
 		ImageDigest:     v.ImageDigest,
 		DeployedCommit:  v.DeployedCommit,
 		Selector:        v.Selector,
+		ConfigRefs:      v.ConfigRefs,
 		FirstSeen:       v.FirstSeen,
 		LastSeen:        v.LastSeen,
 	}

@@ -62,4 +62,41 @@ type Rollout struct {
 	ConfigName string
 	Hash       string
 	PrevHash   string
+	// Sync — запуск sync kusec, применивший изменение (если найден): автор и изменённые ключи
+	Sync *ConfigSync
+}
+
+// ConfigEdit — изменение в kusec (запись аудита) в доменном виде; значения уже маскированы.
+type ConfigEdit struct {
+	TS         time.Time
+	Author     string
+	Origin     string // ui | api | mcp | system
+	Action     string // create | update | delete | activate | deactivate | import
+	ObjectKind string // configmap | secret | app
+	ObjectName string // kusec-caravan-main
+	Key        string // пусто — изменение самого объекта
+	// ValueChanged — изменилось значение ключа (для секрета — только факт)
+	ValueChanged bool
+	OldValue     string
+	NewValue     string
+	// Fields — прочие изменённые поля (description, active, value_format…)
+	Fields []string
+}
+
+// ConfigSync — применение конфигурации kusec в кластер.
+type ConfigSync struct {
+	RunId   string
+	TS      time.Time
+	Author  string
+	Status  string // ok | partial | error | running
+	Error   string
+	Objects []ConfigSyncObject
+}
+
+// ConfigSyncObject — k8s-объект, изменённый запуском sync.
+type ConfigSyncObject struct {
+	ObjectKind  string // configmap | secret
+	ObjectName  string
+	Op          string // created | updated | deleted | error
+	ChangedKeys []string
 }

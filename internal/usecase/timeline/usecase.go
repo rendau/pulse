@@ -19,9 +19,7 @@ import (
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
 	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
 )
 
 // Config — лимиты (из yaml-правил).
@@ -108,10 +106,10 @@ func (u *Usecase) Timeline(ctx context.Context, req *model.TimelineReq) (*model.
 	eg.Go(func() error { c.deploys(egCtx); return nil })
 	eg.Go(func() error { c.clusterEvents(egCtx, clusterScope); return nil })
 	eg.Go(func() error { c.alertHistory(egCtx); return nil })
-	eg.Go(func() error { c.rollouts(egCtx); return nil })
-	if !clusterScope && len(services) <= u.conf.MaxServicesForCommits {
+	withDetails := !clusterScope && len(services) <= u.conf.MaxServicesForCommits
+	eg.Go(func() error { c.configuration(egCtx, withDetails); return nil })
+	if withDetails {
 		eg.Go(func() error { c.commits(egCtx); return nil })
-		eg.Go(func() error { c.configChanges(egCtx); return nil })
 	}
 	_ = eg.Wait()
 
@@ -207,23 +205,12 @@ func (u *Usecase) Changes(ctx context.Context, serviceName string, win time.Dura
 	}
 
 	eg.Go(func() error {
-		changes := lo.FilterMap(u.rollouts(egCtx, workloads, since, addError), func(r serviceRollout, _ int) (model.ConfigChange, bool) {
-			return encodeRolloutConfigChange(r)
-		})
+		config := u.configuration(egCtx, workloads, since, now, true, true, addError)
 		mu.Lock()
-		result.ConfigChanges = append(result.ConfigChanges, changes...)
-		mu.Unlock()
-		return nil
-	})
-
-	eg.Go(func() error {
-		changes, err := u.listConfigChanges(egCtx, service.Name, since, now)
-		if err != nil {
-			addError(constant.SourceKusec, err)
-			return nil
+		result.ConfigChanges = config.changes()
+		if u.kusec != nil {
+			result.UnsyncedConfig = lo.CoalesceSliceOrEmpty(config.unsynced)
 		}
-		mu.Lock()
-		result.ConfigChanges = append(result.ConfigChanges, lo.Map(changes, encodeConfigChange)...)
 		mu.Unlock()
 		return nil
 	})
@@ -263,33 +250,8 @@ func (u *Usecase) resolveServices(ctx context.Context, req *model.TimelineReq) (
 	return services, nil
 }
 
-// listConfigChanges — изменения из kusec с маскированием (ТЗ 4.2): секреты — только имя ключа,
-// env/configmap — значение через allowlist.
-func (u *Usecase) listConfigChanges(ctx context.Context, service string, since, until time.Time) ([]kusecModel.Change, error) {
-	if u.kusec == nil {
-		return nil, errs.Err("not configured")
-	}
-	changes, err := u.kusec.ListChanges(ctx, service, since, until)
-	if err != nil {
-		return nil, err
-	}
-	for i := range changes {
-		if changes[i].Kind == kusecModel.KindSecret {
-			changes[i].OldValue, changes[i].NewValue = redact.Secret(), redact.Secret()
-			continue
-		}
-		changes[i].OldValue = redact.Value(changes[i].Key, changes[i].OldValue)
-		changes[i].NewValue = redact.Value(changes[i].Key, changes[i].NewValue)
-	}
-	return changes, nil
-}
-
 var urlRe = regexp.MustCompile(`https?://[^\s"]+`)
 
 func compactError(err error) string {
 	return urlRe.ReplaceAllString(err.Error(), "<url>")
-}
-
-func encodeConfigChange(v kusecModel.Change, _ int) model.ConfigChange {
-	return model.ConfigChange{TS: v.TS, Source: model.ConfigChangeSourceKusec, Kind: v.Kind, Key: v.Key, OldValue: v.OldValue, NewValue: v.NewValue, Author: v.Author}
 }

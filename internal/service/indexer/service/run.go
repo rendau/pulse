@@ -207,6 +207,7 @@ func (d *workloadDraft) toEdit(cluster string, now time.Time) *workloadModel.Edi
 		ReplicasDesired: new(d.ReplicasDesired),
 		Image:           new(d.imageRaw),
 		Selector:        new(d.Selector),
+		ConfigRefs:      new(lo.CoalesceSliceOrEmpty(d.ConfigRefs)),
 		FirstSeen:       new(now),
 		LastSeen:        new(now),
 	}
