@@ -26,7 +26,7 @@ func TestMCPServer_Ping(t *testing.T) {
 		{Name: "broken_source", Ping: func(context.Context) error { return errors.New("connection refused") }},
 		{Name: "disabled_source"},
 	})
-	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil)
+	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil, nil)
 	server := MCPServerCreate(handler.Register)
 
 	const token = "secret-token"
@@ -58,6 +58,8 @@ func TestMCPServer_Ping(t *testing.T) {
 			names = append(names, tool.Name)
 		}
 		assert.Contains(t, names, "ping")
+		assert.Contains(t, names, "get_public_api")
+		assert.LessOrEqual(t, len(names), 13, "не более 13 инструментов (ТЗ, раздел 8)")
 
 		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ping"})
 		require.NoError(t, err)

@@ -22,6 +22,7 @@ type Service struct {
 	workload workloadServiceI
 	deploy   deployServiceI
 	depend   dependencyServiceI
+	ruto     RutoI
 
 	mapper *imageMapper
 	wg     sync.WaitGroup
@@ -36,6 +37,7 @@ func New(
 	workload workloadServiceI,
 	deploy deployServiceI,
 	depend dependencyServiceI,
+	ruto RutoI,
 ) *Service {
 	return &Service{
 		conf:     conf,
@@ -46,6 +48,7 @@ func New(
 		workload: workload,
 		deploy:   deploy,
 		depend:   depend,
+		ruto:     ruto,
 		mapper:   newImageMapper(conf.ImageMapping),
 	}
 }

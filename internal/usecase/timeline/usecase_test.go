@@ -57,13 +57,19 @@ func (f *fakeDeploy) List(context.Context, *deployModel.ListReq) ([]*deployModel
 }
 
 type fakeK8s struct {
-	pods   []k8sModel.Pod
-	events []k8sModel.Event
+	pods        []k8sModel.Pod
+	events      []k8sModel.Event
+	replicaSets []k8sModel.ReplicaSet
 }
 
 func (f *fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, error) {
 	return f.pods, nil
 }
+
+func (f *fakeK8s) ListReplicaSets(context.Context, string, string) ([]k8sModel.ReplicaSet, error) {
+	return f.replicaSets, nil
+}
+
 func (f *fakeK8s) ListEvents(context.Context, string, time.Time) ([]k8sModel.Event, error) {
 	return f.events, nil
 }
@@ -225,4 +231,38 @@ func TestChanges_Unreleased(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, res.Unreleased)
 	assert.Equal(t, constant.SourceKusec, res.Errors[0].Source)
+}
+
+func TestChanges_ReloaderRollouts(t *testing.T) {
+	now := time.Now().UTC()
+	u := newUsecase(now, &fakeGithub{cmp: &githubModel.Comparison{}}, &fakeKusec{}, nil)
+	reloaded := func(kind, name, hash string) map[string]string {
+		return map[string]string{"reloader.stakater.com/last-reloaded-from": `{"type":"` + kind + `","name":"` + name + `","hash":"` + hash + `"}`}
+	}
+	u.k8s = &fakeK8s{replicaSets: []k8sModel.ReplicaSet{
+		{Namespace: "prod", Name: "payments-api-1", OwnerKind: "Deployment", OwnerName: "payments-api", Revision: 1,
+			CreatedAt: now.Add(-48 * time.Hour), TemplateAnnotations: reloaded("CONFIGMAP", "kusec-payments-api-main", "aaaaaaaaaaaaaaaa")},
+		{Namespace: "prod", Name: "payments-api-2", OwnerKind: "Deployment", OwnerName: "payments-api", Revision: 2,
+			CreatedAt: now.Add(-30 * time.Minute), TemplateAnnotations: reloaded("SECRET", "kusec-payments-api-main", "bbbbbbbbbbbbbbbb")},
+		// чужой ReplicaSet под тем же селектором не учитывается
+		{Namespace: "prod", Name: "other-2", OwnerKind: "Deployment", OwnerName: "other", Revision: 2,
+			CreatedAt: now.Add(-10 * time.Minute), TemplateAnnotations: reloaded("CONFIGMAP", "x", "cccccccccccccccc")},
+	}}
+
+	res, err := u.Changes(context.Background(), "payments-api", time.Hour)
+	require.NoError(t, err)
+	require.Len(t, res.ConfigChanges, 1)
+	change := res.ConfigChanges[0]
+	assert.Equal(t, model.ConfigChangeSourceReloader, change.Source)
+	assert.Equal(t, "prod/payments-api", change.Workload)
+	assert.Equal(t, "secret", change.Kind)
+	assert.Equal(t, "kusec-payments-api-main", change.Key)
+	assert.Equal(t, "***", change.NewValue, "отпечаток secret не отдаётся")
+
+	timeline, err := u.Timeline(context.Background(), &model.TimelineReq{Services: []string{"payments-api"}, Window: time.Hour})
+	require.NoError(t, err)
+	_, found := lo.Find(timeline.Events, func(e eventModel_Event) bool {
+		return e.Type == constant.EventTypeConfigChange && e.Details["name"] == "kusec-payments-api-main"
+	})
+	assert.True(t, found, "выкатка reloader'а — событие config_change в таймлайне")
 }

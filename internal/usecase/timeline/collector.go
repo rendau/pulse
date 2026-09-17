@@ -136,6 +136,13 @@ func (c *collector) clusterEvents(ctx context.Context, clusterScope bool) {
 	_ = eg.Wait()
 }
 
+// rollouts — выкатки из-за смены configmap/secret (reloader) и ручные рестарты.
+func (c *collector) rollouts(ctx context.Context) {
+	for _, r := range c.u.rollouts(ctx, c.workloads, c.since, c.addError) {
+		c.add(c.u.events.FromRollout(r.Rollout, r.service))
+	}
+}
+
 // alertHistory — интервалы firing из метрики ALERTS: начало серии = срабатывание.
 func (c *collector) alertHistory(ctx context.Context) {
 	if c.u.prometheus == nil {

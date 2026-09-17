@@ -10,6 +10,7 @@ import (
 	"github.com/mechta-market/pulse/internal/usecase/dependencies"
 	"github.com/mechta-market/pulse/internal/usecase/endpoints"
 	"github.com/mechta-market/pulse/internal/usecase/logs"
+	"github.com/mechta-market/pulse/internal/usecase/publicapi"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot"
 	"github.com/mechta-market/pulse/internal/usecase/system"
 	"github.com/mechta-market/pulse/internal/usecase/timeline"
@@ -22,6 +23,7 @@ type Handler struct {
 	logs         logs.LogsI
 	timeline     timeline.TimelineI
 	dependencies dependencies.DependenciesI
+	publicApi    publicapi.PublicApiI
 	endpoints    endpoints.EndpointsI
 	cluster      cluster.ClusterI
 }
@@ -33,12 +35,13 @@ func New(
 	logs logs.LogsI,
 	timeline timeline.TimelineI,
 	dependencies dependencies.DependenciesI,
+	publicApi publicapi.PublicApiI,
 	endpoints endpoints.EndpointsI,
 	cluster cluster.ClusterI,
 ) *Handler {
 	return &Handler{
 		system: system, catalog: catalog, snapshot: snapshot, logs: logs,
-		timeline: timeline, dependencies: dependencies, endpoints: endpoints, cluster: cluster,
+		timeline: timeline, dependencies: dependencies, publicApi: publicApi, endpoints: endpoints, cluster: cluster,
 	}
 }
 
@@ -106,6 +109,12 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: getDependenciesDescription,
 		Annotations: readOnly,
 	}, h.GetDependencies)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_public_api",
+		Description: getPublicApiDescription,
+		Annotations: readOnly,
+	}, h.GetPublicApi)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "call_service_endpoint",

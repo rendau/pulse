@@ -6,6 +6,7 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/mechta-market/pulse/internal/constant"
+	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
 	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
@@ -32,6 +34,9 @@ type Config struct {
 	MaxAlerts int
 	// DefaultMetrics — golden signals, когда в service.yaml нет metrics
 	DefaultMetrics []snapshotModel.MetricDef
+	// PublicMetrics — метрики gateway ruto с плейсхолдером {ruto_apps}; добавляются, когда у
+	// сервиса есть приложения ruto
+	PublicMetrics []snapshotModel.MetricDef
 
 	// ограничения query_metrics
 	MaxWindow time.Duration
@@ -47,6 +52,7 @@ type Usecase struct {
 
 	svc          svcServiceI
 	workload     workloadServiceI
+	depend       dependencyServiceI
 	k8s          k8sClientI
 	prometheus   PrometheusI
 	alertmanager AlertmanagerI
@@ -59,6 +65,7 @@ func New(
 	conf Config,
 	svc svcServiceI,
 	workload workloadServiceI,
+	depend dependencyServiceI,
 	k8s k8sClientI,
 	prometheus PrometheusI,
 	alertmanager AlertmanagerI,
@@ -79,6 +86,7 @@ func New(
 		conf:         conf,
 		svc:          svc,
 		workload:     workload,
+		depend:       depend,
 		k8s:          k8s,
 		prometheus:   prometheus,
 		alertmanager: alertmanager,
@@ -307,7 +315,7 @@ func (c *collector) metrics(ctx context.Context) {
 		return
 	}
 
-	defs := c.u.metricDefs(c.service, c.workloads)
+	defs := c.u.metricDefs(c.service, c.workloads, c.u.rutoApps(ctx, c.service.Name))
 	metrics := make([]snapshotModel.Metric, len(defs))
 
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -396,26 +404,58 @@ func (c *collector) finish() {
 }
 
 // metricDefs — метрики из service.yaml, иначе дефолтные golden signals с подстановкой
-// {namespace}, {pod_regex}, {service}.
-func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.Main) []snapshotModel.MetricDef {
-	if len(service.Metadata.Metrics) > 0 {
-		return lo.Map(service.Metadata.Metrics, func(m svcModel.Metric, _ int) snapshotModel.MetricDef {
+// {namespace}, {pod_regex}, {service}; плюс внешние метрики gateway, если сервис опубликован в ruto.
+func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.Main, rutoApps []string) []snapshotModel.MetricDef {
+	var defs []snapshotModel.MetricDef
+	switch {
+	case len(service.Metadata.Metrics) > 0:
+		defs = lo.Map(service.Metadata.Metrics, func(m svcModel.Metric, _ int) snapshotModel.MetricDef {
 			return snapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
 		})
+	case len(workloads) > 0:
+		names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
+		replacer := strings.NewReplacer(
+			"{namespace}", workloads[0].Namespace,
+			"{pod_regex}", "^("+strings.Join(names, "|")+")-.*",
+			"{service}", service.Name,
+		)
+		defs = lo.Map(u.conf.DefaultMetrics, func(m snapshotModel.MetricDef, _ int) snapshotModel.MetricDef {
+			m.PromQL = replacer.Replace(m.PromQL)
+			return m
+		})
 	}
-	if len(workloads) == 0 {
+
+	if len(rutoApps) == 0 {
+		return defs
+	}
+	apps := strings.NewReplacer("{ruto_apps}", promRegexAlternation(rutoApps))
+	return append(defs, lo.Map(u.conf.PublicMetrics, func(m snapshotModel.MetricDef, _ int) snapshotModel.MetricDef {
+		m.PromQL = apps.Replace(m.PromQL)
+		return m
+	})...)
+}
+
+// rutoApps — имена приложений gateway ruto, ведущих на сервис (рёбра индексера). Ошибка
+// чтения не мешает снапшоту: внешних метрик просто не будет.
+func (u *Usecase) rutoApps(ctx context.Context, service string) []string {
+	if len(u.conf.PublicMetrics) == 0 {
 		return nil
 	}
+	edges, _, err := u.depend.List(ctx, &dependencyModel.ListReq{ToServices: []string{service}})
+	if err != nil {
+		slog.Warn("snapshot: ruto apps are unavailable", "service", service, "error", err)
+		return nil
+	}
+	return lo.Uniq(lo.FilterMap(edges, func(e *dependencyModel.Main, _ int) (string, bool) {
+		return e.Key, e.Source == dependencyModel.SourceRuto
+	}))
+}
 
-	names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
-	replacer := strings.NewReplacer(
-		"{namespace}", workloads[0].Namespace,
-		"{pod_regex}", "^("+strings.Join(names, "|")+")-.*",
-		"{service}", service.Name,
-	)
-
-	return lo.Map(u.conf.DefaultMetrics, func(m snapshotModel.MetricDef, _ int) snapshotModel.MetricDef {
-		m.PromQL = replacer.Replace(m.PromQL)
-		return m
+// promRegexAlternation — (a|b) для label-матчера PromQL: метасимволы экранируются, а обратный
+// слеш удваивается, потому что строка PromQL в двойных кавычках сама разбирает escape-последовательности.
+func promRegexAlternation(values []string) string {
+	quoted := lo.Map(values, func(v string, _ int) string {
+		return strings.ReplaceAll(regexp.QuoteMeta(v), `\`, `\\`)
 	})
+	return strings.Join(quoted, "|")
 }

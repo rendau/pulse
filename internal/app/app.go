@@ -40,6 +40,7 @@ import (
 	serviceLokiServiceP "github.com/mechta-market/pulse/internal/service/loki/service"
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
+	serviceRutoServiceP "github.com/mechta-market/pulse/internal/service/ruto/service"
 	serviceSvcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	serviceSvcproxyServiceP "github.com/mechta-market/pulse/internal/service/svcproxy/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
@@ -47,6 +48,7 @@ import (
 	usecaseDependenciesP "github.com/mechta-market/pulse/internal/usecase/dependencies"
 	usecaseEndpointsP "github.com/mechta-market/pulse/internal/usecase/endpoints"
 	usecaseLogsP "github.com/mechta-market/pulse/internal/usecase/logs"
+	usecasePublicapiP "github.com/mechta-market/pulse/internal/usecase/publicapi"
 	usecaseSnapshotP "github.com/mechta-market/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
 	usecaseTimelineP "github.com/mechta-market/pulse/internal/usecase/timeline"
@@ -114,6 +116,11 @@ func (a *App) Init() {
 			serviceAlertmanagerServiceP.Auth{Token: config.Conf.AlertmanagerToken})
 	}
 
+	var rutoService *serviceRutoServiceP.Service
+	if config.Conf.RutoUrl != "" {
+		rutoService = serviceRutoServiceP.New(config.Conf.RutoUrl)
+	}
+
 	var kusecService *serviceKusecServiceP.Service
 	if config.Conf.KusecUrl != "" {
 		kusecService = serviceKusecServiceP.New(config.Conf.KusecUrl, serviceKusecServiceP.Auth{Token: config.Conf.KusecToken})
@@ -137,6 +144,7 @@ func (a *App) Init() {
 			usecaseSystemP.Source{Name: constant.SourcePrometheus, Ping: optionalPing(prometheusService)},
 			usecaseSystemP.Source{Name: constant.SourceLoki, Ping: optionalPing(lokiService)},
 			usecaseSystemP.Source{Name: constant.SourceAlertmanager, Ping: optionalPing(alertmanagerService)},
+			usecaseSystemP.Source{Name: constant.SourceRuto, Ping: optionalPing(rutoService)},
 			usecaseSystemP.Source{Name: constant.SourceKusec, Ping: optionalPing(kusecService)},
 		)
 
@@ -164,6 +172,12 @@ func (a *App) Init() {
 
 	// indexer
 	if config.Conf.IndexerEnabled {
+		// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
+		var rutoClient serviceIndexerServiceP.RutoI
+		if rutoService != nil {
+			rutoClient = rutoService
+		}
+
 		a.indexer = serviceIndexerServiceP.New(
 			serviceIndexerModel.Config{
 				Cluster:    config.Conf.ClusterName,
@@ -172,8 +186,9 @@ func (a *App) Init() {
 				ImageMapping: lo.Map(rules.ImageMapping, func(m config.ImageMapping, _ int) serviceIndexerModel.ImageMapping {
 					return serviceIndexerModel.ImageMapping{Registry: m.Registry, RepoTemplate: m.RepoTemplate, Org: m.Org}
 				}),
+				RutoGatewayService: rules.Ruto.GatewayService,
 			},
-			k8sService, githubService, registryService, svcService, workloadService, deployService, dependencyService,
+			k8sService, githubService, registryService, svcService, workloadService, deployService, dependencyService, rutoClient,
 		)
 	}
 
@@ -230,12 +245,15 @@ func (a *App) Init() {
 				DefaultMetrics: lo.Map(rules.Snapshot.DefaultMetrics, func(m config.MetricDef, _ int) domainSnapshotModel.MetricDef {
 					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
 				}),
+				PublicMetrics: lo.Map(rules.Snapshot.PublicMetrics, func(m config.MetricDef, _ int) domainSnapshotModel.MetricDef {
+					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
+				}),
 				MaxWindow: rules.Metrics.MaxWindow,
 				MaxSeries: rules.Metrics.MaxSeries,
 				MaxPoints: rules.Metrics.MaxPoints,
 				TopErrors: rules.Logs.TopErrors,
 			},
-			svcService, workloadService, k8sService, prometheusClient, alertmanagerClient, logsClient, eventService, rulesService,
+			svcService, workloadService, dependencyService, k8sService, prometheusClient, alertmanagerClient, logsClient, eventService, rulesService,
 		)
 	}
 
@@ -269,6 +287,29 @@ func (a *App) Init() {
 		svcService, workloadService, dependencyService, k8sService,
 		domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
 	)
+
+	// public api (внешний контур через gateway ruto)
+	var publicApiUsecase *usecasePublicapiP.Usecase
+	{
+		var rutoClient usecasePublicapiP.RutoI
+		if rutoService != nil {
+			rutoClient = rutoService
+		}
+		var prometheusClient usecasePublicapiP.PrometheusI
+		if prometheusService != nil {
+			prometheusClient = prometheusService
+		}
+
+		publicApiUsecase = usecasePublicapiP.New(
+			usecasePublicapiP.Config{
+				Deadline:       rules.Ruto.Deadline,
+				MaxEndpoints:   rules.Ruto.MaxEndpoints,
+				RequestsMetric: rules.Ruto.RequestsMetric,
+				DurationMetric: rules.Ruto.DurationMetric,
+			},
+			svcService, dependencyService, rutoClient, prometheusClient,
+		)
+	}
 
 	// endpoints (прокси к диагностическим ручкам)
 	var endpointsUsecase *usecaseEndpointsP.Usecase
@@ -323,7 +364,7 @@ func (a *App) Init() {
 
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, endpointsUsecase, clusterUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath, config.Conf.MCPAuthToken, a.mcpServer)
 	}

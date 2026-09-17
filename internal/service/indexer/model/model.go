@@ -9,6 +9,8 @@ type Config struct {
 	StaleAfter time.Duration
 	// ImageMapping — правила «образ → репозиторий», первое совпадение
 	ImageMapping []ImageMapping
+	// RutoGatewayService — сервис каталога gateway ruto: источник рёбер «gateway → backend приложения»
+	RutoGatewayService string
 }
 
 type ImageMapping struct {

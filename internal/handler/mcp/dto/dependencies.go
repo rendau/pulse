@@ -19,7 +19,7 @@ type DependenciesRep struct {
 	Direction string        `json:"direction"`
 	Depth     int           `json:"depth"`
 	Nodes     []GraphNode   `json:"nodes"`
-	Edges     []GraphEdge   `json:"edges" jsonschema:"сконфигурированные связи (env/configmap), не фактический трафик"`
+	Edges     []GraphEdge   `json:"edges" jsonschema:"сконфигурированные связи (env/configmap, маршруты ruto), не фактический трафик"`
 	Truncated bool          `json:"truncated" jsonschema:"true — узлов больше лимита, уменьши depth"`
 	Errors    []SourceError `json:"errors"`
 }
@@ -39,7 +39,7 @@ type GraphEdge struct {
 	Host     string    `json:"host"`
 	Port     int32     `json:"port,omitempty"`
 	Scheme   string    `json:"scheme,omitempty"`
-	Source   string    `json:"source" jsonschema:"env | configmap | kusec — откуда известна связь"`
+	Source   string    `json:"source" jsonschema:"env | configmap | kusec | ruto (маршрут gateway, keys — имена приложений ruto) — откуда известна связь"`
 	Keys     []string  `json:"keys" jsonschema:"переменные/ключи конфигурации с этим адресом"`
 	LastSeen time.Time `json:"last_seen"`
 }

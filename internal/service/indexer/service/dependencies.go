@@ -58,6 +58,10 @@ func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraf
 		}
 	}
 
+	for _, edit := range s.rutoEdits(ctx, drafts, resolver, now) {
+		edits[fmt.Sprintf("%s|%s|%d|%s", *edit.FromService, *edit.ToHost, *edit.Port, *edit.Key)] = edit
+	}
+
 	if len(edits) == 0 {
 		return 0
 	}
@@ -66,6 +70,59 @@ func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraf
 		return 0
 	}
 	return len(edits)
+}
+
+// rutoEdits — рёбра «gateway ruto → backend приложения» из опубликованной конфигурации
+// gateway (ключ ребра — имя приложения ruto). По ним get_public_api и снапшот находят
+// приложения ruto сервиса. ruto недоступен — рёбра не обновляются и уходят по stale_after.
+func (s *Service) rutoEdits(ctx context.Context, drafts []*workloadDraft, resolver *hostResolver, now time.Time) []*dependencyModel.Edit {
+	if s.ruto == nil || s.conf.RutoGatewayService == "" {
+		return nil
+	}
+
+	snapshot, err := s.ruto.GetSnapshot(ctx)
+	if err != nil {
+		slog.Warn("indexer: ruto is unavailable, public routes are not updated", "error", err)
+		return nil
+	}
+
+	// хост backend'а без namespace — в namespace gateway
+	namespace := "default"
+	if gw, ok := lo.Find(drafts, func(d *workloadDraft) bool { return d.serviceKey == s.conf.RutoGatewayService }); ok {
+		namespace = gw.Namespace
+	}
+
+	result := make([]*dependencyModel.Edit, 0, len(snapshot.Apps))
+	for _, app := range snapshot.Apps {
+		if !app.Active {
+			continue
+		}
+		for _, raw := range []string{app.BackendUrl, grpcTarget(app.GrpcUrl)} {
+			for _, ep := range s.depend.ParseEndpoints(raw) {
+				result = append(result, &dependencyModel.Edit{
+					Cluster:     new(s.conf.Cluster),
+					FromService: new(s.conf.RutoGatewayService),
+					ToService:   new(resolver.resolve(ep.Host, namespace)),
+					ToHost:      new(ep.Host),
+					Port:        new(ep.Port),
+					Scheme:      new(ep.Scheme),
+					Source:      new(dependencyModel.SourceRuto),
+					Key:         new(app.Name),
+					FirstSeen:   new(now),
+					LastSeen:    new(now),
+				})
+			}
+		}
+	}
+	return result
+}
+
+// grpcTarget снимает схему резолвера gRPC (dns:///host:port, passthrough:///host:port).
+func grpcTarget(target string) string {
+	if _, rest, ok := strings.Cut(target, ":///"); ok {
+		return rest
+	}
+	return target
 }
 
 type envValue struct {

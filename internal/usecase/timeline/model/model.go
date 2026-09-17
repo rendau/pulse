@@ -41,9 +41,19 @@ type Unreleased struct {
 	Commits        []Commit
 }
 
+// источники изменений конфигурации
+const (
+	ConfigChangeSourceKusec = "kusec"
+	// ConfigChangeSourceReloader — выкатка reloader'а: известен объект и отпечаток содержимого,
+	// но не ключи и не автор
+	ConfigChangeSourceReloader = "reloader"
+)
+
 // ConfigChange — изменение конфигурации с уже применённым маскированием.
 type ConfigChange struct {
 	TS       time.Time
+	Source   string // kusec | reloader
+	Workload string // namespace/name — для reloader
 	Kind     string // configmap | secret | env
 	Key      string
 	OldValue string

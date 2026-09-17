@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -19,6 +17,8 @@ type Service struct {
 	client *github.Client
 	// branches — кэш веток по умолчанию: owner/repo → branch
 	branches sync.Map
+	// imageCommits — digest образа → коммит сборки (imageCommit)
+	imageCommits sync.Map
 }
 
 func New(token string) *Service {
@@ -48,11 +48,7 @@ func (s *Service) GetFileContent(ctx context.Context, repoUrl, path string) ([]b
 	// пустой Ref — ветка по умолчанию
 	file, _, resp, err := s.client.Repositories.GetContents(ctx, owner, repo, path, nil)
 	if err != nil {
-		if resp != nil && resp.StatusCode == http.StatusNotFound {
-			return nil, false, nil
-		}
-		var ghErr *github.ErrorResponse
-		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == http.StatusNotFound {
+		if isNotFound(resp, err) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("Repositories.GetContents(%s/%s, %s): %w", owner, repo, path, err)

@@ -51,7 +51,7 @@ func (u *Usecase) QueryMetrics(ctx context.Context, req *model.QueryMetricsReq) 
 		if err != nil {
 			return nil, fmt.Errorf("workload.List: %w", err)
 		}
-		defs := u.metricDefs(service, workloads)
+		defs := u.metricDefs(service, workloads, u.rutoApps(ctx, service.Name))
 		found, ok := lo.Find(defs, func(d snapshotModel.MetricDef) bool { return d.Id == req.MetricId })
 		if !ok {
 			ids := lo.Map(defs, func(d snapshotModel.MetricDef, _ int) string { return d.Id })

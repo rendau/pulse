@@ -83,6 +83,8 @@ type Deploy struct {
 
 type ConfigChange struct {
 	TS       time.Time `json:"ts"`
+	Source   string    `json:"source" jsonschema:"kusec — изменение ключа; reloader — поды перекачены после смены configmap/secret (key — имя объекта, значения — отпечатки содержимого)"`
+	Workload string    `json:"workload,omitempty"`
 	Kind     string    `json:"kind" jsonschema:"configmap | secret | env"`
 	Key      string    `json:"key"`
 	OldValue string    `json:"old_value"`
@@ -122,7 +124,7 @@ func encodeDeploy(v *deployModel.Main, _ int) Deploy {
 }
 
 func encodeConfigChange(v usecaseTimelineModel.ConfigChange, _ int) ConfigChange {
-	return ConfigChange{TS: v.TS.UTC(), Kind: v.Kind, Key: v.Key, OldValue: v.OldValue, NewValue: v.NewValue, Author: v.Author}
+	return ConfigChange{TS: v.TS.UTC(), Source: v.Source, Workload: v.Workload, Kind: v.Kind, Key: v.Key, OldValue: v.OldValue, NewValue: v.NewValue, Author: v.Author}
 }
 
 func encodeTimelineSourceError(v usecaseTimelineModel.SourceError, _ int) SourceError {

@@ -84,6 +84,18 @@ type PodContainer struct {
 	LastTerminatedAt      time.Time
 }
 
+// ReplicaSet — ревизия шаблона пода Deployment'а. Аннотации шаблона показывают, чем вызвана
+// выкатка: keel (новый образ), reloader (смена configmap/secret), kubectl rollout restart.
+type ReplicaSet struct {
+	Namespace           string
+	Name                string
+	OwnerKind           string
+	OwnerName           string
+	Revision            int64
+	CreatedAt           time.Time
+	TemplateAnnotations map[string]string
+}
+
 // Event — событие кластера, привязанное к объекту (Pod, ReplicaSet, Deployment…).
 type Event struct {
 	Namespace  string

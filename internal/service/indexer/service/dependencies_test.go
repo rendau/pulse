@@ -13,6 +13,7 @@ import (
 	dependencyService "github.com/mechta-market/pulse/internal/domain/dependency/service"
 	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
 )
 
 type fakeK8sDeps struct {
@@ -102,4 +103,43 @@ func TestRecordDependencies(t *testing.T) {
 	assert.NotContains(t, byKey, "DB_DSN", "секрет не читается")
 	assert.NotContains(t, byKey, "HTTP_CORS")
 	assert.NotContains(t, byKey, "LOG_LEVEL")
+}
+
+type fakeRuto struct{ snapshot *rutoModel.Snapshot }
+
+func (f *fakeRuto) GetSnapshot(context.Context) (*rutoModel.Snapshot, error) { return f.snapshot, nil }
+
+func TestRecordDependencies_RutoRoutes(t *testing.T) {
+	depend := &fakeDepend{Service: dependencyService.New(nil)}
+	ruto := &fakeRuto{snapshot: &rutoModel.Snapshot{Apps: []rutoModel.App{
+		{Name: "ocenter", Active: true, BackendUrl: "http://ocenter-svc.default.svc.cluster.local"},
+		{Name: "caravan", Active: true, BackendUrl: "http://caravan", GrpcUrl: "dns:///caravan:5050"},
+		{Name: "legacy", Active: false, BackendUrl: "http://legacy"},
+		{Name: "partner", Active: true, BackendUrl: "https://partner.example.com/api"},
+	}}}
+	k8s := &fakeK8sDeps{services: []k8sModel.Service{
+		{Namespace: "default", Name: "ocenter-svc", Selector: map[string]string{"app": "ocenter"}},
+	}}
+	s := &Service{conf: indexerModel.Config{Cluster: "zeon", RutoGatewayService: "ruto-gateway"}, k8s: k8s, depend: depend, ruto: ruto}
+
+	drafts := []*workloadDraft{
+		draft("default", "ruto-gateway", "ruto-gateway", nil),
+		draft("default", "ocenter", "ocenter", nil),
+		draft("default", "caravan", "caravan", nil),
+	}
+
+	count := s.recordDependencies(context.Background(), drafts, time.Now())
+	assert.Equal(t, 4, count, "http и grpc адреса caravan — два ребра, выключенное приложение пропущено")
+
+	for _, e := range depend.upserted {
+		assert.Equal(t, "ruto-gateway", *e.FromService)
+		assert.Equal(t, dependencyModel.SourceRuto, *e.Source)
+	}
+	byTarget := lo.GroupBy(depend.upserted, func(e *dependencyModel.Edit) string { return *e.Key })
+	require.Len(t, byTarget["ocenter"], 1)
+	assert.Equal(t, "ocenter", *byTarget["ocenter"][0].ToService, "хост k8s Service → workload через селектор")
+	require.Len(t, byTarget["caravan"], 2)
+	assert.ElementsMatch(t, []int32{80, 5050}, lo.Map(byTarget["caravan"], func(e *dependencyModel.Edit, _ int) int32 { return *e.Port }))
+	assert.Equal(t, "", *byTarget["partner"][0].ToService, "внешний backend")
+	assert.NotContains(t, byTarget, "legacy")
 }

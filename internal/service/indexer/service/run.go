@@ -273,6 +273,8 @@ func (s *Service) fetchMetadata(ctx context.Context, repos []string, stats *inde
 	return results
 }
 
+// resolveCommits — коммит запущенного образа: OCI-label revision, а если его нет (сервисы
+// собираются без label'ов) — по сборке в GitHub Actions, опубликовавшей этот digest в ghcr.
 func (s *Service) resolveCommits(ctx context.Context, drafts []*workloadDraft, stats *indexerStats) {
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(localConstant.RegistryConcurrency)
@@ -285,9 +287,14 @@ func (s *Service) resolveCommits(ctx context.Context, drafts []*workloadDraft, s
 			labelsMap, err := s.registry.GetImageLabels(egCtx, d.image.WithDigest(d.digest).String())
 			if err != nil {
 				slog.Debug("indexer: image labels are unavailable", "image", d.imageRaw, "error", err)
+			}
+			if d.commit = labelsMap[localConstant.RevisionLabel]; d.commit != "" || d.image.Host != localConstant.GhcrHost {
 				return nil
 			}
-			d.commit = labelsMap[localConstant.RevisionLabel]
+
+			if d.commit, err = s.github.ResolveImageCommit(egCtx, d.repoUrl, d.image.Path, d.digest); err != nil {
+				slog.Debug("indexer: image build commit is unavailable", "image", d.imageRaw, "error", err)
+			}
 			return nil
 		})
 	}

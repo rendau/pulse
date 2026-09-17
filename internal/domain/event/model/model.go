@@ -33,3 +33,33 @@ type ContainerTermination struct {
 	Reason    string // OOMKilled | Error | Completed …
 	Restarts  int32
 }
+
+// PodTemplateRevision — ревизия шаблона пода Deployment'а (ReplicaSet) с аннотациями шаблона.
+type PodTemplateRevision struct {
+	Name        string
+	Revision    int64
+	CreatedAt   time.Time
+	Annotations map[string]string
+}
+
+// причины выкатки, выводимые из аннотаций шаблона
+const (
+	// RolloutCauseConfigReload — reloader перекатил поды после смены configmap/secret
+	RolloutCauseConfigReload = "config_reload"
+	// RolloutCauseRestart — ручной kubectl rollout restart
+	RolloutCauseRestart = "restart"
+)
+
+// Rollout — выкатка workload'а с известной причиной.
+type Rollout struct {
+	TS       time.Time
+	Workload string // namespace/name
+	Revision int64
+	Cause    string // config_reload | restart
+	// ConfigKind / ConfigName / Hash / PrevHash — для config_reload: объект конфигурации и
+	// отпечатки его содержимого (reloader), не значения
+	ConfigKind string // configmap | secret
+	ConfigName string
+	Hash       string
+	PrevHash   string
+}

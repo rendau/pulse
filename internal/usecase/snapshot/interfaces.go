@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
 	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
@@ -28,6 +29,10 @@ type svcServiceI interface {
 
 type workloadServiceI interface {
 	List(ctx context.Context, pars *workloadModel.ListReq) ([]*workloadModel.Main, int64, error)
+}
+
+type dependencyServiceI interface {
+	List(ctx context.Context, pars *dependencyModel.ListReq) ([]*dependencyModel.Main, int64, error)
 }
 
 type k8sClientI interface {

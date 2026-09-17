@@ -31,6 +31,9 @@ type Rules struct {
 		// DefaultMetrics — golden signals, когда в service.yaml нет metrics. Плейсхолдеры в promql:
 		// {namespace}, {pod_regex} (^(w1|w2)-.*), {service}
 		DefaultMetrics []MetricDef `yaml:"default_metrics"`
+		// PublicMetrics — внешняя картина по метрикам gateway ruto; добавляются к метрикам сервиса,
+		// у которого есть приложения ruto. Плейсхолдер {ruto_apps} — регэксп имён приложений (a|b)
+		PublicMetrics []MetricDef `yaml:"public_metrics"`
 	} `yaml:"snapshot"`
 
 	Logs struct {
@@ -81,6 +84,17 @@ type Rules struct {
 		// Metrics — метрики кластера с базовой линией (node-exporter / kube-state-metrics)
 		Metrics []MetricDef `yaml:"metrics"`
 	} `yaml:"cluster"`
+
+	Ruto struct {
+		// GatewayService — сервис каталога gateway (имя образа ruto-gateway)
+		GatewayService string `yaml:"gateway_service"`
+		// RequestsMetric / DurationMetric — метрики gateway с лейблами app, method, status
+		RequestsMetric string `yaml:"requests_metric"`
+		DurationMetric string `yaml:"duration_metric"`
+		// Deadline — дедлайн get_public_api; MaxEndpoints — потолок маршрутов в ответе
+		Deadline     time.Duration `yaml:"deadline"`
+		MaxEndpoints int           `yaml:"max_endpoints"`
+	} `yaml:"ruto"`
 
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
@@ -155,6 +169,24 @@ func (r *Rules) applyDefaults() {
 	if len(r.Snapshot.DefaultMetrics) == 0 {
 		r.Snapshot.DefaultMetrics = defaultMetrics()
 	}
+	if r.Ruto.GatewayService == "" {
+		r.Ruto.GatewayService = "ruto-gateway"
+	}
+	if r.Ruto.RequestsMetric == "" {
+		r.Ruto.RequestsMetric = "mechta_ruto_gw_http_requests_total"
+	}
+	if r.Ruto.DurationMetric == "" {
+		r.Ruto.DurationMetric = "mechta_ruto_gw_http_request_duration_seconds"
+	}
+	if r.Ruto.Deadline <= 0 {
+		r.Ruto.Deadline = 8 * time.Second
+	}
+	if r.Ruto.MaxEndpoints <= 0 {
+		r.Ruto.MaxEndpoints = 100
+	}
+	if len(r.Snapshot.PublicMetrics) == 0 {
+		r.Snapshot.PublicMetrics = defaultPublicMetrics(r.Ruto.RequestsMetric, r.Ruto.DurationMetric)
+	}
 	if r.Logs.MaxLines <= 0 {
 		r.Logs.MaxLines = 5000
 	}
@@ -171,7 +203,7 @@ func (r *Rules) applyDefaults() {
 		r.Logs.TopErrors = 3
 	}
 	if r.Logs.DefaultSelector == "" {
-		r.Logs.DefaultSelector = `{namespace="{namespace}", pod=~"{pod_regex}"}`
+		r.Logs.DefaultSelector = `{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}`
 	}
 	if r.Timeline.Deadline <= 0 {
 		r.Timeline.Deadline = 8 * time.Second
@@ -246,22 +278,45 @@ func defaultRules() *Rules {
 }
 
 // defaultMetrics — golden signals по метрикам kubelet/cAdvisor и kube-state-metrics плюс
-// http-метрики go-шаблона (request_total / response_duration_seconds). Имена метрик приложения
-// в конкретном кластере могут отличаться — тогда набор переопределяется в conf.yml.
+// http/grpc-метрики go-шаблона. Шаблон регистрирует их с префиксом namespace_subsystem
+// (mechta_caravan_request_total, у старых сервисов — *_request_count) и статусом ok|error,
+// поэтому имя ищется регэкспом, а ошибка — это status error или 5xx. Метрики приложения
+// есть только у сервисов со ServiceMonitor; у остальных rps/error_rate/latency пустые.
 func defaultMetrics() []MetricDef {
+	const (
+		requests = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}`
+		errors   = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status=~"error|5.."}`
+		buckets  = `{__name__=~".+_response_duration_seconds_bucket", namespace="{namespace}", pod=~"{pod_regex}"}`
+	)
 	return []MetricDef{
 		{Id: "rps", Title: "Запросов в секунду", Unit: "rps",
-			PromQL: `sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))`},
-		{Id: "error_rate_5xx", Title: "Доля ответов 5xx", Unit: "ratio", Direction: "lower_is_better",
-			PromQL: `sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}", status=~"5.."}[5m])) / sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))`},
+			PromQL: `sum(rate(` + requests + `[5m]))`},
+		{Id: "error_rate", Title: "Доля ошибок (status error или 5xx)", Unit: "ratio", Direction: "lower_is_better",
+			PromQL: `sum(rate(` + errors + `[5m])) / sum(rate(` + requests + `[5m]))`},
 		{Id: "latency_p95", Title: "Latency p95", Unit: "seconds", Direction: "lower_is_better",
-			PromQL: `histogram_quantile(0.95, sum by (le) (rate(response_duration_seconds_bucket{namespace="{namespace}", pod=~"{pod_regex}"}[5m])))`},
+			PromQL: `histogram_quantile(0.95, sum by (le) (rate(` + buckets + `[5m])))`},
 		{Id: "cpu_cores", Title: "CPU, ядер", Unit: "cores", Direction: "lower_is_better",
 			PromQL: `sum(rate(container_cpu_usage_seconds_total{namespace="{namespace}", pod=~"{pod_regex}", container!=""}[5m]))`},
 		{Id: "memory_bytes", Title: "Память (working set)", Unit: "bytes", Direction: "lower_is_better",
 			PromQL: `sum(container_memory_working_set_bytes{namespace="{namespace}", pod=~"{pod_regex}", container!=""})`},
 		{Id: "restarts_1h", Title: "Рестарты контейнеров за час", Unit: "count", Direction: "lower_is_better",
 			PromQL: `sum(increase(kube_pod_container_status_restarts_total{namespace="{namespace}", pod=~"{pod_regex}"}[1h]))`},
+	}
+}
+
+// defaultPublicMetrics — трафик сервиса через gateway ruto: внешняя картина в дополнение к
+// внутренним метрикам (расхождение между ними — сам по себе сигнал). Ошибка — 5xx или
+// серверный код gRPC.
+func defaultPublicMetrics(requestsMetric, durationMetric string) []MetricDef {
+	requests := requestsMetric + `{app=~"{ruto_apps}"}`
+	errors := requestsMetric + `{app=~"{ruto_apps}", status=~"5..|Internal|Unknown|Unavailable|DeadlineExceeded|ResourceExhausted|DataLoss|Unimplemented"}`
+	return []MetricDef{
+		{Id: "public_rps", Title: "Запросов в секунду через gateway", Unit: "rps",
+			PromQL: `sum(rate(` + requests + `[5m]))`},
+		{Id: "public_error_rate", Title: "Доля ошибок через gateway (5xx)", Unit: "ratio", Direction: "lower_is_better",
+			PromQL: `sum(rate(` + errors + `[5m])) / sum(rate(` + requests + `[5m]))`},
+		{Id: "public_latency_p95", Title: "Latency p95 через gateway", Unit: "seconds", Direction: "lower_is_better",
+			PromQL: `histogram_quantile(0.95, sum by (le) (rate(` + durationMetric + `_bucket{app=~"{ruto_apps}"}[5m])))`},
 	}
 }
 

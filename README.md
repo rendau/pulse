@@ -13,7 +13,9 @@ go run ./cmd/
 ```
 
 Адреса и токены источников — только через env (см. `.env.example`): `PROMETHEUS_URL`/`_TOKEN`/`_ORG_ID`,
-`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `KUSEC_URL`/`_TOKEN`, `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
+`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `KUSEC_URL`/`_TOKEN`, `RUTO_URL`, `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
+`GITHUB_TOKEN` — на чтение репозиториев, пакетов (`read:packages`) и запусков Actions: по ним
+индексер находит коммит запущенного образа без OCI-label'ов.
 Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.
 
 MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTTP, stateless),
@@ -31,9 +33,10 @@ MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTT
 | `get_service_snapshot` | срез состояния: алерты, поды, метрики с базовой линией, события, health |
 | `query_metrics` | временной ряд по `metric_id` сервиса или произвольному PromQL |
 | `query_logs` | логи из Loki: агрегированные паттерны со счётчиком или последние строки |
-| `get_timeline` | деплои, коммиты, конфигурация, алерты, рестарты на одной оси времени |
+| `get_timeline` | деплои, коммиты, смена конфигурации (reloader), алерты, рестарты на одной оси времени |
 | `get_changes` | коммиты, что не в проде, история деплоев, диффы конфигурации (секреты маскированы) |
-| `get_dependencies` | граф сконфигурированных связей (env/configmap) с кратким здоровьем соседей |
+| `get_dependencies` | граф сконфигурированных связей (env/configmap, маршруты ruto) с кратким здоровьем соседей |
+| `get_public_api` | внешний контур через gateway ruto: домен, опубликованные маршруты, rps/5xx/p95 и коды ответов |
 | `call_service_endpoint` | вызов диагностической ручки из `service.yaml` (только объявленный id, только GET, PII маскированы) |
 | `get_cluster_health` | ноды, проблемные и pending-поды, Warning-события, инфра-алерты, загрузка кластера |
 

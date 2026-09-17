@@ -8,7 +8,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 Согласованные с заказчиком отклонения от ТЗ и шаблона:
 - gRPC/grpc-gateway/proto из шаблона убраны — транспорт только MCP поверх HTTP.
 - Теги образов в кластере — `latest` (keel), поэтому `deployed_commit` берётся не из тега,
-  а из digest запущенного пода → OCI-label `org.opencontainers.image.revision` (registry API).
+  а из digest запущенного пода → OCI-label `org.opencontainers.image.revision` (registry API),
+  а если label'а нет (сервисы собираются без них, правки CI сервисов не делаем) — digest → версия
+  пакета ghcr (время публикации) → push-запуск GitHub Actions в это время → `head_sha`.
   Если тег похож на SHA — используется тег.
 - jsonb-колонка `service.metadata` хранится байтовым способом (`[]byte` + repo-локальная DTO).
 
@@ -51,7 +53,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `endpoints` (call_service_endpoint: allowlist по id, только GET, валидация параметров,
   PII через redact, лимиты строк/байт/таймаута), `cluster` (get_cluster_health: ноды, поды
   по кластеру, Warning-события по причинам, инфра-алерты = не привязанные к каталогу,
-  метрики кластера с базовой линией). Исключение из правила
+  метрики кластера с базовой линией), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
+  индексера, маршруты из снапшота ruto, трафик из метрик gateway). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
   селектор + выборку + агрегацию.
@@ -70,6 +73,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/service/` — сервисы (фоновые/инфраструктурные), для переиспользования или выделения логики:
   `k8s`, `github`, `registry`, `prometheus`, `loki`, `alertmanager`, `kusec` (клиенты источников,
   read-only; kusec — заглушка до получения проекта, методы отдают `errs.NotImplemented`),
+  `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
   `svcproxy` (GET к ручке сервиса внутри кластера по DNS `name.namespace.svc`; локально —
   `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGet`),
   `indexer` (фоновый обход кластера → каталог + история деплоев).
@@ -84,10 +88,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Не обращается напрямую к репозиториям и сервисам.
   - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
   - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
-  `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 12
-  инструментов; 13-й зарезервирован под `get_public_api` (ruto).
+  `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 13
+  инструментов — лимит исчерпан, новые только объединением с существующими.
 - RBAC индексера и инструментов: get/list на nodes, deployments, statefulsets, daemonsets, cronjobs,
-  pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy.
+  replicasets, pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy.
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).
   - Валидация входных параметров.
@@ -121,7 +125,7 @@ domain service → repo
 - К `repo` слою доступ только из `domain service`.
 
 ### Источники и авторизация
-- Опциональные источники (`PROMETHEUS_URL`, `LOKI_URL`, `ALERTMANAGER_URL`) — nil-указатель при пустом URL;
+- Опциональные источники (`PROMETHEUS_URL`, `LOKI_URL`, `ALERTMANAGER_URL`, `RUTO_URL`) — nil-указатель при пустом URL;
   в usecase передаётся nil-интерфейс (не nil-указатель в интерфейсе), ответ содержит `errors` с
   `not configured`.
 - Авторизация клиента: `*_TOKEN` (bearer), userinfo в URL (basic), `*_ORG_ID` (X-Scope-OrgID) —
@@ -130,6 +134,10 @@ domain service → repo
   у логов свой потолок `logs.max_window` (24h).
 - Логи: селектор из `service.yaml` (`logs.selector`), иначе `logs.default_selector` из правил
   с плейсхолдерами `{namespace}`, `{pod_regex}`; запрос без привязки к сервису невозможен.
+  В проде логи шлёт fluent-bit: лейблы `kubernetes_namespace_name`, `kubernetes_pod_name`.
+- Метрики приложений (go-шаблон) в проде с префиксом `<ns>_<svc>_request_total` (у старых —
+  `_request_count`) и `status=ok|error`: дефолтные golden signals ищут имя регэкспом `__name__`.
+  Сервисам, опубликованным в ruto, снапшот добавляет `public_*` по метрикам gateway (`{ruto_apps}`).
 
 ### Хранилища
 - Postgres: только топология и метаданные (`service`, `workload`). Значений метрик, логов и
@@ -169,6 +177,11 @@ domain service → repo
   конфигурации перед выдачей проходит `redact.Value(key, value)` (deny-список имени → allowlist
   значения → маска), значения secret — только `redact.Secret()`.
 - История алертов: Alertmanager её не хранит, берётся из Prometheus (`ALERTS{alertstate="firing"}`).
+- Смена конфигурации без kusec: reloader перекатывает поды после смены configmap/secret и пишет
+  в шаблон пода аннотацию `reloader.stakater.com/last-reloaded-from` (объект + хэш). Таймлайн и
+  get_changes сравнивают соседние ревизии ReplicaSet (`source: reloader`); отпечаток secret скрыт.
+- Маршруты ruto индексер пишет в граф рёбрами `ruto-gateway → backend` (`source=ruto`, `key` —
+  имя приложения ruto): по ним находятся приложения сервиса для get_public_api и `public_*` метрик.
 - Граф зависимостей (фаза 5) строится индексером из env подов: inline-значения и ссылки на configmap
   (в helm-zeon env рендерится inline). Переменные из secret дают только факт ссылки, значение не
   читается. Хост → сервис: k8s Service (селектор) → workload, иначе имя workload'а в namespace.

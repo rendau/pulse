@@ -9,6 +9,7 @@ import (
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
 )
 
 type k8sClientI interface {
@@ -20,10 +21,16 @@ type k8sClientI interface {
 
 type githubClientI interface {
 	GetFileContent(ctx context.Context, repoUrl, path string) ([]byte, bool, error)
+	ResolveImageCommit(ctx context.Context, repoUrl, imagePath, digest string) (string, error)
 }
 
 type registryClientI interface {
 	GetImageLabels(ctx context.Context, ref string) (map[string]string, error)
+}
+
+// RutoI экспортирован: источник опционален, композиционный корень передаёт nil.
+type RutoI interface {
+	GetSnapshot(ctx context.Context) (*rutoModel.Snapshot, error)
 }
 
 type svcServiceI interface {

@@ -108,6 +108,7 @@ func (u *Usecase) Timeline(ctx context.Context, req *model.TimelineReq) (*model.
 	eg.Go(func() error { c.deploys(egCtx); return nil })
 	eg.Go(func() error { c.clusterEvents(egCtx, clusterScope); return nil })
 	eg.Go(func() error { c.alertHistory(egCtx); return nil })
+	eg.Go(func() error { c.rollouts(egCtx); return nil })
 	if !clusterScope && len(services) <= u.conf.MaxServicesForCommits {
 		eg.Go(func() error { c.commits(egCtx); return nil })
 		eg.Go(func() error { c.configChanges(egCtx); return nil })
@@ -206,19 +207,30 @@ func (u *Usecase) Changes(ctx context.Context, serviceName string, win time.Dura
 	}
 
 	eg.Go(func() error {
+		changes := lo.FilterMap(u.rollouts(egCtx, workloads, since, addError), func(r serviceRollout, _ int) (model.ConfigChange, bool) {
+			return encodeRolloutConfigChange(r)
+		})
+		mu.Lock()
+		result.ConfigChanges = append(result.ConfigChanges, changes...)
+		mu.Unlock()
+		return nil
+	})
+
+	eg.Go(func() error {
 		changes, err := u.listConfigChanges(egCtx, service.Name, since, now)
 		if err != nil {
 			addError(constant.SourceKusec, err)
 			return nil
 		}
 		mu.Lock()
-		result.ConfigChanges = lo.Map(changes, encodeConfigChange)
+		result.ConfigChanges = append(result.ConfigChanges, lo.Map(changes, encodeConfigChange)...)
 		mu.Unlock()
 		return nil
 	})
 
 	_ = eg.Wait()
 
+	sort.SliceStable(result.ConfigChanges, func(i, j int) bool { return result.ConfigChanges[i].TS.After(result.ConfigChanges[j].TS) })
 	result.Errors = lo.UniqBy(result.Errors, func(e model.SourceError) string { return e.Source })
 	return result, nil
 }
@@ -279,5 +291,5 @@ func compactError(err error) string {
 }
 
 func encodeConfigChange(v kusecModel.Change, _ int) model.ConfigChange {
-	return model.ConfigChange{TS: v.TS, Kind: v.Kind, Key: v.Key, OldValue: v.OldValue, NewValue: v.NewValue, Author: v.Author}
+	return model.ConfigChange{TS: v.TS, Source: model.ConfigChangeSourceKusec, Kind: v.Kind, Key: v.Key, OldValue: v.OldValue, NewValue: v.NewValue, Author: v.Author}
 }

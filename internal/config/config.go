@@ -48,6 +48,9 @@ var Conf = struct {
 	AlertmanagerUrl   string `env:"ALERTMANAGER_URL"`
 	AlertmanagerToken string `env:"ALERTMANAGER_TOKEN"`
 
+	// ruto-core (API-gateway): опубликованные маршруты; внутри кластера без авторизации
+	RutoUrl string `env:"RUTO_URL"`
+
 	// kusec: configmaps, secrets, env (интеграция после получения проекта kusec)
 	KusecUrl   string `env:"KUSEC_URL"`
 	KusecToken string `env:"KUSEC_TOKEN"`

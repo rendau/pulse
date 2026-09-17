@@ -26,5 +26,12 @@ func TestLoadRules_Missing(t *testing.T) {
 	rules, err := LoadRules("/nonexistent/conf.yml")
 	require.NoError(t, err)
 	assert.Equal(t, 3, rules.Logs.TopErrors)
-	assert.Contains(t, rules.Logs.DefaultSelector, "{namespace}")
+	assert.Equal(t, `{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}`, rules.Logs.DefaultSelector,
+		"лейблы fluent-bit в Loki")
+	assert.Equal(t, "ruto-gateway", rules.Ruto.GatewayService)
+	require.Len(t, rules.Snapshot.PublicMetrics, 3)
+	for _, m := range rules.Snapshot.PublicMetrics {
+		assert.Contains(t, m.PromQL, `app=~"{ruto_apps}"`)
+		assert.Contains(t, m.PromQL, "mechta_ruto_gw_http_")
+	}
 }

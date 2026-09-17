@@ -15,5 +15,8 @@ type Client interface {
 	ListCommits(ctx context.Context, repoUrl string, since, until time.Time, limit int) ([]githubModel.Commit, error)
 	// CompareCommits — что есть в ветке по умолчанию сверх base (задеплоенного SHA).
 	CompareCommits(ctx context.Context, repoUrl, base string) (*githubModel.Comparison, error)
+	// ResolveImageCommit — коммит сборки образа по digest через пакеты ghcr и запуски Actions;
+	// пустая строка — сборка не найдена однозначно.
+	ResolveImageCommit(ctx context.Context, repoUrl, imagePath, digest string) (string, error)
 	Ping(ctx context.Context) error
 }

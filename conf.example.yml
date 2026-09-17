@@ -23,12 +23,20 @@ snapshot:
   max_events: 50
   max_alerts: 50
   # golden signals, когда в service.yaml нет metrics. Плейсхолдеры: {namespace}, {pod_regex}, {service}.
-  # Раскомментируй и поправь под имена метрик кластера; без секции берётся встроенный набор
-  # (rps, error_rate_5xx, latency_p95, cpu_cores, memory_bytes, restarts_1h).
+  # Без секции берётся встроенный набор (rps, error_rate, latency_p95, cpu_cores, memory_bytes,
+  # restarts_1h): метрики go-шаблона ищутся по имени регэкспом, т.к. в кластере они с префиксом
+  # (mechta_caravan_request_total, у старых сервисов *_request_count) и статусом ok|error.
   # default_metrics:
   #   - id: rps
   #     title: Запросов в секунду
-  #     promql: 'sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))'
+  #     promql: 'sum(rate({__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}[5m]))'
+  #     unit: rps
+  # внешние метрики через gateway ruto — для сервисов с приложениями ruto; плейсхолдер {ruto_apps}.
+  # Без секции — public_rps, public_error_rate, public_latency_p95 по метрикам из секции ruto.
+  # public_metrics:
+  #   - id: public_rps
+  #     title: Запросов в секунду через gateway
+  #     promql: 'sum(rate(mechta_ruto_gw_http_requests_total{app=~"{ruto_apps}"}[5m]))'
   #     unit: rps
 
 logs:
@@ -42,7 +50,8 @@ logs:
   raw_limit: 100
   # LogQL-селектор, когда в service.yaml нет logs.selector.
   # Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads}
-  default_selector: '{namespace="{namespace}", pod=~"{pod_regex}"}'
+  # (логи в Loki шлёт fluent-bit: лейблы kubernetes_namespace_name, kubernetes_pod_name)
+  default_selector: '{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}'
 
 timeline:
   # общий дедлайн сбора изменений; потолок событий в ответе; коммитов на репозиторий за окно
@@ -56,6 +65,16 @@ dependencies:
   # потолок узлов графа в ответе get_dependencies и максимальная глубина обхода
   max_nodes: 50
   max_depth: 3
+
+ruto:
+  # сервис каталога gateway (имя образа ruto-gateway): источник рёбер «gateway → backend приложения»
+  gateway_service: ruto-gateway
+  # метрики gateway с лейблами app, method, status (префикс — METRICS_NAMESPACE ruto)
+  requests_metric: mechta_ruto_gw_http_requests_total
+  duration_metric: mechta_ruto_gw_http_request_duration_seconds
+  # get_public_api: дедлайн и потолок маршрутов в ответе
+  deadline: 8s
+  max_endpoints: 100
 
 endpoints:
   # жёсткие потолки для call_service_endpoint поверх декларации в service.yaml

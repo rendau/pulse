@@ -38,6 +38,7 @@ type deployServiceI interface {
 type k8sClientI interface {
 	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
 	ListEvents(ctx context.Context, namespace string, since time.Time) ([]k8sModel.Event, error)
+	ListReplicaSets(ctx context.Context, namespace, selector string) ([]k8sModel.ReplicaSet, error)
 }
 
 type githubClientI interface {
@@ -58,6 +59,8 @@ type eventServiceI interface {
 	FromCluster(e eventModel.ClusterEvent, service string) (eventModel.Event, bool)
 	FromTermination(t eventModel.ContainerTermination, service string) (eventModel.Event, bool)
 	FromDeploy(d *deployModel.Main) eventModel.Event
+	Rollouts(workload string, revisions []eventModel.PodTemplateRevision, since time.Time) []eventModel.Rollout
+	FromRollout(r eventModel.Rollout, service string) eventModel.Event
 }
 
 type rulesServiceI interface {

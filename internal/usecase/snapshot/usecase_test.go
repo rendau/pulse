@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mechta-market/pulse/internal/constant"
+	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
 	eventService "github.com/mechta-market/pulse/internal/domain/event/service"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
@@ -33,6 +34,12 @@ func (f *fakeSvc) GetOrSuggest(context.Context, string) (*svcModel.Main, error) 
 type fakeWorkload struct{ items []*workloadModel.Main }
 
 func (f *fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloadModel.Main, int64, error) {
+	return f.items, int64(len(f.items)), nil
+}
+
+type fakeDepend struct{ items []*dependencyModel.Main }
+
+func (f *fakeDepend) List(context.Context, *dependencyModel.ListReq) ([]*dependencyModel.Main, int64, error) {
 	return f.items, int64(len(f.items)), nil
 }
 
@@ -111,7 +118,7 @@ func newUsecase(k8s *fakeK8s, prom PrometheusI, am AlertmanagerI) *Usecase {
 		Deadline: 2 * time.Second, MaxEvents: 50, MaxAlerts: 50,
 		DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: `sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))`}},
 		MaxWindow:      7 * 24 * time.Hour, MaxSeries: 20, MaxPoints: 200,
-	}, svc, wl, k8s, prom, am, nil, eventService.New(), snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
+	}, svc, wl, &fakeDepend{}, k8s, prom, am, nil, eventService.New(), snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
 }
 
 func TestSnapshot_Degraded(t *testing.T) {
@@ -243,4 +250,25 @@ func TestQueryMetrics(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "PROMETHEUS_URL")
 	})
+}
+
+func TestMetricDefs_PublicMetrics(t *testing.T) {
+	svc, wl := fixtures()
+	depend := &fakeDepend{items: []*dependencyModel.Main{
+		{FromService: "ruto-gateway", ToService: "payments-api", Source: dependencyModel.SourceRuto, Key: "payments.v2"},
+		{FromService: "ruto-gateway", ToService: "payments-api", Source: dependencyModel.SourceRuto, Key: "payments.v2"},
+		{FromService: "cart", ToService: "payments-api", Source: dependencyModel.SourceEnv, Key: "PAYMENTS_URL"},
+	}}
+	u := New(Config{
+		DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: `x{pod=~"{pod_regex}"}`}},
+		PublicMetrics:  []snapshotModel.MetricDef{{Id: "public_rps", PromQL: `gw{app=~"{ruto_apps}"}`}},
+	}, svc, wl, depend, &fakeK8s{}, nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}))
+
+	defs := u.metricDefs(svc.service, wl.items, u.rutoApps(context.Background(), "payments-api"))
+	require.Len(t, defs, 2)
+	assert.Equal(t, "public_rps", defs[1].Id)
+	assert.Equal(t, `gw{app=~"payments\\.v2"}`, defs[1].PromQL, "точка экранирована для регэкспа внутри строки PromQL")
+
+	depend.items = nil
+	assert.Len(t, u.metricDefs(svc.service, wl.items, u.rutoApps(context.Background(), "payments-api")), 1, "не опубликован в ruto — только свои метрики")
 }
