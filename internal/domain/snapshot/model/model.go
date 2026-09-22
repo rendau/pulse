@@ -24,6 +24,8 @@ type Alert struct {
 	Summary     string
 	Labels      map[string]string
 	Annotations map[string]string
+	// Count — число слитых в один алертов с тем же именем (0 — не сливался)
+	Count int
 }
 
 // WorkloadState — workload и живое состояние его подов.

@@ -192,32 +192,3 @@ func humanSince(now, t time.Time) string {
 		return fmt.Sprintf("%d дн назад", int(d.Hours()/24))
 	}
 }
-
-// AlertMatches — алерт относится к сервису, если значение одного из типовых лейблов
-// совпадает с именем сервиса/workload'а или является именем пода этого workload'а.
-func (s *Service) AlertMatches(labels map[string]string, names []string) bool {
-	for _, key := range []string{"service", "app", "job", "deployment", "statefulset", "daemonset", "container", "pod", "workload"} {
-		value, ok := labels[key]
-		if !ok || value == "" {
-			continue
-		}
-		for _, name := range names {
-			if value == name || (key == "pod" && strings.HasPrefix(value, name+"-")) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// AlertSeverity приводит severity алерта к шкале событий.
-func (s *Service) AlertSeverity(severity string) string {
-	switch strings.ToLower(severity) {
-	case "critical", "page", "error":
-		return constant.SeverityCritical
-	case "warning", "warn":
-		return constant.SeverityWarning
-	default:
-		return constant.SeverityInfo
-	}
-}

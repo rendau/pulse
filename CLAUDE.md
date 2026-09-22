@@ -177,6 +177,9 @@ domain service → repo
   конфигурации перед выдачей проходит `redact.Value(key, value)` (deny-список имени → allowlist
   значения → маска), значения secret — только `redact.Secret()`.
 - История алертов: Alertmanager её не хранит, берётся из Prometheus (`ALERTS{alertstate="firing"}`).
+  Привязка алерта к сервису и показ лейблов — только через `snapshot/service/alerts.go`
+  (`AlertOwner`/`AlertLabels`): лейблы экспортеров (`job=kube-state-metrics` и т.п.) — не объект
+  алерта; Watchdog не показывается; повторы одного алерта сливаются в один со счётчиком.
 - Смена конфигурации: reloader перекатывает поды после смены configmap/secret и пишет
   в шаблон пода аннотацию `reloader.stakater.com/last-reloaded-from` (объект + хэш). Таймлайн и
   get_changes сравнивают соседние ревизии ReplicaSet (`source: reloader`); отпечаток secret скрыт.

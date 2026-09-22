@@ -279,7 +279,7 @@ func (c *collector) alerts(ctx context.Context) {
 			State:       a.State,
 			StartsAt:    a.StartsAt,
 			Summary:     lo.CoalesceOrEmpty(a.Annotations["summary"], a.Annotations["description"], a.Annotations["message"]),
-			Labels:      a.Labels,
+			Labels:      c.u.rules.AlertLabels(a.Labels),
 			Annotations: a.Annotations,
 		}
 		result = append(result, alert)
@@ -292,7 +292,7 @@ func (c *collector) alerts(ctx context.Context) {
 				Service:  c.service.Name,
 				Severity: c.u.rules.AlertSeverity(alert.Severity),
 				Summary:  fmt.Sprintf("%s: сработал алерт %s (%s)", c.service.Name, alert.Name, lo.CoalesceOrEmpty(alert.Summary, alert.Severity)),
-				Details:  map[string]any{"labels": a.Labels},
+				Details:  map[string]any{"labels": alert.Labels},
 			})
 		}
 	}

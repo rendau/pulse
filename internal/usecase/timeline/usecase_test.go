@@ -3,7 +3,9 @@ package timeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,9 +63,15 @@ type fakeK8s struct {
 	pods        []k8sModel.Pod
 	events      []k8sModel.Event
 	replicaSets []k8sModel.ReplicaSet
+
+	mu       sync.Mutex
+	podCalls []string // "namespace|selector"
 }
 
-func (f *fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, error) {
+func (f *fakeK8s) ListPods(_ context.Context, namespace, selector string) ([]k8sModel.Pod, error) {
+	f.mu.Lock()
+	f.podCalls = append(f.podCalls, namespace+"|"+selector)
+	f.mu.Unlock()
 	return f.pods, nil
 }
 
@@ -423,4 +431,68 @@ func TestTimeline_LongFiringAndMonitoringAlerts(t *testing.T) {
 	labels := longFiring.Details["labels"].(map[string]string)
 	assert.NotContains(t, labels, "instance", "служебные лейблы не раздувают ответ")
 	assert.Equal(t, "warning", labels["severity"])
+}
+
+func TestTimeline_RepeatedAlertsCollapse(t *testing.T) {
+	now := time.Now().UTC()
+	point := func(from time.Time, n int) []prometheusModel.Point {
+		return lo.Map(lo.Range(n), func(i int, _ int) prometheusModel.Point {
+			return prometheusModel.Point{TS: from.Add(time.Duration(i) * time.Minute), Value: 1}
+		})
+	}
+	// KubeJobFailed по трём Job'ам CronJob'а payments-api-report: лейблы pod/container/service/job
+	// принадлежат экспортеру kube-state-metrics, объект — job_name
+	exporter := map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "prod", "job": "kube-state-metrics",
+		"container": "kube-state-metrics", "pod": "prometheus-kube-state-metrics-1", "service": "prometheus-kube-state-metrics", "alertstate": "firing", "condition": "true"}
+	job := func(name string, from time.Time) prometheusModel.Series {
+		return prometheusModel.Series{Labels: lo.Assign(exporter, map[string]string{"job_name": name}), Points: point(from, 3)}
+	}
+	prom := &fakePrometheus{series: []prometheusModel.Series{
+		job("payments-api-report-1", now.Add(-30*time.Minute)),
+		job("payments-api-report-2", now.Add(-20*time.Minute)),
+		job("payments-api-report-3", now.Add(-10*time.Minute)),
+		{Labels: map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "other", "job": "kube-state-metrics", "job_name": "unknown-1"}, Points: point(now.Add(-10*time.Minute), 3)},
+	}}
+	u := newUsecase(now, &fakeGithub{}, nil, prom)
+
+	res, err := u.Timeline(context.Background(), &model.TimelineReq{Scope: model.ScopeCluster, Window: time.Hour})
+	require.NoError(t, err)
+	alerts := lo.Filter(res.Events, func(e eventModel_Event, _ int) bool { return e.Type == constant.EventTypeAlertFiring })
+	require.Len(t, alerts, 1, "повторы одного алерта у сервиса — одно событие; алерт без сервиса каталога не показывается")
+	alert := alerts[0]
+	assert.Equal(t, "payments-api", alert.Service, "не сервис экспортера")
+	assert.Equal(t, now.Add(-30*time.Minute), alert.TS, "время первого срабатывания")
+	assert.Contains(t, alert.Summary, "срабатывал 3 раз")
+	assert.Equal(t, 3, alert.Details["count"])
+	labels := alert.Details["labels"].(map[string]string)
+	assert.Equal(t, "payments-api-report-1, payments-api-report-2, payments-api-report-3", labels["job_name"])
+	for _, key := range []string{"pod", "container", "service", "job", "alertstate", "condition"} {
+		assert.NotContains(t, labels, key)
+	}
+}
+
+func TestTimeline_PodsListedPerNamespaceInClusterScope(t *testing.T) {
+	now := time.Now().UTC()
+	u := newUsecase(now, &fakeGithub{}, nil, &fakePrometheus{})
+	k8s := u.k8s.(*fakeK8s)
+	k8s.pods = []k8sModel.Pod{
+		{Name: "payments-api-1", Labels: map[string]string{"app": "payments-api"}, Containers: []k8sModel.PodContainer{{Name: "app", LastTerminationReason: "OOMKilled", LastTerminatedAt: now.Add(-5 * time.Minute), Restarts: 1}}},
+		{Name: "delivery-1", Labels: map[string]string{"app": "delivery"}, Containers: []k8sModel.PodContainer{{Name: "app", LastTerminationReason: "Error", LastTerminatedAt: now.Add(-4 * time.Minute), Restarts: 2}}},
+		{Name: "other-1", Labels: map[string]string{"app": "other"}, Containers: []k8sModel.PodContainer{{Name: "app", LastTerminationReason: "Error", LastTerminatedAt: now.Add(-3 * time.Minute), Restarts: 2}}},
+	}
+	wl := u.workload.(*fakeWorkload)
+	for i := range perWorkloadMax {
+		name := fmt.Sprintf("extra-%d", i)
+		wl.items = append(wl.items, &workloadModel.Main{Cluster: "zeon", Namespace: "prod", Kind: "Deployment", Name: name, ServiceName: "delivery", Selector: "app=" + name})
+	}
+
+	res, err := u.Timeline(context.Background(), &model.TimelineReq{Scope: model.ScopeCluster, Window: time.Hour})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"prod|"}, k8s.podCalls, "больше perWorkloadMax workload'ов в namespace — один список на namespace")
+
+	// поды распределяются по workload'ам через селектор: чужой под (app=other) не попадает никому
+	summaries := lo.Map(res.Events, func(e eventModel_Event, _ int) string { return e.Summary })
+	assert.Contains(t, summaries, "payments-api: контейнер payments-api-1/app убит по OOM, всего рестартов 1")
+	assert.Contains(t, summaries, "delivery: контейнер delivery-1/app перезапущен (Error), всего рестартов 2")
+	assert.NotContains(t, strings.Join(summaries, "\n"), "other-1")
 }

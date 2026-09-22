@@ -66,5 +66,6 @@ type rulesServiceI interface {
 	SummaryHints(snap *snapshotModel.Snapshot, now time.Time) []string
 	ApplyBaseline(m *snapshotModel.Metric)
 	AlertMatches(labels map[string]string, names []string) bool
+	AlertLabels(labels map[string]string) map[string]string
 	AlertSeverity(s string) string
 }

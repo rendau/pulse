@@ -45,4 +45,7 @@ type rulesServiceI interface {
 type baselineServiceI interface {
 	ApplyBaseline(m *snapshotModel.Metric)
 	AlertMatches(labels map[string]string, names []string) bool
+	AlertLabels(labels map[string]string) map[string]string
+	MergeAlertLabels(all []map[string]string) map[string]string
+	IsMonitoringAlert(labels map[string]string) bool
 }

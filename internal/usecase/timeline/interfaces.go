@@ -70,6 +70,9 @@ type eventServiceI interface {
 }
 
 type rulesServiceI interface {
-	AlertMatches(labels map[string]string, names []string) bool
+	AlertOwner(labels map[string]string, names []string) (string, bool)
+	AlertLabels(labels map[string]string) map[string]string
+	MergeAlertLabels(all []map[string]string) map[string]string
+	IsMonitoringAlert(labels map[string]string) bool
 	AlertSeverity(s string) string
 }

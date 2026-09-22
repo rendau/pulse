@@ -93,6 +93,12 @@ func TestHealth_Degraded(t *testing.T) {
 		{Labels: map[string]string{"alertname": "NodeDiskFull", "severity": "critical", "instance": "n2"}, State: "active", StartsAt: now},
 		{Labels: map[string]string{"alertname": "HighErrorRate", "severity": "critical", "service": "payments-api"}, State: "active", StartsAt: now},
 		{Labels: map[string]string{"alertname": "Silenced"}, State: "suppressed"},
+		{Labels: map[string]string{"alertname": "Watchdog", "severity": "none"}, State: "active", StartsAt: now},
+		// упавшие Job'ы loom: лейблы pod/container/service/job — экспортера kube-state-metrics
+		{Labels: map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "loom", "job_name": "sync-1", "job": "kube-state-metrics",
+			"container": "kube-state-metrics", "pod": "prometheus-kube-state-metrics-1", "service": "prometheus-kube-state-metrics", "instance": "10.0.0.1:8080"}, State: "active", StartsAt: now.Add(-time.Hour)},
+		{Labels: map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "loom", "job_name": "sync-2", "job": "kube-state-metrics",
+			"container": "kube-state-metrics", "pod": "prometheus-kube-state-metrics-1", "service": "prometheus-kube-state-metrics"}, State: "active", StartsAt: now.Add(-30 * time.Minute)},
 	}}
 
 	h, err := newUsecase(k8s, am, fakeProm{}).Health(context.Background(), time.Hour)
@@ -118,8 +124,14 @@ func TestHealth_Degraded(t *testing.T) {
 	assert.Equal(t, 15, h.EventReasons[0].Count)
 	assert.Equal(t, 2, h.EventReasons[0].Namespaces)
 
-	require.Len(t, h.InfraAlerts, 1, "алерт сервиса и подавленный не попадают в инфра")
+	require.Len(t, h.InfraAlerts, 2, "алерт сервиса, подавленный и Watchdog не попадают в инфра; повторы слиты")
 	assert.Equal(t, "NodeDiskFull", h.InfraAlerts[0].Name)
+	assert.NotContains(t, h.InfraAlerts[0].Labels, "instance")
+	jobs := h.InfraAlerts[1]
+	assert.Equal(t, "KubeJobFailed", jobs.Name)
+	assert.Equal(t, 2, jobs.Count)
+	assert.Equal(t, now.Add(-time.Hour), jobs.StartsAt, "самый ранний")
+	assert.Equal(t, map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "loom", "job_name": "sync-1, sync-2"}, jobs.Labels)
 	assert.Equal(t, 1, h.ServiceAlertsActive)
 
 	require.Len(t, h.Metrics, 1)

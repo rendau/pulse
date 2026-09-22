@@ -40,6 +40,7 @@ type Alert struct {
 	StartsAt time.Time         `json:"starts_at"`
 	Summary  string            `json:"summary,omitempty"`
 	Labels   map[string]string `json:"labels,omitempty"`
+	Count    int               `json:"count,omitempty" jsonschema:"сколько алертов с этим именем слито в один; различающиеся лейблы перечислены через запятую"`
 }
 
 type WorkloadState struct {
@@ -117,7 +118,7 @@ func EncodeSnapshotRep(v *snapshotModel.Snapshot) SnapshotRep {
 }
 
 func encodeAlert(v snapshotModel.Alert, _ int) Alert {
-	return Alert{Name: v.Name, Severity: v.Severity, State: v.State, StartsAt: v.StartsAt, Summary: v.Summary, Labels: v.Labels}
+	return Alert{Name: v.Name, Severity: v.Severity, State: v.State, StartsAt: v.StartsAt, Summary: v.Summary, Labels: v.Labels, Count: v.Count}
 }
 
 func encodeWorkloadState(v snapshotModel.WorkloadState, _ int) WorkloadState {

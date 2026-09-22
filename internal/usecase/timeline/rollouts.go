@@ -21,16 +21,42 @@ type serviceRollout struct {
 	service string
 }
 
-// perWorkloadMaxDeployments — до стольких Deployment'ов в namespace ReplicaSet'ы читаются по
-// селектору каждого; больше — одним списком на namespace (scope=cluster: сотни workload'ов
+// perWorkloadMax — до стольких workload'ов в namespace их объекты (ReplicaSet'ы, поды) читаются
+// по селектору каждого; больше — одним списком на namespace (scope=cluster: сотни workload'ов
 // упираются в лимит запросов к API-серверу и в дедлайн).
-const perWorkloadMaxDeployments = 5
+const perWorkloadMax = 5
+
+// forWorkloads запускает perWorkload для каждого workload'а с селектором, а для namespace'ов
+// с числом workload'ов больше perWorkloadMax — perNamespace один раз на namespace.
+func forWorkloads(ctx context.Context, workloads []*workloadModel.Main,
+	perWorkload func(ctx context.Context, w *workloadModel.Main), perNamespace func(ctx context.Context, namespace string, group []*workloadModel.Main)) {
+	workloads = lo.Filter(workloads, func(w *workloadModel.Main, _ int) bool { return w.Selector != "" })
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(podsConcurrent)
+	for namespace, group := range lo.GroupBy(workloads, func(w *workloadModel.Main) string { return w.Namespace }) {
+		if len(group) > perWorkloadMax {
+			eg.Go(func() error {
+				perNamespace(egCtx, namespace, group)
+				return nil
+			})
+			continue
+		}
+		for _, w := range group {
+			eg.Go(func() error {
+				perWorkload(egCtx, w)
+				return nil
+			})
+		}
+	}
+	_ = eg.Wait()
+}
 
 // rollouts — выкатки Deployment'ов за окно с причиной из ревизий шаблона пода (ReplicaSet):
 // смена configmap/secret (reloader) и ручной рестарт. Ошибки — по запросу, без прерывания.
 func (u *Usecase) rollouts(ctx context.Context, workloads []*workloadModel.Main, since time.Time, addError func(string, error)) []serviceRollout {
 	deployments := lo.Filter(workloads, func(w *workloadModel.Main, _ int) bool {
-		return w.Kind == constant.WorkloadKindDeployment && w.Selector != ""
+		return w.Kind == constant.WorkloadKindDeployment
 	})
 
 	var mu sync.Mutex
@@ -48,36 +74,23 @@ func (u *Usecase) rollouts(ctx context.Context, workloads []*workloadModel.Main,
 		mu.Unlock()
 	}
 
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(podsConcurrent)
-	for namespace, group := range lo.GroupBy(deployments, func(w *workloadModel.Main) string { return w.Namespace }) {
-		if len(group) > perWorkloadMaxDeployments {
-			eg.Go(func() error {
-				replicaSets, err := u.k8s.ListReplicaSets(egCtx, namespace, "")
-				if err != nil {
-					addError(constant.SourceK8s, fmt.Errorf("replicasets %s: %w", namespace, err))
-					return nil
-				}
-				for _, w := range group {
-					collect(w, replicaSets)
-				}
-				return nil
-			})
-			continue
+	forWorkloads(ctx, deployments, func(ctx context.Context, w *workloadModel.Main) {
+		replicaSets, err := u.k8s.ListReplicaSets(ctx, w.Namespace, w.Selector)
+		if err != nil {
+			addError(constant.SourceK8s, fmt.Errorf("replicasets %s/%s: %w", w.Namespace, w.Name, err))
+			return
+		}
+		collect(w, replicaSets)
+	}, func(ctx context.Context, namespace string, group []*workloadModel.Main) {
+		replicaSets, err := u.k8s.ListReplicaSets(ctx, namespace, "")
+		if err != nil {
+			addError(constant.SourceK8s, fmt.Errorf("replicasets %s: %w", namespace, err))
+			return
 		}
 		for _, w := range group {
-			eg.Go(func() error {
-				replicaSets, err := u.k8s.ListReplicaSets(egCtx, w.Namespace, w.Selector)
-				if err != nil {
-					addError(constant.SourceK8s, fmt.Errorf("replicasets %s/%s: %w", w.Namespace, w.Name, err))
-					return nil
-				}
-				collect(w, replicaSets)
-				return nil
-			})
+			collect(w, replicaSets)
 		}
-	}
-	_ = eg.Wait()
+	})
 
 	return result
 }

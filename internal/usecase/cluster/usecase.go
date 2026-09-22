@@ -18,6 +18,7 @@ import (
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
+	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
 	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
@@ -263,6 +264,8 @@ func (c *collector) events(ctx context.Context) {
 }
 
 // alerts — активные алерты: не относящиеся ни к одному сервису каталога считаются инфраструктурными.
+// Служебные (Watchdog) не показываются; алерты с одним именем в одном namespace сливаются в один
+// со счётчиком (десятки KubeJobFailed по упавшим Job'ам — одна строка), самый ранний — первым.
 func (c *collector) alerts(ctx context.Context) {
 	if c.u.alertmanager == nil {
 		c.addError(constant.SourceAlertmanager, errs.Err("not configured"))
@@ -277,22 +280,39 @@ func (c *collector) alerts(ctx context.Context) {
 
 	names := lo.Uniq(lo.FlatMap(c.workloads, func(w *workloadModel.Main, _ int) []string { return []string{w.Name, w.ServiceName} }))
 
-	infra := make([]snapshotModel.Alert, 0)
+	type alertKey struct{ name, namespace, severity string }
+	groups := make(map[alertKey][]alertmanagerModel.Alert)
+	order := make([]alertKey, 0)
 	serviceActive := 0
 	for _, a := range alerts {
-		if a.State != "active" {
+		if a.State != "active" || c.u.baseline.IsMonitoringAlert(a.Labels) {
 			continue
 		}
 		if c.u.baseline.AlertMatches(a.Labels, names) {
 			serviceActive++
 			continue
 		}
-		infra = append(infra, snapshotModel.Alert{
-			Name: a.Name(), Severity: a.Severity(), State: a.State, StartsAt: a.StartsAt,
-			Summary: lo.CoalesceOrEmpty(a.Annotations["summary"], a.Annotations["description"], a.Annotations["message"]),
-			Labels:  a.Labels,
-		})
+		key := alertKey{name: a.Name(), namespace: a.Labels["namespace"], severity: a.Severity()}
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], a)
 	}
+
+	infra := lo.Map(order, func(key alertKey, _ int) snapshotModel.Alert {
+		group := groups[key]
+		sort.SliceStable(group, func(i, j int) bool { return group[i].StartsAt.Before(group[j].StartsAt) })
+		first := group[0]
+		alert := snapshotModel.Alert{
+			Name: key.name, Severity: key.severity, State: first.State, StartsAt: first.StartsAt,
+			Summary: lo.CoalesceOrEmpty(first.Annotations["summary"], first.Annotations["description"], first.Annotations["message"]),
+			Labels:  c.u.baseline.MergeAlertLabels(lo.Map(group, func(a alertmanagerModel.Alert, _ int) map[string]string { return c.u.baseline.AlertLabels(a.Labels) })),
+		}
+		if len(group) > 1 {
+			alert.Count = len(group)
+		}
+		return alert
+	})
 	sort.SliceStable(infra, func(i, j int) bool {
 		if (infra[i].Severity == "critical") != (infra[j].Severity == "critical") {
 			return infra[i].Severity == "critical"
