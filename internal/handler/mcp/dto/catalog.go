@@ -122,6 +122,7 @@ type ServiceInfoRep struct {
 	OwnerTeam     string         `json:"owner_team,omitempty"`
 	OwnerContacts []string       `json:"owner_contacts,omitempty"`
 	Aliases       []string       `json:"aliases,omitempty"`
+	ClusterNames  []string       `json:"cluster_names,omitempty" jsonschema:"имена сервиса в кластере: workload'ы, k8s Service, приложения ruto"`
 	RepoUrl       string         `json:"repo_url,omitempty"`
 	HasMetadata   bool           `json:"has_metadata"`
 	Metrics       []MetricDef    `json:"metrics,omitempty"`
@@ -179,6 +180,7 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 		OwnerTeam:     v.Service.OwnerTeam,
 		OwnerContacts: v.Service.OwnerContacts,
 		Aliases:       v.Service.Aliases,
+		ClusterNames:  v.Service.ClusterNames,
 		RepoUrl:       v.Service.RepoUrl,
 		HasMetadata:   v.Service.MetadataPresent,
 		Metrics:       lo.Map(v.Service.Metadata.Metrics, encodeMetricDef),

@@ -83,7 +83,8 @@ func TestRecordDependencies(t *testing.T) {
 		draft("prod", "payments-api-redis", "payments-api", nil),
 	}
 
-	count := s.recordDependencies(context.Background(), drafts, time.Now())
+	topo := s.loadTopology(context.Background(), drafts, time.Now())
+	count := s.recordDependencies(context.Background(), drafts, topo, time.Now())
 	assert.Equal(t, 4, count)
 
 	byKey := lo.SliceToMap(depend.upserted, func(e *dependencyModel.Edit) (string, *dependencyModel.Edit) { return *e.Key, e })
@@ -128,7 +129,8 @@ func TestRecordDependencies_RutoRoutes(t *testing.T) {
 		draft("default", "caravan", "caravan", nil),
 	}
 
-	count := s.recordDependencies(context.Background(), drafts, time.Now())
+	topo := s.loadTopology(context.Background(), drafts, time.Now())
+	count := s.recordDependencies(context.Background(), drafts, topo, time.Now())
 	assert.Equal(t, 4, count, "http и grpc адреса caravan — два ребра, выключенное приложение пропущено")
 
 	for _, e := range depend.upserted {
@@ -142,4 +144,8 @@ func TestRecordDependencies_RutoRoutes(t *testing.T) {
 	assert.ElementsMatch(t, []int32{80, 5050}, lo.Map(byTarget["caravan"], func(e *dependencyModel.Edit, _ int) int32 { return *e.Port }))
 	assert.Equal(t, "", *byTarget["partner"][0].ToService, "внешний backend")
 	assert.NotContains(t, byTarget, "legacy")
+
+	require.True(t, topo.complete)
+	assert.Equal(t, []string{"ocenter-svc"}, topo.clusterNames("ocenter", drafts), "k8s Service; имя приложения ruto совпадает с именем сервиса")
+	assert.Empty(t, topo.clusterNames("ruto-gateway", drafts))
 }

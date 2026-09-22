@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,11 +15,56 @@ import (
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 )
 
+// topology — общие для цикла факты о связях: k8s Service → сервис и маршруты ruto.
+type topology struct {
+	resolver *hostResolver
+	ruto     []*dependencyModel.Edit
+	// complete — все источники ответили; иначе имена сервисов в кластере не перезаписываются
+	complete bool
+}
+
+// loadTopology читает k8s Services и снапшот ruto один раз за цикл (после того как черновики
+// получили окончательные имена сервисов).
+func (s *Service) loadTopology(ctx context.Context, drafts []*workloadDraft, now time.Time) *topology {
+	services, err := s.k8s.ListServices(ctx, "")
+	if err != nil {
+		slog.Warn("indexer: k8s services are unavailable, hosts resolve by workload name only", "error", err)
+	}
+	result := &topology{resolver: newHostResolver(s.depend.ClusterHost, drafts, services), complete: err == nil}
+
+	var rutoOk bool
+	result.ruto, rutoOk = s.rutoEdits(ctx, drafts, result.resolver, now)
+	result.complete = result.complete && rutoOk
+	return result
+}
+
+// clusterNames — имена, под которыми сервис известен в кластере, кроме его собственного:
+// workload'ы, k8s Service (по селектору) и приложения ruto. По ним resolve_service находит
+// orders-center по «ocenter».
+func (t *topology) clusterNames(service string, drafts []*workloadDraft) []string {
+	names := lo.FilterMap(drafts, func(d *workloadDraft, _ int) (string, bool) { return d.Name, d.serviceKey == service })
+	for key, target := range t.resolver.byK8sService {
+		if target == service {
+			_, name, _ := strings.Cut(key, "/")
+			names = append(names, name)
+		}
+	}
+	for _, edge := range t.ruto {
+		if *edge.ToService == service {
+			names = append(names, *edge.Key)
+		}
+	}
+	names = lo.Uniq(lo.Without(names, service, ""))
+	slices.Sort(names)
+	return names
+}
+
 // recordDependencies строит рёбра «сервис → хост» из env контейнеров: inline-значения и
 // ссылки на configmap. Значения секретов не читаются (Р7): переменная из secret даёт только
 // факт ссылки без адреса и в граф не попадает. Хост резолвится в сервис каталога через
 // k8s Service (селектор → workload) или по совпадению имени workload'а в namespace.
-func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraft, now time.Time) int {
+// К ним добавляются рёбра маршрутов ruto.
+func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraft, topo *topology, now time.Time) int {
 	configMaps, err := s.k8s.ListConfigMaps(ctx, "")
 	if err != nil {
 		slog.Warn("indexer: configmaps are unavailable, env-from-configmap dependencies skipped", "error", err)
@@ -26,12 +72,7 @@ func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraf
 	cmByKey := lo.SliceToMap(configMaps, func(cm k8sModel.ConfigMap) (string, k8sModel.ConfigMap) {
 		return cm.Namespace + "/" + cm.Name, cm
 	})
-
-	services, err := s.k8s.ListServices(ctx, "")
-	if err != nil {
-		slog.Warn("indexer: k8s services are unavailable, hosts resolve by workload name only", "error", err)
-	}
-	resolver := newHostResolver(s.depend.ClusterHost, drafts, services)
+	resolver := topo.resolver
 
 	edits := make(map[string]*dependencyModel.Edit, 64)
 	for _, d := range drafts {
@@ -58,7 +99,7 @@ func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraf
 		}
 	}
 
-	for _, edit := range s.rutoEdits(ctx, drafts, resolver, now) {
+	for _, edit := range topo.ruto {
 		edits[fmt.Sprintf("%s|%s|%d|%s", *edit.FromService, *edit.ToHost, *edit.Port, *edit.Key)] = edit
 	}
 
@@ -75,15 +116,15 @@ func (s *Service) recordDependencies(ctx context.Context, drafts []*workloadDraf
 // rutoEdits — рёбра «gateway ruto → backend приложения» из опубликованной конфигурации
 // gateway (ключ ребра — имя приложения ruto). По ним get_public_api и снапшот находят
 // приложения ruto сервиса. ruto недоступен — рёбра не обновляются и уходят по stale_after.
-func (s *Service) rutoEdits(ctx context.Context, drafts []*workloadDraft, resolver *hostResolver, now time.Time) []*dependencyModel.Edit {
+func (s *Service) rutoEdits(ctx context.Context, drafts []*workloadDraft, resolver *hostResolver, now time.Time) ([]*dependencyModel.Edit, bool) {
 	if s.ruto == nil || s.conf.RutoGatewayService == "" {
-		return nil
+		return nil, true
 	}
 
 	snapshot, err := s.ruto.GetSnapshot(ctx)
 	if err != nil {
 		slog.Warn("indexer: ruto is unavailable, public routes are not updated", "error", err)
-		return nil
+		return nil, false
 	}
 
 	// хост backend'а без namespace — в namespace gateway
@@ -114,7 +155,7 @@ func (s *Service) rutoEdits(ctx context.Context, drafts []*workloadDraft, resolv
 			}
 		}
 	}
-	return result
+	return result, true
 }
 
 // grpcTarget снимает схему резолвера gRPC (dns:///host:port, passthrough:///host:port).

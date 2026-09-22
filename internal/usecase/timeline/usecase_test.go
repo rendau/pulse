@@ -3,6 +3,7 @@ package timeline
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -382,4 +383,44 @@ func TestChanges_KusecSyncLinkedToRollout(t *testing.T) {
 	linked, _ := lo.Find(configEvents, func(e eventModel_Event) bool { return e.Details["sync_run_id"] == "run-1" })
 	assert.Contains(t, linked.Summary, "PG_PASSWORD")
 	assert.Contains(t, linked.Summary, "Dauren")
+}
+
+func TestTimeline_LongFiringAndMonitoringAlerts(t *testing.T) {
+	now := time.Now().UTC()
+	window := time.Hour
+	points := func(from time.Time) []prometheusModel.Point {
+		result := make([]prometheusModel.Point, 0)
+		for ts := from; ts.Before(now); ts = ts.Add(time.Minute) {
+			result = append(result, prometheusModel.Point{TS: ts, Value: 1})
+		}
+		return result
+	}
+	prom := &fakePrometheus{series: []prometheusModel.Series{
+		// горит с прошлой недели: точки с самого начала окна
+		{Labels: map[string]string{"alertname": "KubeProxyDown", "severity": "warning", "service": "payments-api", "instance": "10.0.0.1:10249", "prometheus": "prometheus/x"}, Points: points(now.Add(-window))},
+		{Labels: map[string]string{"alertname": "Watchdog", "severity": "none"}, Points: points(now.Add(-window))},
+		// сработал внутри окна
+		{Labels: map[string]string{"alertname": "HighErrorRate", "severity": "critical", "service": "payments-api"}, Points: points(now.Add(-10 * time.Minute))},
+	}}
+	u := newUsecase(now, &fakeGithub{}, nil, prom)
+
+	alerts := func(res *model.TimelineResult) []eventModel_Event {
+		return lo.Filter(res.Events, func(e eventModel_Event, _ int) bool { return e.Type == constant.EventTypeAlertFiring })
+	}
+
+	cluster, err := u.Timeline(context.Background(), &model.TimelineReq{Scope: model.ScopeCluster, Window: window})
+	require.NoError(t, err)
+	clusterAlerts := alerts(cluster)
+	require.Len(t, clusterAlerts, 1, "давно горящий и служебный алерты — не изменения")
+	assert.Contains(t, clusterAlerts[0].Summary, "HighErrorRate")
+
+	service, err := u.Timeline(context.Background(), &model.TimelineReq{Services: []string{"payments-api"}, Window: window})
+	require.NoError(t, err)
+	serviceAlerts := alerts(service)
+	require.Len(t, serviceAlerts, 2)
+	longFiring, _ := lo.Find(serviceAlerts, func(e eventModel_Event) bool { return strings.Contains(e.Summary, "KubeProxyDown") })
+	assert.Contains(t, longFiring.Summary, "горит с начала окна")
+	labels := longFiring.Details["labels"].(map[string]string)
+	assert.NotContains(t, labels, "instance", "служебные лейблы не раздувают ответ")
+	assert.Equal(t, "warning", labels["severity"])
 }

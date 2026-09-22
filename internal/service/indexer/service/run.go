@@ -63,6 +63,14 @@ func (s *Service) Run(ctx context.Context) error {
 	services := s.buildServices(ctx, drafts, metadata, now)
 	stats.Services = len(services)
 
+	// k8s Services и маршруты ruto — для графа связей и имён сервисов в кластере
+	topo := s.loadTopology(ctx, drafts, now)
+	if topo.complete {
+		for _, edit := range services {
+			edit.ClusterNames = new(lo.CoalesceSliceOrEmpty(topo.clusterNames(*edit.Name, drafts)))
+		}
+	}
+
 	for _, edit := range services {
 		if err = s.svc.UpdateOrCreate(ctx, edit); err != nil {
 			return fmt.Errorf("svc.UpdateOrCreate(%s): %w", lo.FromPtr(edit.Name), err)
@@ -77,7 +85,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	// 6. связи между сервисами из env/configmap подов (фаза 5)
-	stats.Dependencies = s.recordDependencies(ctx, drafts, now)
+	stats.Dependencies = s.recordDependencies(ctx, drafts, topo, now)
 
 	// 7. чистка: что не видели дольше stale_after, того больше нет
 	staleBefore := now.Add(-s.conf.StaleAfter)

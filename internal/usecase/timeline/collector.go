@@ -141,7 +141,10 @@ func (c *collector) configuration(ctx context.Context, withKusec bool) {
 }
 
 // alertHistory — интервалы firing из метрики ALERTS: начало серии = срабатывание.
-func (c *collector) alertHistory(ctx context.Context) {
+// Алерт, горевший уже к началу окна, — не изменение: в разрезе кластера он пропускается
+// (иначе давно горящие инфра-алерты забивают ленту), для сервиса — помечается как «горит с
+// начала окна». Служебные алерты (Watchdog, severity=none) не показываются.
+func (c *collector) alertHistory(ctx context.Context, clusterScope bool) {
 	if c.u.prometheus == nil {
 		c.addError(constant.SourcePrometheus, errs.Err("not configured"))
 		return
@@ -158,7 +161,11 @@ func (c *collector) alertHistory(ctx context.Context) {
 	byWorkload := lo.SliceToMap(c.workloads, func(w *workloadModel.Main) (string, string) { return w.Name, w.ServiceName })
 
 	for _, s := range series {
-		if len(s.Points) == 0 || !c.u.rules.AlertMatches(s.Labels, names) {
+		if len(s.Points) == 0 || !c.u.rules.AlertMatches(s.Labels, names) || isMonitoringAlert(s.Labels) {
+			continue
+		}
+		alreadyFiring := !s.Points[0].TS.After(c.since.Add(step))
+		if alreadyFiring && clusterScope {
 			continue
 		}
 		service := c.serviceForLabels(s.Labels, byWorkload)
@@ -168,15 +175,19 @@ func (c *collector) alertHistory(ctx context.Context) {
 		// серия может рваться (алерт погас и сработал снова): каждый разрыв больше 2 шагов — новое срабатывание
 		start := s.Points[0].TS
 		last := start
+		labels := compactAlertLabels(s.Labels)
 		flush := func(end time.Time) {
 			summary := fmt.Sprintf("%s: сработал алерт %s (%s)", service, alertName, lo.CoalesceOrEmpty(severity, "severity не задан"))
+			if alreadyFiring && start.Equal(s.Points[0].TS) {
+				summary = fmt.Sprintf("%s: алерт %s (%s) горит с начала окна или раньше", service, alertName, lo.CoalesceOrEmpty(severity, "severity не задан"))
+			}
 			if end.Before(c.now.Add(-2 * step)) {
 				summary += fmt.Sprintf(", погас через %s", end.Sub(start).Round(time.Minute))
 			}
 			c.add(eventModel.Event{
 				TS: start, Source: constant.SourcePrometheus, Type: constant.EventTypeAlertFiring, Service: service,
 				Severity: c.u.rules.AlertSeverity(severity), Summary: summary,
-				Details: map[string]any{"labels": s.Labels, "ended_at": end},
+				Details: map[string]any{"labels": labels, "ended_at": end},
 			})
 		}
 		for _, p := range s.Points[1:] {
@@ -188,6 +199,18 @@ func (c *collector) alertHistory(ctx context.Context) {
 		}
 		flush(last)
 	}
+}
+
+// служебные лейблы Prometheus/экспортеров, бесполезные модели и раздувающие ответ
+var noisyAlertLabels = []string{"prometheus", "endpoint", "instance", "job", "metrics_path", "uid", "container_id", "image_id"}
+
+func compactAlertLabels(labels map[string]string) map[string]string {
+	return lo.OmitByKeys(labels, noisyAlertLabels)
+}
+
+// isMonitoringAlert — служебный алерт проверки самого мониторинга, а не проблема.
+func isMonitoringAlert(labels map[string]string) bool {
+	return labels["alertname"] == "Watchdog" || labels["alertname"] == "InfoInhibitor" || labels["severity"] == "none"
 }
 
 func (c *collector) serviceForLabels(labels map[string]string, byWorkload map[string]string) string {

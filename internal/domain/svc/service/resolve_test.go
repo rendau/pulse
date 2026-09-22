@@ -19,6 +19,7 @@ func catalog() []*model.Main {
 		{Name: "delivery", Title: "Доставка", Aliases: []string{"доставка", "курьеры"}},
 		{Name: "mechta-site", Title: "Сайт mechta.kz", Aliases: []string{"сайт"}},
 		{Name: "kusec-pg"},
+		{Name: "orders-center", ClusterNames: []string{"ocenter"}},
 	}
 }
 
@@ -68,4 +69,14 @@ func TestRank_LimitsAndAmbiguity(t *testing.T) {
 	assert.True(t, Ambiguous(candidates))
 
 	assert.Empty(t, Rank(catalog(), "   "))
+}
+
+func TestRank_ClusterNames(t *testing.T) {
+	c := first(t, "ocenter")
+	assert.Equal(t, "orders-center", c.Service.Name, "имя k8s Service / приложения ruto")
+	assert.Equal(t, constant.MatchedByClusterName, c.MatchedBy)
+	assert.False(t, Ambiguous(Rank(catalog(), "ocenter")))
+
+	c = first(t, "ocenter api")
+	assert.Equal(t, "orders-center", c.Service.Name)
 }

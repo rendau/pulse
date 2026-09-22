@@ -23,6 +23,7 @@ func TestValue_SecretsNeverLeak(t *testing.T) {
 		"HEADER": "Basic dXNlcjpwYXNz",
 		"NOTE":   "some free text with spaces",
 		"CONN":   "amqp://guest:guest@rabbit:5672/",
+		"LINK":   "/reset?token=abc",
 	}
 	for key, value := range secrets {
 		got := Value(key, value)
@@ -38,6 +39,8 @@ func TestValue_AllowlistPasses(t *testing.T) {
 		{"BILLING_ADDR", "billing-core.prod.svc.cluster.local:9090"}: "billing-core.prod.svc.cluster.local:9090",
 		{"KAFKA_BROKERS", "kafka-0:9092,kafka-1:9092"}:               "kafka-0:9092,kafka-1:9092",
 		{"HTTP_CORS", "true"}:       "true",
+		{"MCP_PATH", "/mcp"}:        "/mcp",
+		{"BASE_PATH", "/api/v1/"}:   "/api/v1/",
 		{"MAX_CONNS", "20"}:         "20",
 		{"TIMEOUT", "15s"}:          "15s",
 		{"LOG_LEVEL", "info"}:       "info",

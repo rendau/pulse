@@ -16,6 +16,9 @@ type Main struct {
 	OwnerTeam     string
 	OwnerContacts []string
 	Aliases       []string
+	// ClusterNames — имена сервиса в кластере (workload'ы, k8s Service, приложения ruto),
+	// выводятся индексером; в отличие от Aliases не требуют service.yaml
+	ClusterNames []string
 	// MetadataPresent — в репозитории есть service.yaml
 	MetadataPresent bool
 	Metadata        Metadata
@@ -33,6 +36,7 @@ type Edit struct {
 	OwnerTeam       *string
 	OwnerContacts   *[]string
 	Aliases         *[]string
+	ClusterNames    *[]string
 	MetadataPresent *bool
 	Metadata        *Metadata
 	// FirstSeen пишется только при вставке; при обновлении не трогается

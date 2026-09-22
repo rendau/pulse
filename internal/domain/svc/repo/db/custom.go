@@ -38,7 +38,7 @@ func (r *Repo) getConditions(pars *model.ListReq) (map[string]any, map[string][]
 	}
 	if pars.Search != nil && *pars.Search != "" {
 		pattern := "%" + *pars.Search + "%"
-		conditionExps["(name ilike ? or title ilike ? or array_to_string(aliases, ' ') ilike ?)"] = []any{pattern, pattern, pattern}
+		conditionExps["(name ilike ? or title ilike ? or array_to_string(aliases, ' ') ilike ? or array_to_string(cluster_names, ' ') ilike ?)"] = []any{pattern, pattern, pattern, pattern}
 	}
 
 	return conditions, conditionExps

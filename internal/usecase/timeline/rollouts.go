@@ -21,36 +21,61 @@ type serviceRollout struct {
 	service string
 }
 
+// perWorkloadMaxDeployments — до стольких Deployment'ов в namespace ReplicaSet'ы читаются по
+// селектору каждого; больше — одним списком на namespace (scope=cluster: сотни workload'ов
+// упираются в лимит запросов к API-серверу и в дедлайн).
+const perWorkloadMaxDeployments = 5
+
 // rollouts — выкатки Deployment'ов за окно с причиной из ревизий шаблона пода (ReplicaSet):
-// смена configmap/secret (reloader) и ручной рестарт. Ошибки — по workload'у, без прерывания.
+// смена configmap/secret (reloader) и ручной рестарт. Ошибки — по запросу, без прерывания.
 func (u *Usecase) rollouts(ctx context.Context, workloads []*workloadModel.Main, since time.Time, addError func(string, error)) []serviceRollout {
+	deployments := lo.Filter(workloads, func(w *workloadModel.Main, _ int) bool {
+		return w.Kind == constant.WorkloadKindDeployment && w.Selector != ""
+	})
+
 	var mu sync.Mutex
 	result := make([]serviceRollout, 0)
+	collect := func(w *workloadModel.Main, replicaSets []k8sModel.ReplicaSet) {
+		revisions := lo.FilterMap(replicaSets, func(rs k8sModel.ReplicaSet, _ int) (eventModel.PodTemplateRevision, bool) {
+			return eventModel.PodTemplateRevision{Name: rs.Name, Revision: rs.Revision, CreatedAt: rs.CreatedAt, Annotations: rs.TemplateAnnotations},
+				rs.OwnerKind == constant.WorkloadKindDeployment && rs.OwnerName == w.Name
+		})
+		found := lo.Map(u.events.Rollouts(w.Namespace+"/"+w.Name, revisions, since), func(r eventModel.Rollout, _ int) serviceRollout {
+			return serviceRollout{Rollout: r, service: w.ServiceName}
+		})
+		mu.Lock()
+		result = append(result, found...)
+		mu.Unlock()
+	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(podsConcurrent)
-	for _, w := range workloads {
-		if w.Kind != constant.WorkloadKindDeployment || w.Selector == "" {
+	for namespace, group := range lo.GroupBy(deployments, func(w *workloadModel.Main) string { return w.Namespace }) {
+		if len(group) > perWorkloadMaxDeployments {
+			eg.Go(func() error {
+				replicaSets, err := u.k8s.ListReplicaSets(egCtx, namespace, "")
+				if err != nil {
+					addError(constant.SourceK8s, fmt.Errorf("replicasets %s: %w", namespace, err))
+					return nil
+				}
+				for _, w := range group {
+					collect(w, replicaSets)
+				}
+				return nil
+			})
 			continue
 		}
-		eg.Go(func() error {
-			replicaSets, err := u.k8s.ListReplicaSets(egCtx, w.Namespace, w.Selector)
-			if err != nil {
-				addError(constant.SourceK8s, fmt.Errorf("replicasets %s/%s: %w", w.Namespace, w.Name, err))
+		for _, w := range group {
+			eg.Go(func() error {
+				replicaSets, err := u.k8s.ListReplicaSets(egCtx, w.Namespace, w.Selector)
+				if err != nil {
+					addError(constant.SourceK8s, fmt.Errorf("replicasets %s/%s: %w", w.Namespace, w.Name, err))
+					return nil
+				}
+				collect(w, replicaSets)
 				return nil
-			}
-			revisions := lo.FilterMap(replicaSets, func(rs k8sModel.ReplicaSet, _ int) (eventModel.PodTemplateRevision, bool) {
-				return eventModel.PodTemplateRevision{Name: rs.Name, Revision: rs.Revision, CreatedAt: rs.CreatedAt, Annotations: rs.TemplateAnnotations},
-					rs.OwnerKind == constant.WorkloadKindDeployment && rs.OwnerName == w.Name
 			})
-			found := lo.Map(u.events.Rollouts(w.Namespace+"/"+w.Name, revisions, since), func(r eventModel.Rollout, _ int) serviceRollout {
-				return serviceRollout{Rollout: r, service: w.ServiceName}
-			})
-			mu.Lock()
-			result = append(result, found...)
-			mu.Unlock()
-			return nil
-		})
+		}
 	}
 	_ = eg.Wait()
 

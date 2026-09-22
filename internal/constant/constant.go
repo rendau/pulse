@@ -46,9 +46,11 @@ const (
 
 // откуда взято совпадение в resolve_service
 const (
-	MatchedByName        = "name"
-	MatchedByAlias       = "alias"
-	MatchedByTitle       = "title"
+	MatchedByName  = "name"
+	MatchedByAlias = "alias"
+	MatchedByTitle = "title"
+	// MatchedByClusterName — имя workload'а, k8s Service или приложения ruto
+	MatchedByClusterName = "cluster_name"
 	MatchedByFuzzy       = "fuzzy"
 	MatchedByDescription = "description"
 )

@@ -17,6 +17,7 @@ type Select struct {
 	OwnerTeam       string
 	OwnerContacts   []string
 	Aliases         []string
+	ClusterNames    []string
 	MetadataPresent bool
 	Metadata        []byte // jsonb, ручная десериализация через metadataJSON
 	FirstSeen       time.Time
@@ -33,6 +34,7 @@ func (m *Select) ListColumnMap() map[string]any {
 		"owner_team":       &m.OwnerTeam,
 		"owner_contacts":   &m.OwnerContacts,
 		"aliases":          &m.Aliases,
+		"cluster_names":    &m.ClusterNames,
 		"metadata_present": &m.MetadataPresent,
 		"metadata":         &m.Metadata,
 		"first_seen":       &m.FirstSeen,
@@ -60,6 +62,7 @@ func EncodeSelect(v *Select, _ int) *domainModel.Main {
 		OwnerTeam:       v.OwnerTeam,
 		OwnerContacts:   v.OwnerContacts,
 		Aliases:         v.Aliases,
+		ClusterNames:    v.ClusterNames,
 		MetadataPresent: v.MetadataPresent,
 		FirstSeen:       v.FirstSeen,
 		LastSeen:        v.LastSeen,

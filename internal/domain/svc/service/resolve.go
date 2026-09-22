@@ -23,7 +23,8 @@ const (
 )
 
 // Resolve переводит формулировку в кандидатов каталога. Обычный код, не LLM:
-// точное имя → алиас → title → подстрока → fuzzy по имени/алиасам/title → подстрока в description.
+// точное имя → алиас → имя в кластере → title → подстрока → fuzzy по имени/алиасам/именам в
+// кластере/title → подстрока в description.
 // Запрос из нескольких слов сопоставляется и целиком, и по отдельным словам.
 func (s *Service) Resolve(ctx context.Context, query string) ([]*model.Candidate, error) {
 	services, _, err := s.repoDb.List(ctx, &model.ListReq{})
@@ -77,6 +78,7 @@ func scoreService(svc *model.Main, probe string) (float64, string) {
 	name := fuzzy.Normalize(svc.Name)
 	title := fuzzy.Normalize(svc.Title)
 	aliases := lo.Map(svc.Aliases, func(a string, _ int) string { return fuzzy.Normalize(a) })
+	clusterNames := lo.Map(svc.ClusterNames, func(a string, _ int) string { return fuzzy.Normalize(a) })
 
 	// точные совпадения
 	if probe == name {
@@ -84,6 +86,9 @@ func scoreService(svc *model.Main, probe string) (float64, string) {
 	}
 	if lo.Contains(aliases, probe) {
 		return 0.95, constant.MatchedByAlias
+	}
+	if lo.Contains(clusterNames, probe) {
+		return clusterNameExact, constant.MatchedByClusterName
 	}
 	if title != "" && probe == title {
 		return 0.9, constant.MatchedByTitle
@@ -98,13 +103,18 @@ func scoreService(svc *model.Main, probe string) (float64, string) {
 			return 0.75, constant.MatchedByAlias
 		}
 	}
+	for _, clusterName := range clusterNames {
+		if len(clusterName) >= minTokenLen && (strings.Contains(clusterName, probe) || strings.Contains(probe, clusterName)) {
+			return 0.72, constant.MatchedByClusterName
+		}
+	}
 	if title != "" && strings.Contains(title, probe) {
 		return 0.7, constant.MatchedByTitle
 	}
 
 	// fuzzy: опечатки и вариации написания
 	bestSim := fuzzy.Similarity(probe, name)
-	for _, candidate := range append(aliases, title) {
+	for _, candidate := range append(append(aliases, clusterNames...), title) {
 		if candidate != "" {
 			bestSim = max(bestSim, fuzzy.Similarity(probe, candidate))
 		}

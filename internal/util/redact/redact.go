@@ -25,6 +25,7 @@ var allowValueRes = []*regexp.Regexp{
 	regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)*(:\d{1,5})?)(,\s*[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)*(:\d{1,5})?)*$`),
 	regexp.MustCompile(`^(debug|info|warn|warning|error|fatal|trace|json|text|prod|production|stage|staging|dev|development|test)$`),
 	regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,63}$`), // короткий идентификатор: имя топика, региона, режима
+	regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+/?$|^/$`),    // путь без query: /mcp, /api/v1
 }
 
 // KeyDenied — имя ключа матчится на deny-список.

@@ -209,7 +209,7 @@ func (r *Rules) applyDefaults() {
 		r.Timeline.Deadline = 8 * time.Second
 	}
 	if r.Timeline.MaxEvents <= 0 {
-		r.Timeline.MaxEvents = 200
+		r.Timeline.MaxEvents = 100
 	}
 	if r.Timeline.CommitsLimit <= 0 {
 		r.Timeline.CommitsLimit = 100
@@ -292,7 +292,7 @@ func defaultMetrics() []MetricDef {
 		{Id: "rps", Title: "Запросов в секунду", Unit: "rps",
 			PromQL: `sum(rate(` + requests + `[5m]))`},
 		{Id: "error_rate", Title: "Доля ошибок (status error или 5xx)", Unit: "ratio", Direction: "lower_is_better",
-			PromQL: `sum(rate(` + errors + `[5m])) / sum(rate(` + requests + `[5m]))`},
+			PromQL: `(sum(rate(` + errors + `[5m])) or vector(0)) / sum(rate(` + requests + `[5m]))`},
 		{Id: "latency_p95", Title: "Latency p95", Unit: "seconds", Direction: "lower_is_better",
 			PromQL: `histogram_quantile(0.95, sum by (le) (rate(` + buckets + `[5m])))`},
 		{Id: "cpu_cores", Title: "CPU, ядер", Unit: "cores", Direction: "lower_is_better",
@@ -314,13 +314,14 @@ func defaultPublicMetrics(requestsMetric, durationMetric string) []MetricDef {
 		{Id: "public_rps", Title: "Запросов в секунду через gateway", Unit: "rps",
 			PromQL: `sum(rate(` + requests + `[5m]))`},
 		{Id: "public_error_rate", Title: "Доля ошибок через gateway (5xx)", Unit: "ratio", Direction: "lower_is_better",
-			PromQL: `sum(rate(` + errors + `[5m])) / sum(rate(` + requests + `[5m]))`},
+			PromQL: `(sum(rate(` + errors + `[5m])) or vector(0)) / sum(rate(` + requests + `[5m]))`},
 		{Id: "public_latency_p95", Title: "Latency p95 через gateway", Unit: "seconds", Direction: "lower_is_better",
 			PromQL: `histogram_quantile(0.95, sum by (le) (rate(` + durationMetric + `_bucket{app=~"{ruto_apps}"}[5m])))`},
 	}
 }
 
-// defaultClusterMetrics — загрузка кластера по node-exporter и kube-state-metrics.
+// defaultClusterMetrics — загрузка кластера по node-exporter и kube-state-metrics. Не ready
+// считаются только живые поды (Pending/Running): завершившиеся поды Job'ов ready=false навсегда.
 func defaultClusterMetrics() []MetricDef {
 	return []MetricDef{
 		{Id: "cluster_cpu_usage_ratio", Title: "Загрузка CPU кластера", Unit: "ratio", Direction: "lower_is_better",
@@ -328,7 +329,7 @@ func defaultClusterMetrics() []MetricDef {
 		{Id: "cluster_memory_usage_ratio", Title: "Использование памяти кластера", Unit: "ratio", Direction: "lower_is_better",
 			PromQL: `1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)`},
 		{Id: "pods_not_ready", Title: "Подов не ready", Unit: "count", Direction: "lower_is_better",
-			PromQL: `sum(kube_pod_status_ready{condition="false"})`},
+			PromQL: `sum(kube_pod_status_ready{condition="false"} * on(namespace, pod) group_left() (kube_pod_status_phase{phase=~"Pending|Running"} == 1))`},
 		{Id: "container_restarts_1h", Title: "Рестарты контейнеров за час", Unit: "count", Direction: "lower_is_better",
 			PromQL: `sum(increase(kube_pod_container_status_restarts_total[1h]))`},
 	}

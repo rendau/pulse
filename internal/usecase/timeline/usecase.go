@@ -62,7 +62,7 @@ func New(
 		conf.Deadline = 8 * time.Second
 	}
 	if conf.MaxEvents <= 0 {
-		conf.MaxEvents = 200
+		conf.MaxEvents = 100
 	}
 	if conf.CommitsLimit <= 0 {
 		conf.CommitsLimit = 100
@@ -105,7 +105,7 @@ func (u *Usecase) Timeline(ctx context.Context, req *model.TimelineReq) (*model.
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error { c.deploys(egCtx); return nil })
 	eg.Go(func() error { c.clusterEvents(egCtx, clusterScope); return nil })
-	eg.Go(func() error { c.alertHistory(egCtx); return nil })
+	eg.Go(func() error { c.alertHistory(egCtx, clusterScope); return nil })
 	withDetails := !clusterScope && len(services) <= u.conf.MaxServicesForCommits
 	eg.Go(func() error { c.configuration(egCtx, withDetails); return nil })
 	if withDetails {

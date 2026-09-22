@@ -19,6 +19,7 @@ type Upsert struct {
 	OwnerTeam       *string
 	OwnerContacts   *[]string
 	Aliases         *[]string
+	ClusterNames    *[]string
 	MetadataPresent *bool
 	Metadata        []byte     // jsonb, ручная сериализация через metadataJSON; nil — не трогать
 	FirstSeen       *time.Time // только INSERT
@@ -48,6 +49,9 @@ func (m *Upsert) CreateColumnMap() map[string]any {
 	}
 	if m.Aliases != nil {
 		result["aliases"] = *m.Aliases
+	}
+	if m.ClusterNames != nil {
+		result["cluster_names"] = *m.ClusterNames
 	}
 	if m.MetadataPresent != nil {
 		result["metadata_present"] = *m.MetadataPresent
@@ -92,6 +96,7 @@ func DecodeUpsert(v *domainModel.Edit) (*Upsert, error) {
 		OwnerTeam:       v.OwnerTeam,
 		OwnerContacts:   v.OwnerContacts,
 		Aliases:         v.Aliases,
+		ClusterNames:    v.ClusterNames,
 		MetadataPresent: v.MetadataPresent,
 		FirstSeen:       v.FirstSeen,
 		LastSeen:        v.LastSeen,
