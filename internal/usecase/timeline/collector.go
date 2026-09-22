@@ -227,7 +227,12 @@ func (c *collector) alertHistory(ctx context.Context, clusterScope bool) {
 			summary = fmt.Sprintf("%s: алерт %s (%s) горит с начала окна или раньше", key.service, key.name, severity)
 		}
 		if latest.end.Before(c.now.Add(-2 * step)) {
-			summary += fmt.Sprintf(", погас через %s", latest.end.Sub(latest.start).Round(time.Minute))
+			// одна точка серии — алерт жил меньше шага выборки, точнее не известно
+			if lasted := latest.end.Sub(latest.start); lasted < step {
+				summary += fmt.Sprintf(", погас быстрее чем за %s", step)
+			} else {
+				summary += fmt.Sprintf(", погас через %s", lasted.Round(time.Minute))
+			}
 		}
 		details := map[string]any{
 			"labels":   c.u.rules.MergeAlertLabels(lo.Map(list, func(f alertFiring, _ int) map[string]string { return f.labels })),
