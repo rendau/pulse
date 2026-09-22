@@ -466,7 +466,7 @@ func TestTimeline_RepeatedAlertsCollapse(t *testing.T) {
 	assert.Equal(t, 3, alert.Details["count"])
 	labels := alert.Details["labels"].(map[string]string)
 	assert.Equal(t, "payments-api-report-1, payments-api-report-2, payments-api-report-3", labels["job_name"])
-	for _, key := range []string{"pod", "container", "service", "job", "alertstate", "condition"} {
+	for _, key := range []string{"pod", "container", "service", "alertstate", "condition"} {
 		assert.NotContains(t, labels, key)
 	}
 }

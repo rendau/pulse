@@ -16,7 +16,7 @@ func TestAlertOwner_ExporterLabels(t *testing.T) {
 	owner, ok := s.AlertOwner(jobFailed, names)
 	assert.True(t, ok)
 	assert.Equal(t, "report", owner, "Job CronJob'а — по префиксу job_name, а не сервис экспортера")
-	assert.Equal(t, map[string]string{"alertname": "KubeJobFailed", "namespace": "loom", "job_name": "report-28371"}, s.AlertLabels(jobFailed))
+	assert.Equal(t, map[string]string{"alertname": "KubeJobFailed", "namespace": "loom", "job_name": "report-28371", "job": "kube-state-metrics"}, s.AlertLabels(jobFailed))
 
 	// метрика пода (honor_labels): pod/container — объекта, service/job — экспортера
 	crash := map[string]string{"alertname": "KubePodCrashLooping", "namespace": "default", "pod": "caravan-7d9f-x1", "container": "caravan",
@@ -24,7 +24,7 @@ func TestAlertOwner_ExporterLabels(t *testing.T) {
 	owner, ok = s.AlertOwner(crash, names)
 	assert.True(t, ok)
 	assert.Equal(t, "caravan", owner)
-	assert.Equal(t, map[string]string{"alertname": "KubePodCrashLooping", "namespace": "default", "pod": "caravan-7d9f-x1", "container": "caravan"}, s.AlertLabels(crash))
+	assert.Equal(t, map[string]string{"alertname": "KubePodCrashLooping", "namespace": "default", "pod": "caravan-7d9f-x1", "container": "caravan", "job": "kube-state-metrics"}, s.AlertLabels(crash))
 
 	// приложение со своим ServiceMonitor: job == service == container — сам объект
 	own := map[string]string{"alertname": "HighErrorRate", "job": "caravan", "service": "caravan", "container": "caravan", "pod": "caravan-1"}
@@ -32,8 +32,8 @@ func TestAlertOwner_ExporterLabels(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "caravan", owner)
 
-	_, ok = s.AlertOwner(map[string]string{"alertname": "KubeJobFailed", "job_name": "unknown-1", "job": "kube-state-metrics", "service": "prometheus-kube-state-metrics"}, names)
-	assert.False(t, ok, "без объекта из каталога алерт экспортеру не приписывается")
+	_, ok = s.AlertOwner(map[string]string{"alertname": "KubeJobFailed", "job_name": "unknown-1", "job": "kube-state-metrics", "service": "prometheus-kube-state-metrics"}, append(names, "kube-state-metrics"))
+	assert.False(t, ok, "без объекта из каталога алерт экспортеру не приписывается, даже если job совпал с именем")
 
 	assert.True(t, s.IsMonitoringAlert(map[string]string{"alertname": "Watchdog", "severity": "none"}))
 	assert.False(t, s.IsMonitoringAlert(map[string]string{"alertname": "KubeJobFailed", "severity": "warning"}))

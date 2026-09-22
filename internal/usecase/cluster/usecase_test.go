@@ -131,7 +131,7 @@ func TestHealth_Degraded(t *testing.T) {
 	assert.Equal(t, "KubeJobFailed", jobs.Name)
 	assert.Equal(t, 2, jobs.Count)
 	assert.Equal(t, now.Add(-time.Hour), jobs.StartsAt, "самый ранний")
-	assert.Equal(t, map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "loom", "job_name": "sync-1, sync-2"}, jobs.Labels)
+	assert.Equal(t, map[string]string{"alertname": "KubeJobFailed", "severity": "warning", "namespace": "loom", "job_name": "sync-1, sync-2", "job": "kube-state-metrics"}, jobs.Labels)
 	assert.Equal(t, 1, h.ServiceAlertsActive)
 
 	require.Len(t, h.Metrics, 1)

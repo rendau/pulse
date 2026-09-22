@@ -20,6 +20,7 @@ var noisyAlertLabels = []string{"__name__", "alertstate", "condition", "promethe
 // exporterJobs — scrape-job'ы экспортеров: их лейблы job/service (и pod/container, когда
 // метрика их не несла и они пришли от цели скрейпа) описывают сам экспортер, а не объект
 // алерта. Иначе KubeJobFailed по упавшему Job'у приписывается сервису kube-state-metrics.
+// Сам job в лейблах остаётся: для TargetDown это и есть объект.
 var exporterJobs = []string{"kube-state-metrics", "node-exporter", "kubelet", "apiserver", "kube-proxy", "kube-scheduler", "kube-controller-manager", "coredns", "etcd"}
 
 // mergedValuesMax — сколько разных значений лейбла перечисляется при слиянии алертов.
@@ -32,7 +33,6 @@ func (s *Service) AlertLabels(labels map[string]string) map[string]string {
 	if !lo.Contains(exporterJobs, job) {
 		return result
 	}
-	delete(result, "job")
 	delete(result, "service")
 	if labels["container"] == job {
 		delete(result, "container")
@@ -46,7 +46,7 @@ func (s *Service) AlertOwner(labels map[string]string, names []string) (string, 
 	labels = s.AlertLabels(labels)
 	for _, key := range alertObjectKeys {
 		value, ok := labels[key]
-		if !ok || value == "" {
+		if !ok || value == "" || (key == "job" && lo.Contains(exporterJobs, value)) {
 			continue
 		}
 		for _, name := range names {
