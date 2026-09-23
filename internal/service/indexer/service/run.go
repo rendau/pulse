@@ -168,7 +168,9 @@ func (s *Service) newDraft(w k8sModel.Workload, pods []k8sModel.Pod) *workloadDr
 	}
 
 	if draft.repoUrl != "" {
-		draft.serviceKey = draft.image.Name()
+		// имя репозитория, а не образа: одна репа может собирать несколько образов
+		// (rendau/loom/server и rendau/loom/artifact — один сервис loom)
+		draft.serviceKey = draft.image.RepoName()
 	} else {
 		// сторонний образ (postgres, redis): сервис называется по workload'у
 		draft.serviceKey = w.Name

@@ -24,6 +24,26 @@ func (r Ref) Name() string {
 	return r.Path
 }
 
+// Repo — первые два сегмента пути: репозиторий, из которого собран образ. GitHub Packages
+// кладёт образы внутрь репозитория (ghcr.io/rendau/loom/server → rendau/loom), поэтому
+// путь целиком репозиторием не является. Односегментный путь возвращается как есть.
+func (r Ref) Repo() string {
+	parts := strings.SplitN(r.Path, "/", 3)
+	if len(parts) < 2 {
+		return r.Path
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+// RepoName — имя репозитория (второй сегмент пути): rendau/loom/server → loom.
+// Для односегментного пути — само имя образа.
+func (r Ref) RepoName() string {
+	if _, name, ok := strings.Cut(r.Repo(), "/"); ok {
+		return name
+	}
+	return r.Name()
+}
+
 // Org — первый сегмент пути (owner/organization).
 func (r Ref) Org() string {
 	if org, _, ok := strings.Cut(r.Path, "/"); ok {

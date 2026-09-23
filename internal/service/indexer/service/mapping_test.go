@@ -12,7 +12,7 @@ import (
 
 func TestImageMapper(t *testing.T) {
 	mapper := newImageMapper([]indexerModel.ImageMapping{
-		{Registry: "ghcr.io", RepoTemplate: "https://github.com/{path}"},
+		{Registry: "ghcr.io", RepoTemplate: "https://github.com/{repo}"},
 		{Registry: "registry.company.kz", RepoTemplate: "github.com/{org}/{image_name}", Org: "company"},
 	})
 
@@ -23,6 +23,9 @@ func TestImageMapper(t *testing.T) {
 	}{
 		{"ghcr.io/mechta-market/promo-sync:latest", "https://github.com/mechta-market/promo-sync", true},
 		{"ghcr.io/rendau/kusec:latest", "https://github.com/rendau/kusec", true},
+		// несколько образов из одной репы: путь пакета длиннее пути репозитория
+		{"ghcr.io/rendau/loom/server:latest", "https://github.com/rendau/loom", true},
+		{"ghcr.io/rendau/loom/artifact:latest", "https://github.com/rendau/loom", true},
 		{"registry.company.kz/team/payments-api:a3f9c21", "https://github.com/company/payments-api", true},
 		{"postgres:17-bullseye", "", false},
 		{"redis:alpine", "", false},

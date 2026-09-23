@@ -41,6 +41,20 @@ func TestRefHelpers(t *testing.T) {
 
 	assert.Equal(t, "promo-sync", ref.Name())
 	assert.Equal(t, "mechta-market", ref.Org())
+	assert.Equal(t, "mechta-market/promo-sync", ref.Repo())
+	assert.Equal(t, "promo-sync", ref.RepoName())
+
+	// образ внутри репозитория (несколько пакетов из одной репы)
+	nested, err := Parse("ghcr.io/rendau/loom/server:latest")
+	require.NoError(t, err)
+	assert.Equal(t, "server", nested.Name())
+	assert.Equal(t, "rendau/loom", nested.Repo())
+	assert.Equal(t, "loom", nested.RepoName())
+
+	single, err := Parse("localhost:5000/app:dev")
+	require.NoError(t, err)
+	assert.Equal(t, "app", single.Repo())
+	assert.Equal(t, "app", single.RepoName())
 	assert.Equal(t, "latest", ref.Reference())
 	assert.Equal(t, "ghcr.io/mechta-market/promo-sync:latest", ref.String())
 

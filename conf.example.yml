@@ -9,11 +9,12 @@ indexer:
 # «имя образа → репозиторий GitHub», правила применяются по порядку, первое совпадение.
 # Образ, не подошедший ни под одно правило, считается сторонним (postgres, redis…):
 # его workload попадает в каталог без репозитория.
-# Плейсхолдеры: {path} — путь без registry (mechta-market/promo-sync),
+# Плейсхолдеры: {repo} — первые два сегмента пути (mechta-market/promo-sync; у ghcr образы
+# лежат внутри репозитория: rendau/loom/server → rendau/loom), {path} — путь без registry целиком,
 # {org} — первый сегмент пути (или поле org), {image_name} — последний сегмент.
 image_mapping:
   - registry: ghcr.io
-    repo_template: "https://github.com/{path}"
+    repo_template: "https://github.com/{repo}"
 
 snapshot:
   # общий дедлайн параллельного сбора из источников

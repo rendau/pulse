@@ -120,9 +120,10 @@ type MetricDef struct {
 
 // ImageMapping — правило маппинга образа на репозиторий.
 //
-// Плейсхолдеры в repo_template: {path} — путь образа без registry
-// (mechta-market/promo-sync), {org} — первый сегмент пути (или поле org),
-// {image_name} — последний сегмент пути.
+// Плейсхолдеры в repo_template: {repo} — первые два сегмента пути (mechta-market/promo-sync;
+// ghcr.io кладёт образы внутрь репозитория: rendau/loom/server → rendau/loom), {path} — путь
+// образа без registry целиком, {org} — первый сегмент пути (или поле org), {image_name} —
+// последний сегмент пути.
 type ImageMapping struct {
 	Registry     string `yaml:"registry"`
 	RepoTemplate string `yaml:"repo_template"`
@@ -271,7 +272,7 @@ func defaultRules() *Rules {
 	rules := &Rules{}
 	rules.Indexer.ExcludeNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
 	rules.ImageMapping = []ImageMapping{
-		{Registry: "ghcr.io", RepoTemplate: "https://github.com/{path}"},
+		{Registry: "ghcr.io", RepoTemplate: "https://github.com/{repo}"},
 	}
 	rules.applyDefaults()
 	return rules

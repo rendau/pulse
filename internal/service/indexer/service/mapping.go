@@ -30,6 +30,7 @@ func (m *imageMapper) RepoUrl(ref imageref.Ref) (string, bool) {
 
 		replacer := strings.NewReplacer(
 			"{path}", ref.Path,
+			"{repo}", ref.Repo(),
 			"{org}", org,
 			"{image_name}", ref.Name(),
 		)
