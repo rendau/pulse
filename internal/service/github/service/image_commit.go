@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -86,7 +87,9 @@ func (s *Service) packageVersionTime(ctx context.Context, owner, name, digest st
 		var resp *github.Response
 		var err error
 		if userOwned {
-			versions, resp, err = s.client.Users.PackageGetAllVersions(ctx, owner, "container", name, opts)
+			// go-github экранирует имя пакета только в org-варианте; без экранирования
+			// вложенное имя (loom/server) становится лишним сегментом пути → 404
+			versions, resp, err = s.client.Users.PackageGetAllVersions(ctx, owner, "container", url.PathEscape(name), opts)
 		} else {
 			versions, resp, err = s.client.Organizations.PackageGetAllVersions(ctx, owner, "container", name, opts)
 		}
