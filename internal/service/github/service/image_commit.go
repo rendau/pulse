@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -60,6 +61,14 @@ func (s *Service) ResolveImageCommit(ctx context.Context, repoUrl, imagePath, di
 		if sha, err = s.buildRunCommit(ctx, owner, repo, publishedAt); err != nil {
 			return "", err
 		}
+	}
+
+	// не найденный коммит — раз в unresolvedTTL, чтобы причина была видна без debug-логов
+	switch {
+	case !found:
+		slog.Info("github: package version for image digest not found", "package", imagePath, "digest", digest)
+	case sha == "":
+		slog.Info("github: no push workflow run matches package publish time", "repo", owner+"/"+repo, "package", imagePath, "published_at", publishedAt)
 	}
 
 	s.imageCommits.Store(digest, imageCommit{sha: sha, at: time.Now()})

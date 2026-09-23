@@ -304,7 +304,7 @@ func (s *Service) resolveCommits(ctx context.Context, drafts []*workloadDraft, s
 			}
 
 			if d.commit, err = s.github.ResolveImageCommit(egCtx, d.repoUrl, d.image.Path, d.digest); err != nil {
-				slog.Debug("indexer: image build commit is unavailable", "image", d.imageRaw, "error", err)
+				slog.Warn("indexer: image build commit is unavailable", "image", d.imageRaw, "error", err)
 			}
 			return nil
 		})
