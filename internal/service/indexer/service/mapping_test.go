@@ -12,6 +12,8 @@ import (
 
 func TestImageMapper(t *testing.T) {
 	mapper := newImageMapper([]indexerModel.ImageMapping{
+		// исключение выше общего правила: одна репа собирает образы с другими именами
+		{Registry: "ghcr.io", Path: "rendau/ruto-*", RepoTemplate: "https://github.com/rendau/ruto"},
 		{Registry: "ghcr.io", RepoTemplate: "https://github.com/{repo}"},
 		{Registry: "registry.company.kz", RepoTemplate: "github.com/{org}/{image_name}", Org: "company"},
 	})
@@ -23,6 +25,9 @@ func TestImageMapper(t *testing.T) {
 	}{
 		{"ghcr.io/mechta-market/promo-sync:latest", "https://github.com/mechta-market/promo-sync", true},
 		{"ghcr.io/rendau/kusec:latest", "https://github.com/rendau/kusec", true},
+		{"ghcr.io/rendau/ruto-core:latest", "https://github.com/rendau/ruto", true},
+		{"ghcr.io/rendau/ruto-gateway:latest", "https://github.com/rendau/ruto", true},
+		{"ghcr.io/rendau/ruto:latest", "https://github.com/rendau/ruto", true},
 		// несколько образов из одной репы: путь пакета длиннее пути репозитория
 		{"ghcr.io/rendau/loom/server:latest", "https://github.com/rendau/loom", true},
 		{"ghcr.io/rendau/loom/artifact:latest", "https://github.com/rendau/loom", true},

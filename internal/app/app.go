@@ -134,7 +134,7 @@ func (a *App) Init() {
 			{Name: constant.SourceK8s, Ping: k8sService.Ping},
 			{Name: constant.SourceGithub, Ping: githubService.Ping},
 		}
-		for _, m := range rules.ImageMapping {
+		for _, m := range lo.UniqBy(rules.ImageMapping, func(m config.ImageMapping) string { return m.Registry }) {
 			sources = append(sources, usecaseSystemP.Source{
 				Name: constant.SourceRegistry + ":" + m.Registry,
 				Ping: func(ctx context.Context) error { return registryService.Ping(ctx, m.Registry) },
@@ -184,7 +184,7 @@ func (a *App) Init() {
 				Interval:   config.Conf.IndexerInterval,
 				StaleAfter: rules.Indexer.StaleAfter,
 				ImageMapping: lo.Map(rules.ImageMapping, func(m config.ImageMapping, _ int) serviceIndexerModel.ImageMapping {
-					return serviceIndexerModel.ImageMapping{Registry: m.Registry, RepoTemplate: m.RepoTemplate, Org: m.Org}
+					return serviceIndexerModel.ImageMapping{Registry: m.Registry, RepoTemplate: m.RepoTemplate, Org: m.Org, Path: m.Path}
 				}),
 				RutoGatewayService: rules.Ruto.GatewayService,
 			},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -128,6 +129,10 @@ type ImageMapping struct {
 	Registry     string `yaml:"registry"`
 	RepoTemplate string `yaml:"repo_template"`
 	Org          string `yaml:"org"`
+	// Path — маска пути образа (path.Match: rendau/ruto-*); пусто — любой путь registry.
+	// Правила проверяются по порядку: исключения для образов, чьё имя не совпадает
+	// с репозиторием, ставятся выше общего правила.
+	Path string `yaml:"path"`
 }
 
 // LoadRules читает yaml по пути. Отсутствующий файл — не ошибка: возвращаются дефолты.
@@ -147,6 +152,12 @@ func LoadRules(path string) (*Rules, error) {
 	}
 
 	rules.applyDefaults()
+
+	for _, m := range rules.ImageMapping {
+		if _, err = filepath.Match(m.Path, ""); err != nil {
+			return nil, fmt.Errorf("image_mapping: path %q: %w", m.Path, err)
+		}
+	}
 
 	return rules, nil
 }

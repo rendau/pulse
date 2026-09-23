@@ -1,13 +1,15 @@
 package service
 
 import (
+	"path"
 	"strings"
 
 	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
 	"github.com/mechta-market/pulse/internal/util/imageref"
 )
 
-// imageMapper применяет правила «образ → репозиторий»: первое совпадение по registry.
+// imageMapper применяет правила «образ → репозиторий»: первое совпадение по registry
+// и маске пути (если задана).
 type imageMapper struct {
 	rules []indexerModel.ImageMapping
 }
@@ -21,6 +23,12 @@ func (m *imageMapper) RepoUrl(ref imageref.Ref) (string, bool) {
 	for _, rule := range m.rules {
 		if !strings.EqualFold(rule.Registry, ref.Host) {
 			continue
+		}
+		if rule.Path != "" {
+			// некорректная маска — правило не совпадает (валидность маски проверяется при загрузке правил)
+			if matched, err := path.Match(rule.Path, ref.Path); err != nil || !matched {
+				continue
+			}
 		}
 
 		org := rule.Org

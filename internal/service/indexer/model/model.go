@@ -17,4 +17,6 @@ type ImageMapping struct {
 	Registry     string
 	RepoTemplate string
 	Org          string
+	// Path — маска пути образа (path.Match); пусто — любой путь registry
+	Path string
 }
