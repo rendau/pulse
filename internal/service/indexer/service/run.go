@@ -47,6 +47,9 @@ func (s *Service) Run(ctx context.Context) error {
 		return s.newDraft(w, pods)
 	})
 
+	// 1.1 репозиторий из привязки пакета ghcr: имя образа может не совпадать с репой
+	s.resolvePackageRepos(ctx, drafts)
+
 	// 2. репозитории → service.yaml (параллельно, с общим кэшем на цикл)
 	repos := lo.Uniq(lo.FilterMap(drafts, func(d *workloadDraft, _ int) (string, bool) {
 		return d.repoUrl, d.repoUrl != ""
@@ -312,6 +315,43 @@ func (s *Service) resolveCommits(ctx context.Context, drafts []*workloadDraft, s
 	_ = eg.Wait()
 
 	stats.CommitsResolved = lo.CountBy(drafts, func(d *workloadDraft) bool { return d.commit != "" })
+}
+
+// resolvePackageRepos заменяет repo_url, выведенный из пути образа по шаблону, на
+// репозиторий, к которому GitHub привязал пакет ghcr (dpm → dp-mechta, ruto-core → ruto).
+// Имя сервиса не меняется. Пакет без привязки или ошибка GitHub — остаётся шаблонный URL.
+func (s *Service) resolvePackageRepos(ctx context.Context, drafts []*workloadDraft) {
+	ghcr := lo.Filter(drafts, func(d *workloadDraft, _ int) bool {
+		return d.repoUrl != "" && d.image.Host == localConstant.GhcrHost
+	})
+	paths := lo.Uniq(lo.Map(ghcr, func(d *workloadDraft, _ int) string { return d.image.Path }))
+
+	var mu sync.Mutex
+	repos := make(map[string]string, len(paths))
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(localConstant.RegistryConcurrency)
+	for _, imagePath := range paths {
+		eg.Go(func() error {
+			repoUrl, err := s.github.PackageRepoUrl(egCtx, imagePath)
+			if err != nil {
+				slog.Warn("indexer: package repository is unavailable", "package", imagePath, "error", err)
+				return nil
+			}
+			if repoUrl != "" {
+				mu.Lock()
+				repos[imagePath] = repoUrl
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+	_ = eg.Wait()
+
+	for _, d := range ghcr {
+		if repoUrl, ok := repos[d.image.Path]; ok {
+			d.repoUrl = repoUrl
+		}
+	}
 }
 
 // buildServices группирует черновики по сервисам и собирает правки каталога.

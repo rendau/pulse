@@ -22,6 +22,7 @@ type k8sClientI interface {
 type githubClientI interface {
 	GetFileContent(ctx context.Context, repoUrl, path string) ([]byte, bool, error)
 	ResolveImageCommit(ctx context.Context, repoUrl, imagePath, digest string) (string, error)
+	PackageRepoUrl(ctx context.Context, imagePath string) (string, error)
 }
 
 type registryClientI interface {

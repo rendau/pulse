@@ -18,5 +18,8 @@ type Client interface {
 	// ResolveImageCommit — коммит сборки образа по digest через пакеты ghcr и запуски Actions;
 	// пустая строка — сборка не найдена однозначно.
 	ResolveImageCommit(ctx context.Context, repoUrl, imagePath, digest string) (string, error)
+	// PackageRepoUrl — репозиторий, к которому привязан контейнерный пакет ghcr; пустая
+	// строка — пакет не найден или не привязан.
+	PackageRepoUrl(ctx context.Context, imagePath string) (string, error)
 	Ping(ctx context.Context) error
 }

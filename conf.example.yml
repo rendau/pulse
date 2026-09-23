@@ -12,13 +12,11 @@ indexer:
 # Плейсхолдеры: {repo} — первые два сегмента пути (mechta-market/promo-sync; у ghcr образы
 # лежат внутри репозитория: rendau/loom/server → rendau/loom), {path} — путь без registry целиком,
 # {org} — первый сегмент пути (или поле org), {image_name} — последний сегмент.
+# Для ghcr.io репозиторий берётся из привязки пакета в GitHub (dpm → dp-mechta, ruto-core →
+# ruto), шаблон — запасной вариант для непривязанных пакетов и других registry.
 # Правила проверяются по порядку; path — маска пути образа (path.Match) для исключений,
-# когда имя образа не совпадает с репозиторием.
+# например: {registry: ghcr.io, path: "org/app-*", repo_template: "https://github.com/org/app"}.
 image_mapping:
-  # ruto: одна репа собирает ruto-core и ruto-gateway
-  - registry: ghcr.io
-    path: "rendau/ruto-*"
-    repo_template: "https://github.com/rendau/ruto"
   - registry: ghcr.io
     repo_template: "https://github.com/{repo}"
 

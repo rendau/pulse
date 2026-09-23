@@ -19,6 +19,8 @@ type Service struct {
 	branches sync.Map
 	// imageCommits — digest образа → коммит сборки (imageCommit)
 	imageCommits sync.Map
+	// packageRepos — путь образа → репозиторий пакета (packageRepo)
+	packageRepos sync.Map
 }
 
 func New(token string) *Service {
