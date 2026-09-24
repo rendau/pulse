@@ -289,7 +289,8 @@ const managedByLabel = "app.kubernetes.io/managed-by"
 
 // imageName — образ без тега и digest: версия ничего не говорит о проблеме, а digest длинный.
 func imageName(image string) string {
-	if image == "" {
+	// «sha256:…» без имени (kubelet не знает имени образа) — не образ, а только digest
+	if image == "" || strings.HasPrefix(image, "sha256:") {
 		return ""
 	}
 	ref, err := imageref.Parse(image)

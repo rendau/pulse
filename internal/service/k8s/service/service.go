@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -300,7 +301,7 @@ func encodePod(p corev1.Pod, _ int) k8sModel.Pod {
 func encodePodContainer(cs corev1.ContainerStatus, _ int) k8sModel.PodContainer {
 	result := k8sModel.PodContainer{
 		Name:     cs.Name,
-		Image:    cs.Image,
+		Image:    statusImage(cs.Image, cs.ImageID),
 		ImageID:  cs.ImageID,
 		Ready:    cs.Ready,
 		Restarts: cs.RestartCount,
@@ -324,4 +325,17 @@ func encodePodContainer(cs corev1.ContainerStatus, _ int) k8sModel.PodContainer 
 	}
 
 	return result
+}
+
+// statusImage — ссылка на образ из статуса контейнера. Если образ в спеке задан digest'ом,
+// kubelet бывает кладёт в status.image только «sha256:…» без имени — тогда имя берётся
+// из imageID («registry/path@sha256:…», у docker — с префиксом docker-pullable://).
+func statusImage(image, imageID string) string {
+	if !strings.HasPrefix(image, "sha256:") {
+		return image
+	}
+	if ref := strings.TrimPrefix(imageID, "docker-pullable://"); strings.Contains(ref, "@") {
+		return ref
+	}
+	return image
 }
