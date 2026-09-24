@@ -49,7 +49,10 @@ func (s *Service) Run(ctx context.Context) error {
 		return s.newDraft(w, pods)
 	})
 
-	// 1.1 репозиторий из привязки пакета ghcr: имя образа может не совпадать с репой
+	// 1.1 образы, которые запускаются только Job'ами оркестратора: свой сервис и workload
+	drafts = append(drafts, s.jobDrafts(ctx, drafts, pods)...)
+
+	// 1.2 репозиторий из привязки пакета ghcr: имя образа может не совпадать с репой
 	s.resolvePackageRepos(ctx, drafts)
 
 	// 2. репозитории → service.yaml (параллельно, с общим кэшем на цикл)

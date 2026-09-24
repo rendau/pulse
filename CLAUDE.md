@@ -92,7 +92,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
   `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 13
   инструментов — лимит исчерпан, новые только объединением с существующими.
-- RBAC индексера и инструментов: get/list на nodes, deployments, statefulsets, daemonsets, cronjobs, jobs,
+- RBAC индексера и инструментов: get на pods/log (логи без Loki); get/list на nodes, deployments, statefulsets, daemonsets, cronjobs, jobs,
   replicasets, pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy.
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).
@@ -140,7 +140,13 @@ domain service → repo
   у паттерна — `workloads`; `query_logs(workload=…)` сужает до одного workload'а.
   Поды Job'ов, которые создаёт оркестратор (managed-by сервиса или его образ), входят в логи
   сервиса группой по общему префиксу имён Job'ов (`lt-zeon-*`, `logs/sources.go`): префикс
-  покрывает и удалённые поды, но не должен захватывать чужие поды namespace'а.
+  покрывает и удалённые поды, но не должен захватывать чужие поды namespace'а (`util/jobprefix`).
+  Источник логов — Loki, а если его нет или он не ответил — Kubernetes API (`pods/log`,
+  `logs/kubernetes.go`): живые поды сервиса, хвост контейнеров и прошлый запуск; `source` в ответе.
+- Образ, который запускается только Job'ами оркестратора (код задач в своей репе, своего
+  Deployment/CronJob нет), индексер заводит отдельным сервисом (`indexer/service/jobs.go`):
+  workload `Job` — семейство Job'ов, имя — общий префикс их имён. Ошибки задач привязываются
+  к этому сервису, а не к оркестратору; коммиты и деплои — из его репозитория.
 - Поиск сервиса (`svc/service/resolve.go`): вся фраза сильнее отдельных слов, кириллица —
   латинскими вариантами (`fuzzy.Translit`, `matched_by: translit`), почти равные лидеры —
   `ambiguous`. Перевод и синонимы — дело модели (инструкции MCP), не pulse. Описание сервиса

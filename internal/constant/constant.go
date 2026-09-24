@@ -35,6 +35,9 @@ const (
 	WorkloadKindStatefulSet = "StatefulSet"
 	WorkloadKindDaemonSet   = "DaemonSet"
 	WorkloadKindCronJob     = "CronJob"
+	// WorkloadKindJob — Job'ы, которые оркестратор создаёт сам: один workload на семейство
+	// (имя — общий префикс имён Job'ов), для образа, у которого нет своего workload'а
+	WorkloadKindJob = "Job"
 )
 
 // критичность сервиса

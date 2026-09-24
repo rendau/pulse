@@ -18,6 +18,7 @@ type k8sClientI interface {
 	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
 	ListConfigMaps(ctx context.Context, namespace string) ([]k8sModel.ConfigMap, error)
 	ListServices(ctx context.Context, namespace string) ([]k8sModel.Service, error)
+	ListJobs(ctx context.Context, namespace string) ([]k8sModel.Job, error)
 }
 
 type githubClientI interface {

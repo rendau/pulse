@@ -129,11 +129,22 @@ type Node struct {
 	CreatedAt      time.Time
 }
 
-// Job — задание batch/v1. Нужен, чтобы найти владельца Job'ов, которые оркестраторы
-// создают сами (без CronJob'а каталога), когда их поды уже удалены.
+// Job — задание batch/v1. Нужен для Job'ов, которые оркестраторы создают сами (без
+// CronJob'а): найти их владельца, когда поды уже удалены, и завести сервис для образа,
+// который запускается только такими Job'ами.
 type Job struct {
 	Namespace string
 	Name      string
 	Labels    map[string]string
-	Images    []string // образы контейнеров шаблона пода
+	// OwnerKind — владелец Job'а (CronJob); пусто — Job создан напрямую (оркестратором)
+	OwnerKind  string
+	Containers []Container
+	ConfigRefs []string
+	CreatedAt  time.Time
+}
+
+// LogLine — строка лога контейнера из Kubernetes API (pods/log).
+type LogLine struct {
+	TS   time.Time
+	Text string
 }

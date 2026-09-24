@@ -25,7 +25,8 @@ type QueryLogsReq struct {
 
 type QueryLogsRep struct {
 	Service    string       `json:"service"`
-	Selector   string       `json:"selector" jsonschema:"LogQL-селектор, по которому выбраны логи"`
+	Selector   string       `json:"selector" jsonschema:"LogQL-селектор, по которому выбраны логи (для kubernetes — поды)"`
+	Source     string       `json:"source" jsonschema:"loki — история за окно; kubernetes — Loki нет или недоступен: только живые поды, хвост каждого контейнера"`
 	Mode       string       `json:"mode"`
 	Start      time.Time    `json:"start"`
 	End        time.Time    `json:"end"`
@@ -58,6 +59,7 @@ func EncodeQueryLogsRep(v *usecaseLogsModel.QueryResult) QueryLogsRep {
 	return QueryLogsRep{
 		Service:    v.Service,
 		Selector:   v.Selector,
+		Source:     v.Source,
 		Mode:       v.Mode,
 		Start:      tz.In(v.Start),
 		End:        tz.In(v.End),

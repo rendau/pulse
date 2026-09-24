@@ -50,10 +50,6 @@ func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI
 var allowedLevels = []string{logsModel.LevelError, logsModel.LevelWarn, logsModel.LevelInfo, logsModel.LevelDebug}
 
 func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryResult, error) {
-	if u.loki == nil {
-		return nil, fmt.Errorf("%w: loki is not configured (LOKI_URL)", errs.ServiceNA)
-	}
-
 	level := strings.ToLower(strings.TrimSpace(req.Level))
 	if level == "warning" {
 		level = logsModel.LevelWarn
@@ -110,15 +106,10 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		groups = lo.Filter(groups, func(g podGroup, _ int) bool { return g.Name == w })
 	}
 
-	selector, err := u.selector(service, groups)
-	if err != nil {
-		return nil, err
-	}
-
 	end := time.Now().UTC()
 	start := end.Add(-win)
 
-	lines, err := u.fetch(ctx, selector, req.Pattern, level, start, end, limit, groups)
+	lines, selector, source, err := u.collect(ctx, service, groups, req.Pattern, level, start, end, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +120,7 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	result := &model.QueryResult{
 		Service:    service.Name,
 		Selector:   selector,
+		Source:     source,
 		Mode:       mode,
 		Start:      start,
 		End:        end,
@@ -146,23 +138,45 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 }
 
 func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, win time.Duration, top int) ([]logsModel.Pattern, error) {
-	if u.loki == nil {
-		return nil, fmt.Errorf("%w: loki is not configured", errs.ServiceNA)
-	}
-
 	groups := u.podGroups(ctx, service, workloads)
-	selector, err := u.selector(service, groups)
-	if err != nil {
-		return nil, err
-	}
 
 	end := time.Now().UTC()
-	lines, err := u.fetch(ctx, selector, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines, groups)
+	lines, _, _, err := u.collect(ctx, service, groups, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines)
 	if err != nil {
 		return nil, err
 	}
 
 	return u.patterns.Aggregate(lines, top), nil
+}
+
+// collect — строки из Loki, а если он не подключён или не ответил — из Kubernetes API
+// (живые поды сервиса). Возвращает и то, откуда и по какому селектору строки взяты.
+func (u *Usecase) collect(ctx context.Context, service *svcModel.Main, groups []podGroup, pattern, level string, start, end time.Time, limit int) ([]logsModel.Line, string, string, error) {
+	selector, err := u.selector(service, groups)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	var lokiErr error
+	if u.loki != nil {
+		lines, err := u.fetch(ctx, selector, pattern, level, start, end, limit, groups)
+		if err == nil {
+			return lines, selector, model.SourceLoki, nil
+		}
+		lokiErr = err
+	}
+	if u.k8s == nil || len(groups) == 0 {
+		return nil, "", "", lo.Ternary(lokiErr != nil, lokiErr, fmt.Errorf("%w: no log source: loki is not configured (LOKI_URL)", errs.ServiceNA))
+	}
+
+	lines, err := u.fetchK8s(ctx, groups, pattern, level, start, end, limit)
+	if err != nil {
+		if lokiErr != nil {
+			return nil, "", "", fmt.Errorf("%w; kubernetes fallback: %w", lokiErr, err)
+		}
+		return nil, "", "", err
+	}
+	return lines, "pods " + groups[0].Namespace + "/" + podRegex(groups), model.SourceKubernetes, nil
 }
 
 // selector — LogQL-селектор сервиса: из service.yaml, иначе по шаблону из топологии

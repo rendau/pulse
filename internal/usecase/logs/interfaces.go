@@ -30,6 +30,7 @@ type workloadServiceI interface {
 
 type k8sClientI interface {
 	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
+	PodLogs(ctx context.Context, namespace, pod, container string, since time.Time, tail int64, previous bool) ([]k8sModel.LogLine, error)
 }
 
 // LokiI экспортирован: источник опционален, композиционный корень передаёт nil.

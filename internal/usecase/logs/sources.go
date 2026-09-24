@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/samber/lo"
@@ -13,12 +12,13 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	"github.com/mechta-market/pulse/internal/util/imageref"
+	"github.com/mechta-market/pulse/internal/util/jobprefix"
 )
 
 // podGroup — чьи поды входят в логи сервиса: workload каталога (поды «имя-…») или Job'ы,
-// которые создаёт оркестратор (loom, Argo Workflows и т.п.) — у них нет workload'а, но
+// которые создаёт оркестратор (Argo Workflows, Airflow и т.п.) — у них нет workload'а, но
 // поды принадлежат сервису по app.kubernetes.io/managed-by или по репозиторию образа.
-// Job'ы группируются по общему префиксу имени («lt-zeon-*»): в Loki только имя пода, а
+// Job'ы группируются по общему префиксу имени («nightly-*»): в Loki только имя пода, а
 // префикс покрывает и уже удалённые поды — логи отработавших Job'ов остаются доступны.
 type podGroup struct {
 	Name      string // имя workload'а или префикс Job'ов со звёздочкой
@@ -27,13 +27,7 @@ type podGroup struct {
 	Jobs      bool
 }
 
-const (
-	managedByLabel = "app.kubernetes.io/managed-by"
-	maxJobGroups   = 10
-)
-
-// jobNameLabels — имя Job'а у его подов (новый и старый ключ Kubernetes).
-var jobNameLabels = []string{"batch.kubernetes.io/job-name", "job-name"}
+const managedByLabel = "app.kubernetes.io/managed-by"
 
 // podGroups — workload'ы сервиса и Job'ы оркестратора в его namespace. Не получилось
 // прочитать поды — только workload'ы: Job'ы — уточнение, без них логи всё равно есть.
@@ -57,7 +51,7 @@ func (u *Usecase) podGroups(ctx context.Context, service *svcModel.Main, workloa
 		if lo.ContainsBy(groups, func(g podGroup) bool { return strings.HasPrefix(pod.Name, g.Prefix) }) {
 			continue // под workload'а сервиса
 		}
-		if job := jobName(pod.Labels); job != "" && ownedBy(pod, service.Name) {
+		if job := jobprefix.JobName(pod.Labels); job != "" && ownedBy(pod, service.Name) {
 			jobs = append(jobs, job)
 		} else {
 			foreign = append(foreign, pod.Name)
@@ -65,15 +59,6 @@ func (u *Usecase) podGroups(ctx context.Context, service *svcModel.Main, workloa
 	}
 
 	return append(groups, jobGroups(lo.Uniq(jobs), foreign, namespace)...)
-}
-
-func jobName(labels map[string]string) string {
-	for _, key := range jobNameLabels {
-		if name := labels[key]; name != "" {
-			return name
-		}
-	}
-	return ""
 }
 
 // ownedBy — под принадлежит сервису: его создал оркестратор-сервис (managed-by) или он
@@ -88,53 +73,15 @@ func ownedBy(pod k8sModel.Pod, service string) bool {
 	})
 }
 
-// jobGroups — общий префикс имён Job'ов до последнего «-» (lt-zeon-delivery-…, lt-zeon-product-…
-// → «lt-zeon-*»). Префикс не должен захватывать чужие поды namespace'а (foreign) — иначе в логи
-// сервиса попали бы чужие; тогда префикс на каждый Job (до maxJobGroups), конфликтные — отбрасываются.
+// jobGroups — группы Job'ов по префиксам имён (jobprefix.Prefixes).
 func jobGroups(jobs, foreign []string, namespace string) []podGroup {
-	if len(jobs) == 0 {
-		return nil
-	}
-	sort.Strings(jobs)
-
-	safe := func(prefix string) bool {
-		return prefix != "" && !lo.ContainsBy(foreign, func(pod string) bool { return strings.HasPrefix(pod, prefix) })
-	}
-
-	prefixes := []string{cutToDash(commonPrefix(jobs))}
-	if !safe(prefixes[0]) {
-		prefixes = lo.Filter(lo.Uniq(lo.Map(jobs, func(job string, _ int) string { return cutToDash(job) })),
-			func(p string, _ int) bool { return safe(p) })
-		if len(prefixes) > maxJobGroups {
-			prefixes = prefixes[:maxJobGroups]
-		}
-	}
-
-	return lo.Map(prefixes, func(prefix string, _ int) podGroup {
+	return lo.Map(jobprefix.Prefixes(jobs, foreign), func(prefix string, _ int) podGroup {
 		return podGroup{Name: prefix + "*", Prefix: prefix, Namespace: namespace, Jobs: true}
 	})
 }
 
-func commonPrefix(values []string) string {
-	prefix := values[0]
-	for _, v := range values[1:] {
-		for !strings.HasPrefix(v, prefix) {
-			prefix = prefix[:len(prefix)-1]
-		}
-	}
-	return prefix
-}
-
-// cutToDash — префикс до последнего «-» включительно: имя Job'а оканчивается хэшем попытки.
-func cutToDash(s string) string {
-	if i := strings.LastIndex(s, "-"); i >= 0 {
-		return s[:i+1]
-	}
-	return ""
-}
-
 // podRegex — регэксп имён подов для селектора: workload'ы — «^(a|b)-.*», с Job'ами —
-// «^((a|b)-.*|lt-zeon-.*)».
+// «^((a|b)-.*|nightly-.*)».
 func podRegex(groups []podGroup) string {
 	workloads := lo.FilterMap(groups, func(g podGroup, _ int) (string, bool) { return g.Name, !g.Jobs })
 	jobs := lo.FilterMap(groups, func(g podGroup, _ int) (string, bool) { return regexp.QuoteMeta(g.Prefix) + ".*", g.Jobs })

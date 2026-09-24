@@ -19,6 +19,7 @@ import (
 type fakeK8sDeps struct {
 	configMaps []k8sModel.ConfigMap
 	services   []k8sModel.Service
+	jobs       []k8sModel.Job
 }
 
 func (f *fakeK8sDeps) ListWorkloads(context.Context) ([]k8sModel.Workload, error) { return nil, nil }
@@ -30,6 +31,9 @@ func (f *fakeK8sDeps) ListConfigMaps(context.Context, string) ([]k8sModel.Config
 }
 func (f *fakeK8sDeps) ListServices(context.Context, string) ([]k8sModel.Service, error) {
 	return f.services, nil
+}
+func (f *fakeK8sDeps) ListJobs(context.Context, string) ([]k8sModel.Job, error) {
+	return f.jobs, nil
 }
 
 // fakeDepend — доменный парсер настоящий, запись перехватывается

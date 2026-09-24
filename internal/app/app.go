@@ -232,10 +232,8 @@ func (a *App) Init() {
 		if alertmanagerService != nil {
 			alertmanagerClient = alertmanagerService
 		}
-		var logsClient usecaseSnapshotP.LogsI
-		if lokiService != nil {
-			logsClient = logsUsecase
-		}
+		// логи есть и без Loki: запасной источник — Kubernetes API (живые поды)
+		var logsClient usecaseSnapshotP.LogsI = logsUsecase
 
 		snapshotUsecase = usecaseSnapshotP.New(
 			usecaseSnapshotP.Config{

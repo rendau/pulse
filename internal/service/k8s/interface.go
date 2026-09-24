@@ -28,7 +28,9 @@ type Client interface {
 	// ListEvents возвращает события namespace'а не старше since.
 	ListEvents(ctx context.Context, namespace string, since time.Time) ([]k8sModel.Event, error)
 
-	// ListJobs возвращает Job'ы namespace'а: метки и образы шаблона пода.
+	// ListJobs возвращает Job'ы namespace'а: метки, владелец и контейнеры шаблона пода.
 	ListJobs(ctx context.Context, namespace string) ([]k8sModel.Job, error)
+	// PodLogs — строки контейнера пода (pods/log); только у существующих подов.
+	PodLogs(ctx context.Context, namespace, pod, container string, since time.Time, tail int64, previous bool) ([]k8sModel.LogLine, error)
 	Ping(ctx context.Context) error
 }

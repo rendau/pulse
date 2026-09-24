@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,10 +30,23 @@ func (f *fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloa
 	return f.items, int64(len(f.items)), nil
 }
 
-type fakeK8s struct{ pods []k8sModel.Pod }
+type fakeK8s struct {
+	pods []k8sModel.Pod
+	// logs — строки по «под/контейнер»; previous — с суффиксом «/previous»
+	logs    map[string][]k8sModel.LogLine
+	logsErr error
+}
 
 func (f *fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, error) {
 	return f.pods, nil
+}
+
+func (f *fakeK8s) PodLogs(_ context.Context, _, pod, container string, _ time.Time, _ int64, previous bool) ([]k8sModel.LogLine, error) {
+	key := pod + "/" + container
+	if previous {
+		key += "/previous"
+	}
+	return f.logs[key], f.logsErr
 }
 
 type fakeLoki struct {
@@ -130,16 +142,61 @@ func TestQuery_Validation(t *testing.T) {
 	_, err = u.Query(ctx, &model.QueryReq{Service: "payments-api", Mode: "stream"})
 	assert.ErrorContains(t, err, "mode")
 
-	_, err = newUsecase(nil, "").Query(ctx, &model.QueryReq{Service: "payments-api"})
-	assert.ErrorContains(t, err, "LOKI_URL")
+	// без Loki — запасной источник Kubernetes, а не ошибка
+	res, err := newUsecase(nil, "").Query(ctx, &model.QueryReq{Service: "payments-api"})
+	require.NoError(t, err)
+	assert.Equal(t, model.SourceKubernetes, res.Source)
 
 	// без привязки к сервису запрос невозможен: нет workloads и нет селектора
 	empty := New(Config{DefaultSelector: "{x}"}, &fakeSvc{service: &svcModel.Main{Name: "ghost"}}, &fakeWorkload{}, &fakeK8s{}, &fakeLoki{}, logsService.New())
 	_, err = empty.Query(ctx, &model.QueryReq{Service: "ghost"})
 	assert.ErrorContains(t, err, "no workloads")
 
-	_, err = newUsecase(&fakeLoki{err: errors.New("503")}, "").Query(ctx, &model.QueryReq{Service: "payments-api"})
+	// Loki не ответил, и Kubernetes тоже — в ошибке оба источника
+	failing := newUsecaseWithPods(&fakeLoki{err: errors.New("503")}, "", []k8sModel.Pod{
+		{Namespace: "prod", Name: "payments-api-7d9f-q2", Containers: []k8sModel.PodContainer{{Name: "app"}}},
+	})
+	failing.k8s.(*fakeK8s).logsErr = errors.New("forbidden")
+	_, err = failing.Query(ctx, &model.QueryReq{Service: "payments-api"})
 	assert.ErrorContains(t, err, "loki.QueryRange")
+	assert.ErrorContains(t, err, "kubernetes fallback")
+}
+
+// TestQuery_KubernetesFallback — Loki не подключён: логи живых подов сервиса из Kubernetes API,
+// фильтры уровня и регэкспа — на стороне pulse, прошлый запуск перезапускавшегося контейнера,
+// PII маскируется, чужие поды не читаются.
+func TestQuery_KubernetesFallback(t *testing.T) {
+	now := time.Now()
+	pods := []k8sModel.Pod{
+		{Namespace: "prod", Name: "payments-api-7d9f-q2", StartedAt: now.Add(-time.Hour), Containers: []k8sModel.PodContainer{
+			{Name: "app", Restarts: 2, LastTerminatedAt: now.Add(-10 * time.Minute)},
+		}},
+		{Namespace: "prod", Name: "other-service-1-x", Containers: []k8sModel.PodContainer{{Name: "app"}}},
+	}
+	u := newUsecaseWithPods(nil, "", pods)
+	u.k8s.(*fakeK8s).logs = map[string][]k8sModel.LogLine{
+		"payments-api-7d9f-q2/app": {
+			{TS: now.Add(-time.Minute), Text: `{"level":"error","msg":"acquirer timeout","error":"call 77021330032 failed"}`},
+			{TS: now.Add(-2 * time.Minute), Text: `INFO request handled in 12ms`},
+		},
+		"payments-api-7d9f-q2/app/previous": {
+			{TS: now.Add(-11 * time.Minute), Text: `{"level":"error","msg":"panic: nil map"}`},
+		},
+		"other-service-1-x/app": {{TS: now, Text: "ERROR not ours"}},
+	}
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Level: "error", Mode: model.ModeRaw})
+	require.NoError(t, err)
+	assert.Equal(t, model.SourceKubernetes, res.Source)
+	assert.Contains(t, res.Selector, "payments-api")
+	require.Len(t, res.Lines, 2, "error-строки текущего и прошлого запуска; чужой под не читается")
+	assert.Equal(t, "payments-api", res.Lines[0].Workload)
+	assert.NotContains(t, res.Lines[0].Text, "77021330032")
+	assert.Contains(t, res.Lines[1].Text, "panic: nil map")
+
+	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Pattern: "handled", Mode: model.ModeRaw})
+	require.NoError(t, err)
+	require.Len(t, res.Lines, 1)
 }
 
 func TestTopErrors(t *testing.T) {
@@ -217,27 +274,4 @@ func TestQuery_OrchestratorJobs(t *testing.T) {
 	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "pa-*"})
 	require.NoError(t, err)
 	assert.Equal(t, `{namespace="prod", pod=~"^(pa-.*)"}`, res.Selector)
-}
-
-func TestJobGroups(t *testing.T) {
-	names := func(groups []podGroup) []string {
-		return lo.Map(groups, func(g podGroup, _ int) string { return g.Name })
-	}
-	jobs := []string{"lt-zeon-product-sync-1-9da3", "lt-zeon-delivery-fetch-1-2249"}
-
-	groups := jobGroups(jobs, []string{"loom-6c84-pg8rz"}, "loom")
-	require.Len(t, groups, 1)
-	assert.Equal(t, "lt-zeon-*", groups[0].Name)
-	assert.Equal(t, "lt-zeon-", groups[0].Prefix)
-
-	// один Job — префикс до хэша попытки
-	assert.Equal(t, []string{"lt-zeon-sync-1-*"}, names(jobGroups([]string{"lt-zeon-sync-1-9da3"}, nil, "loom")))
-
-	// общего префикса нет — по группе на Job
-	assert.Equal(t, []string{"alpha-1-*", "beta-2-*"}, names(jobGroups([]string{"alpha-1-aaa", "beta-2-bbb"}, nil, "ns")))
-
-	// общий префикс захватил бы чужой под — группы мельче, конфликтные отбрасываются
-	assert.Equal(t, []string{"lt-zeon-delivery-fetch-1-*", "lt-zeon-product-sync-1-*"},
-		names(jobGroups(jobs, []string{"lt-zeon-other-app-7d9f-q2"}, "loom")))
-	assert.Empty(t, jobGroups([]string{"lt-zeon-sync-1-9da3"}, []string{"lt-zeon-sync-1-evil-x"}, "loom"))
 }

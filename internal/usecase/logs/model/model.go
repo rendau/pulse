@@ -11,6 +11,13 @@ const (
 	ModeRaw      = "raw"
 )
 
+// откуда строки: Loki (история за окно) или Kubernetes API (только живые поды — запасной
+// источник, когда Loki не подключён или недоступен)
+const (
+	SourceLoki       = "loki"
+	SourceKubernetes = "kubernetes"
+)
+
 // QueryReq — параметры query_logs.
 type QueryReq struct {
 	Service string
@@ -27,6 +34,7 @@ type QueryReq struct {
 type QueryResult struct {
 	Service    string
 	Selector   string
+	Source     string // SourceLoki | SourceKubernetes
 	Mode       string
 	Start      time.Time
 	End        time.Time

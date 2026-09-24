@@ -299,7 +299,7 @@ func TestHealth_EventServices_JobWithoutPods(t *testing.T) {
 				{Namespace: "loom", ObjectKind: "Job", ObjectName: "lt-sync-9-def", Reason: "BackoffLimitExceeded", Type: "Warning", Count: 1, LastTS: now},
 			},
 			jobs: []k8sModel.Job{
-				{Namespace: "loom", Name: "lt-sync-9-def", Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"}, Images: []string{"ghcr.io/org/dags/dags:latest"}},
+				{Namespace: "loom", Name: "lt-sync-9-def", Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"}, Containers: []k8sModel.Container{{Image: "ghcr.io/org/dags/dags:latest"}}},
 				{Namespace: "loom", Name: "other", Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"}},
 			},
 			jobsErr: jobsErr,

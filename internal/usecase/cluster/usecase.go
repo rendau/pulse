@@ -240,7 +240,7 @@ func (c *collector) pods(ctx context.Context) {
 }
 
 // serviceOf — сервис каталога, к которому относится под: по workload'у каталога; под без
-// него (Job, созданный оркестратором, — задачи loom и т.п.) — по ownerService.
+// него (Job, созданный оркестратором: Argo Workflows, Airflow и т.п.) — по ownerService.
 func (c *collector) serviceOf(pod *k8sModel.Pod) string {
 	for _, w := range c.workloads {
 		if w.Namespace == pod.Namespace && strings.HasPrefix(pod.Name, w.Name+"-") {
@@ -281,7 +281,7 @@ func (c *collector) jobServices(ctx context.Context, want map[string]map[string]
 		result[namespace] = map[string]string{}
 		for _, job := range jobs {
 			if _, ok := names[job.Name]; ok {
-				result[namespace][job.Name] = c.ownerService(job.Images, job.Labels)
+				result[namespace][job.Name] = c.ownerService(lo.Map(job.Containers, func(ct k8sModel.Container, _ int) string { return ct.Image }), job.Labels)
 			}
 		}
 	}
@@ -316,7 +316,7 @@ func (c *collector) objectService(namespace, name string) string {
 // (FailedCreatePodSandBox) суть в конце длинной строки.
 const eventExampleLen = 600
 
-// managedByLabel — оркестратор, создавший под (loom, Helm…).
+// managedByLabel — оркестратор, создавший под (Argo Workflows, Helm…).
 const managedByLabel = "app.kubernetes.io/managed-by"
 
 // imageName — образ без тега и digest: версия ничего не говорит о проблеме, а digest длинный.
