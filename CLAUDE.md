@@ -45,7 +45,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение),
-  `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII, ТЗ 4.2 — с тестами).
+  `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII, ТЗ 4.2 — с тестами; `redact.Text` — телефоны,
+  email, карты в свободном тексте: строки логов маскируются при чтении из Loki, до паттернов и ответа).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
   `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
   `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
@@ -135,6 +136,12 @@ domain service → repo
   у логов свой потолок `logs.max_window` (24h).
 - Логи: селектор из `service.yaml` (`logs.selector`), иначе `logs.default_selector` из правил
   с плейсхолдерами `{namespace}`, `{pod_regex}`; запрос без привязки к сервису невозможен.
+  Строка привязывается к workload'у сервиса по лейблу пода (`pod`, `kubernetes_pod_name`, …),
+  у паттерна — `workloads`; `query_logs(workload=…)` сужает до одного workload'а.
+- Поиск сервиса (`svc/service/resolve.go`): вся фраза сильнее отдельных слов, кириллица —
+  латинскими вариантами (`fuzzy.Translit`, `matched_by: translit`), почти равные лидеры —
+  `ambiguous`. Перевод и синонимы — дело модели (инструкции MCP), не pulse. Описание сервиса
+  без service.yaml — описание и topics репозитория GitHub (`RepoInfo`, кэш 6 ч).
   В проде логи шлёт fluent-bit: лейблы `kubernetes_namespace_name`, `kubernetes_pod_name`.
 - Метрики приложений (go-шаблон) в проде с префиксом `<ns>_<svc>_request_total` (у старых —
   `_request_count`) и `status=ok|error`: дефолтные golden signals ищут имя регэкспом `__name__`.

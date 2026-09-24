@@ -17,6 +17,7 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
+	"github.com/mechta-market/pulse/internal/util/redact"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -96,6 +97,16 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	if err != nil {
 		return nil, fmt.Errorf("workload.List: %w", err)
 	}
+	names := workloadNames(workloads)
+
+	// один workload сервиса: сужаем селектор (свой селектор из service.yaml — фильтром строк)
+	if w := strings.TrimSpace(req.Workload); w != "" {
+		if !lo.Contains(names, w) {
+			return nil, fmt.Errorf("%w: workload %q is not part of service %s; expected one of: %s",
+				errs.InvalidRequest, w, service.Name, strings.Join(names, ", "))
+		}
+		workloads = lo.Filter(workloads, func(wl *workloadModel.Main, _ int) bool { return wl.Name == w })
+	}
 
 	selector, err := u.selector(service, workloads)
 	if err != nil {
@@ -105,9 +116,12 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	end := time.Now().UTC()
 	start := end.Add(-win)
 
-	lines, err := u.fetch(ctx, selector, req.Pattern, level, start, end, limit)
+	lines, err := u.fetch(ctx, selector, req.Pattern, level, start, end, limit, names)
 	if err != nil {
 		return nil, err
+	}
+	if w := strings.TrimSpace(req.Workload); w != "" {
+		lines = lo.Filter(lines, func(l logsModel.Line, _ int) bool { return l.Workload == w })
 	}
 
 	result := &model.QueryResult{
@@ -140,7 +154,7 @@ func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloa
 	}
 
 	end := time.Now().UTC()
-	lines, err := u.fetch(ctx, selector, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines)
+	lines, err := u.fetch(ctx, selector, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines, workloadNames(workloads))
 	if err != nil {
 		return nil, err
 	}
@@ -157,8 +171,7 @@ func (u *Usecase) selector(service *svcModel.Main, workloads []*workloadModel.Ma
 		return "", fmt.Errorf("%w: service %s has no workloads in cluster and no logs.selector in service.yaml", errs.InvalidRequest, service.Name)
 	}
 
-	names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
-	sort.Strings(names)
+	names := workloadNames(workloads)
 
 	return strings.NewReplacer(
 		"{namespace}", workloads[0].Namespace,
@@ -168,10 +181,12 @@ func (u *Usecase) selector(service *svcModel.Main, workloads []*workloadModel.Ma
 	).Replace(u.conf.DefaultSelector), nil
 }
 
-// fetch собирает LogQL (селектор + фильтры), забирает строки и размечает уровень.
+// fetch собирает LogQL (селектор + фильтры), забирает строки и размечает уровень и workload.
 // Фильтр по уровню применяется в LogQL как грубое регулярное выражение (сужает выдачу
-// на стороне Loki) и затем точно — по определённому уровню строки.
-func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, start, end time.Time, limit int) ([]logsModel.Line, error) {
+// на стороне Loki) и затем точно — по определённому уровню строки. PII в тексте строк
+// маскируется сразу (redact.Text): дальше — в паттерны, примеры и ответ — уходит маскированное.
+// workloads — имена workload'ов сервиса: по ним строка привязывается к workload'у через под.
+func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, start, end time.Time, limit int, workloads []string) ([]logsModel.Line, error) {
 	query := selector
 	if level != "" {
 		query += ` |~ "(?i)` + levelRegexp(level) + `"`
@@ -188,8 +203,9 @@ func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, st
 	lines := make([]logsModel.Line, 0, 256)
 	for _, stream := range streams {
 		streamLevel := u.patterns.DetectLevel("level=" + stream.Labels["level"])
+		workload := workloadOfPod(podOf(stream.Labels), workloads)
 		for _, e := range stream.Entries {
-			line := logsModel.Line{TS: e.TS, Text: e.Line, Level: u.patterns.DetectLevel(e.Line)}
+			line := logsModel.Line{TS: e.TS, Text: redact.Text(e.Line), Level: u.patterns.DetectLevel(e.Line), Workload: workload}
 			if line.Level == "" {
 				line.Level = streamLevel
 			}
@@ -206,6 +222,36 @@ func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, st
 	}
 
 	return lines, nil
+}
+
+// podLabels — лейбл пода в разных сборщиках логов: promtail/alloy, fluent-bit, OTel.
+var podLabels = []string{"pod", "kubernetes_pod_name", "k8s_pod_name", "pod_name"}
+
+func podOf(labels map[string]string) string {
+	for _, key := range podLabels {
+		if pod := labels[key]; pod != "" {
+			return pod
+		}
+	}
+	return ""
+}
+
+// workloadOfPod — workload, которому принадлежит под: самый длинный префикс «имя-»
+// (sms-im-7d9f-q2 → sms-im, а не sms).
+func workloadOfPod(pod string, workloads []string) string {
+	best := ""
+	for _, w := range workloads {
+		if strings.HasPrefix(pod, w+"-") && len(w) > len(best) {
+			best = w
+		}
+	}
+	return best
+}
+
+func workloadNames(workloads []*workloadModel.Main) []string {
+	names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
+	sort.Strings(names)
+	return names
 }
 
 func levelRegexp(level string) string {

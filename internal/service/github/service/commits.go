@@ -73,25 +73,13 @@ func (s *Service) CompareCommits(ctx context.Context, repoUrl, base string) (*gi
 	}, nil
 }
 
-// defaultBranch — ветка по умолчанию репозитория, кэшируется на время жизни процесса.
+// defaultBranch — ветка по умолчанию репозитория.
 func (s *Service) defaultBranch(ctx context.Context, owner, repo string) (string, error) {
-	key := owner + "/" + repo
-	if cached, ok := s.branches.Load(key); ok {
-		return cached.(string), nil
-	}
-
-	repository, _, err := s.client.Repositories.Get(ctx, owner, repo)
+	info, err := s.repoInfo(ctx, owner, repo)
 	if err != nil {
-		return "", fmt.Errorf("Repositories.Get(%s): %w", key, err)
+		return "", err
 	}
-
-	branch := repository.GetDefaultBranch()
-	if branch == "" {
-		branch = "main"
-	}
-	s.branches.Store(key, branch)
-
-	return branch, nil
+	return info.DefaultBranch, nil
 }
 
 func encodeCommit(v *github.RepositoryCommit, _ int) githubModel.Commit {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
 	localConstant "github.com/mechta-market/pulse/internal/service/indexer/service/constant"
 	localModel "github.com/mechta-market/pulse/internal/service/indexer/service/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
@@ -240,6 +242,9 @@ type metadataResult struct {
 	// found=false при отсутствии файла; err — GitHub недоступен или файл невалиден
 	found bool
 	err   error
+	// repoDescription — описание и topics репозитория: описание сервиса, если его нет в
+	// service.yaml (или нет самого файла) — поиску есть по чему искать, кроме имени
+	repoDescription string
 }
 
 func (s *Service) fetchMetadata(ctx context.Context, repos []string, stats *indexerStats) map[string]metadataResult {
@@ -262,6 +267,15 @@ func (s *Service) fetchMetadata(ctx context.Context, repos []string, stats *inde
 				result.yaml, result.err = localModel.ParseServiceYaml(raw)
 				if result.err != nil {
 					slog.Warn("indexer: invalid service.yaml", "repo", repoUrl, "error", result.err)
+				}
+			}
+
+			// описание — уточнение: GitHub его не отдал — сервис всё равно в каталоге
+			if result.err == nil {
+				if info, err := s.github.RepoInfo(egCtx, repoUrl); err != nil {
+					slog.Debug("indexer: repo info", "repo", repoUrl, "error", err)
+				} else {
+					result.repoDescription = repoDescription(info)
 				}
 			}
 
@@ -377,10 +391,13 @@ func (s *Service) buildServices(ctx context.Context, drafts []*workloadDraft, me
 			case meta.err == nil && meta.found:
 				edit = localModel.DecodeServiceYaml(meta.yaml)
 				edit.RepoUrl, edit.FirstSeen, edit.LastSeen = new(d.repoUrl), new(now), new(now)
+				if lo.FromPtr(edit.Description) == "" {
+					edit.Description = new(meta.repoDescription)
+				}
 			case meta.err == nil && !meta.found:
-				// файла нет — каталог из кластера, метаданные сбрасываются
+				// файла нет — каталог из кластера, метаданные сбрасываются; описание — из репозитория
 				edit.MetadataPresent = new(false)
-				edit.Title, edit.Description, edit.Criticality, edit.OwnerTeam = new(""), new(""), new(""), new("")
+				edit.Title, edit.Description, edit.Criticality, edit.OwnerTeam = new(""), new(meta.repoDescription), new(""), new("")
 				edit.Aliases, edit.OwnerContacts = new([]string{}), new([]string{})
 				edit.Metadata = new(svcModel.Metadata{})
 			default:
@@ -464,4 +481,18 @@ func (s *Service) recordDeploys(ctx context.Context, drafts []*workloadDraft) in
 	}
 
 	return count
+}
+
+// repoDescription — описание репозитория и его topics одной строкой («Платёжный шлюз.
+// Topics: payments, acquiring»).
+func repoDescription(info *githubModel.Repo) string {
+	description := strings.TrimSpace(info.Description)
+	if len(info.Topics) == 0 {
+		return description
+	}
+	topics := "Topics: " + strings.Join(info.Topics, ", ")
+	if description == "" {
+		return topics
+	}
+	return strings.TrimSuffix(description, ".") + ". " + topics
 }

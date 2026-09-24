@@ -142,3 +142,33 @@ func TestTopErrors(t *testing.T) {
 	assert.Equal(t, 50, patterns[0].Count)
 	assert.Contains(t, loki.query, "error|fatal")
 }
+
+// TestQuery_WorkloadsAndPII — из какого workload'а строка (самый длинный префикс пода), фильтр
+// по workload'у и маскирование PII (случай notifire-sms из переписки с ботом).
+func TestQuery_WorkloadsAndPII(t *testing.T) {
+	now := time.Now()
+	line := `{"level":"error","msg":"sms_traffic: fail to send: context deadline exceeded, phone: 77021330032"}`
+	loki := &fakeLoki{streams: []lokiModel.Stream{
+		{Labels: map[string]string{"kubernetes_pod_name": "payments-api-reconcile-29001-x1"}, Entries: []lokiModel.Entry{{TS: now, Line: line}}},
+		{Labels: map[string]string{"pod": "payments-api-7d9f-q2"}, Entries: []lokiModel.Entry{{TS: now.Add(-time.Second), Line: line}}},
+	}}
+	u := newUsecase(loki, "")
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Level: "error"})
+	require.NoError(t, err)
+	require.Len(t, res.Patterns, 1)
+	assert.Equal(t, []string{"payments-api", "payments-api-reconcile"}, res.Patterns[0].Workloads)
+	assert.NotContains(t, res.Patterns[0].Example, "77021330032")
+	assert.NotContains(t, res.Patterns[0].Template, "77021330032")
+
+	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Mode: model.ModeRaw, Workload: "payments-api-reconcile"})
+	require.NoError(t, err)
+	assert.Equal(t, `{namespace="prod", pod=~"^(payments-api-reconcile)-.*"}`, res.Selector)
+	require.Len(t, res.Lines, 1)
+	assert.Equal(t, "payments-api-reconcile", res.Lines[0].Workload)
+	assert.NotContains(t, res.Lines[0].Text, "77021330032")
+
+	_, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "notifire-sms"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "payments-api, payments-api-reconcile", "в ошибке — список workload'ов сервиса")
+}

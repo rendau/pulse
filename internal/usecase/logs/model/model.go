@@ -19,6 +19,8 @@ type QueryReq struct {
 	Window  time.Duration
 	Mode    string // patterns (по умолчанию) | raw
 	Limit   int    // для raw, ≤ raw_limit
+	// Workload — только логи одного workload'а сервиса (notifire-sms у сервиса sms); пусто — все
+	Workload string
 }
 
 // QueryResult — результат: паттерны либо сырые строки.

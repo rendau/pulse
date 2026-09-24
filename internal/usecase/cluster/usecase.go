@@ -312,6 +312,10 @@ func (c *collector) objectService(namespace, name string) string {
 	return ""
 }
 
+// eventExampleLen — сколько символов сообщения события в примере: у сетевых ошибок
+// (FailedCreatePodSandBox) суть в конце длинной строки.
+const eventExampleLen = 600
+
 // managedByLabel — оркестратор, создавший под (loom, Helm…).
 const managedByLabel = "app.kubernetes.io/managed-by"
 
@@ -380,7 +384,7 @@ func (c *collector) events(ctx context.Context) {
 		}
 		if e.LastTS.After(a.lastTS) {
 			a.lastTS = e.LastTS
-			a.example = fmt.Sprintf("%s/%s %s: %s", e.Namespace, e.ObjectName, e.ObjectKind, lo.Ellipsis(strings.TrimSpace(e.Message), 200))
+			a.example = fmt.Sprintf("%s/%s %s: %s", e.Namespace, e.ObjectName, e.ObjectKind, lo.Ellipsis(strings.TrimSpace(e.Message), eventExampleLen))
 		}
 	}
 

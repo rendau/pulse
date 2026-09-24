@@ -53,6 +53,8 @@ const (
 	MatchedByClusterName = "cluster_name"
 	MatchedByFuzzy       = "fuzzy"
 	MatchedByDescription = "description"
+	// MatchedByTranslit — совпал латинский вариант кириллического запроса («караван» → caravan)
+	MatchedByTranslit = "translit"
 )
 
 // типы нормализованных событий (Event.Type)

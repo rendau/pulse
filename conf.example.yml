@@ -34,7 +34,9 @@ snapshot:
   # default_metrics:
   #   - id: rps
   #     title: Запросов в секунду
-  #     promql: 'sum(rate({__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}[5m]))'
+  #     # label_replace + подзапрос: под регэксп попадает несколько метрик, а rate() без имени
+  #     # дал бы ряды с одинаковыми лейблами («vector cannot contain metrics with the same labelset»)
+  #     promql: 'sum(rate(label_replace({__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}, "metric", "$1", "__name__", "(.+)")[5m:30s]))'
   #     unit: rps
   # внешние метрики через gateway ruto — для сервисов с приложениями ruto; плейсхолдер {ruto_apps}.
   # Без секции — public_rps, public_error_rate, public_latency_p95 по метрикам из секции ruto.

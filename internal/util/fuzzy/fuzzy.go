@@ -70,3 +70,76 @@ func levenshtein(a, b []rune) int {
 
 	return prev[len(b)]
 }
+
+// translit — кириллица → латиница: основной вариант и альтернативы для букв, которые
+// в именах сервисов пишут по-разному (к → k|c: «караван» → caravan, х → h|kh, ц → ts|c…).
+// Казахские буквы — к ближайшей латинской.
+var translit = map[rune][]string{
+	'а': {"a"}, 'б': {"b"}, 'в': {"v", "w"}, 'г': {"g"}, 'д': {"d"}, 'е': {"e"}, 'ё': {"e", "yo"},
+	'ж': {"zh", "j"}, 'з': {"z"}, 'и': {"i"}, 'й': {"y", "i"}, 'к': {"k", "c"}, 'л': {"l"},
+	'м': {"m"}, 'н': {"n"}, 'о': {"o"}, 'п': {"p"}, 'р': {"r"}, 'с': {"s"}, 'т': {"t"},
+	'у': {"u"}, 'ф': {"f"}, 'х': {"h", "kh"}, 'ц': {"ts", "c"}, 'ч': {"ch"}, 'ш': {"sh"},
+	'щ': {"sch", "shch"}, 'ъ': {""}, 'ы': {"y", "i"}, 'ь': {""}, 'э': {"e"}, 'ю': {"yu", "u"},
+	'я': {"ya", "ia"},
+	'ә': {"a"}, 'ғ': {"g"}, 'қ': {"k", "q"}, 'ң': {"n"}, 'ө': {"o"}, 'ұ': {"u"}, 'ү': {"u"},
+	'һ': {"h"}, 'і': {"i"},
+}
+
+// maxTranslitVariants — потолок вариантов на строку: альтернативы перебираются по буквам
+// целиком (все «к» сразу), а не по позициям, поэтому вариантов 2^(число разных букв с
+// альтернативами) — обычно единицы.
+const maxTranslitVariants = 16
+
+// Translit возвращает латинские варианты написания строки с кириллицей (основной — первым);
+// без кириллицы — nil.
+func Translit(s string) []string {
+	s = strings.ToLower(s)
+
+	var ambiguous []rune
+	hasCyrillic := false
+	for _, r := range s {
+		if v, ok := translit[r]; ok {
+			hasCyrillic = true
+			if len(v) > 1 && runeIndex(ambiguous, r) < 0 {
+				ambiguous = append(ambiguous, r)
+			}
+		}
+	}
+	if !hasCyrillic {
+		return nil
+	}
+
+	variants := make([]string, 0, maxTranslitVariants)
+	seen := map[string]struct{}{}
+	for mask := 0; mask < 1<<len(ambiguous) && len(variants) < maxTranslitVariants; mask++ {
+		var b strings.Builder
+		for _, r := range s {
+			v, ok := translit[r]
+			if !ok {
+				b.WriteRune(r)
+				continue
+			}
+			alt := 0
+			if i := runeIndex(ambiguous, r); i >= 0 && mask&(1<<i) != 0 {
+				alt = 1
+			}
+			b.WriteString(v[alt])
+		}
+		if variant := b.String(); variant != "" {
+			if _, ok := seen[variant]; !ok {
+				seen[variant] = struct{}{}
+				variants = append(variants, variant)
+			}
+		}
+	}
+	return variants
+}
+
+func runeIndex(runes []rune, r rune) int {
+	for i, x := range runes {
+		if x == r {
+			return i
+		}
+	}
+	return -1
+}

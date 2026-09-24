@@ -22,3 +22,14 @@ func TestSimilarity(t *testing.T) {
 	assert.Less(t, Similarity("payments", "delivery"), 0.5)
 	assert.Equal(t, 1.0, Similarity("", ""))
 }
+
+func TestTranslit(t *testing.T) {
+	assert.Nil(t, Translit("caravan"))
+	assert.Contains(t, Translit("Караван"), "karavan")
+	assert.Contains(t, Translit("караван"), "caravan")
+	assert.Equal(t, "seller", Translit("селлер")[0])
+	assert.Equal(t, "planora", Translit("планора")[0])
+	assert.Contains(t, Translit("нотифаер-смс"), "notifaer-sms")
+	assert.Contains(t, Translit("қазпочта"), "qazpochta")
+	assert.LessOrEqual(t, len(Translit("кхцйыжюяёвщ")), maxTranslitVariants)
+}

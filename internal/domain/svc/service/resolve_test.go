@@ -80,3 +80,33 @@ func TestRank_ClusterNames(t *testing.T) {
 	c = first(t, "ocenter api")
 	assert.Equal(t, "orders-center", c.Service.Name)
 }
+
+// TestRank_ChatCases — случаи из переписки с ботом.
+func TestRank_ChatCases(t *testing.T) {
+	services := []*model.Main{
+		{Name: "caravan"}, {Name: "caravaneer"}, {Name: "seller"}, {Name: "planora"},
+		{Name: "notifire", ClusterNames: []string{"notifire"}},
+		{Name: "sms", ClusterNames: []string{"notifire-sms", "sms-im", "sms-service"}},
+		{Name: "notifire-pg"},
+	}
+
+	// кириллица → латиница: «к» пишут и k, и c
+	for query, want := range map[string]string{"караван": "caravan", "что с караваном": "caravan", "селлер": "seller", "планора": "planora"} {
+		candidates := Rank(services, query)
+		require.NotEmpty(t, candidates, query)
+		assert.Equal(t, want, candidates[0].Service.Name, query)
+		assert.Equal(t, constant.MatchedByTranslit, candidates[0].MatchedBy, query)
+		assert.False(t, Ambiguous(candidates), query)
+	}
+
+	// имя workload'а целиком сильнее отдельных слов: notifire-sms — это sms, а не notifire
+	candidates := Rank(services, "notifire-sms")
+	require.NotEmpty(t, candidates)
+	assert.Equal(t, "sms", candidates[0].Service.Name)
+	assert.Equal(t, constant.MatchedByClusterName, candidates[0].MatchedBy)
+	assert.False(t, Ambiguous(candidates))
+
+	// два почти равных кандидата — переспросить
+	assert.True(t, Ambiguous([]*model.Candidate{{Confidence: 0.85}, {Confidence: 0.84}}))
+	assert.False(t, Ambiguous([]*model.Candidate{{Confidence: 0.93}, {Confidence: 0.85}}))
+}

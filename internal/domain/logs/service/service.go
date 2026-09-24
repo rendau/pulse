@@ -110,6 +110,7 @@ func (s *Service) MessageOf(line string) string {
 // Aggregate группирует строки по шаблону и возвращает top-N по частоте.
 func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 	groups := make(map[string]*model.Pattern, 64)
+	workloads := make(map[string]map[string]struct{}, 64)
 
 	for _, line := range lines {
 		message := s.MessageOf(line.Text)
@@ -125,8 +126,12 @@ func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 				LastSeen:  line.TS,
 			}
 			groups[key] = p
+			workloads[key] = map[string]struct{}{}
 		}
 		p.Count++
+		if line.Workload != "" {
+			workloads[key][line.Workload] = struct{}{}
+		}
 		if line.TS.Before(p.FirstSeen) {
 			p.FirstSeen = line.TS
 		}
@@ -135,7 +140,11 @@ func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 		}
 	}
 
-	patterns := lo.Map(lo.Values(groups), func(p *model.Pattern, _ int) model.Pattern { return *p })
+	patterns := lo.MapToSlice(groups, func(key string, p *model.Pattern) model.Pattern {
+		p.Workloads = lo.Keys(workloads[key])
+		sort.Strings(p.Workloads)
+		return *p
+	})
 	sort.SliceStable(patterns, func(i, j int) bool {
 		if patterns[i].Count != patterns[j].Count {
 			return patterns[i].Count > patterns[j].Count

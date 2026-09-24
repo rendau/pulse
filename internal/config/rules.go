@@ -294,19 +294,27 @@ func defaultRules() *Rules {
 // (mechta_caravan_request_total, у старых сервисов — *_request_count) и статусом ok|error,
 // поэтому имя ищется регэкспом, а ошибка — это status error или 5xx. Метрики приложения
 // есть только у сервисов со ServiceMonitor; у остальных rps/error_rate/latency пустые.
+//
+// Под регэксп попадает несколько метрик (app_request_count и worker_request_count): rate()
+// отбрасывает имя, и ряды с одинаковыми лейблами дают «vector cannot contain metrics with the
+// same labelset». Поэтому имя копируется в лейбл metric (label_replace) и rate берётся по
+// подзапросу [5m:30s] — label_replace работает только с мгновенным вектором.
 func defaultMetrics() []MetricDef {
 	const (
 		requests = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}`
 		errors   = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status=~"error|5.."}`
 		buckets  = `{__name__=~".+_response_duration_seconds_bucket", namespace="{namespace}", pod=~"{pod_regex}"}`
 	)
+	rate := func(selector string) string {
+		return `rate(label_replace(` + selector + `, "metric", "$1", "__name__", "(.+)")[5m:30s])`
+	}
 	return []MetricDef{
 		{Id: "rps", Title: "Запросов в секунду", Unit: "rps",
-			PromQL: `sum(rate(` + requests + `[5m]))`},
+			PromQL: `sum(` + rate(requests) + `)`},
 		{Id: "error_rate", Title: "Доля ошибок (status error или 5xx)", Unit: "ratio", Direction: "lower_is_better",
-			PromQL: `(sum(rate(` + errors + `[5m])) or vector(0)) / sum(rate(` + requests + `[5m]))`},
+			PromQL: `(sum(` + rate(errors) + `) or vector(0)) / sum(` + rate(requests) + `)`},
 		{Id: "latency_p95", Title: "Latency p95", Unit: "seconds", Direction: "lower_is_better",
-			PromQL: `histogram_quantile(0.95, sum by (le) (rate(` + buckets + `[5m])))`},
+			PromQL: `histogram_quantile(0.95, sum by (le) (` + rate(buckets) + `))`},
 		{Id: "cpu_cores", Title: "CPU, ядер", Unit: "cores", Direction: "lower_is_better",
 			PromQL: `sum(rate(container_cpu_usage_seconds_total{namespace="{namespace}", pod=~"{pod_regex}", container!=""}[5m]))`},
 		{Id: "memory_bytes", Title: "Память (working set)", Unit: "bytes", Direction: "lower_is_better",

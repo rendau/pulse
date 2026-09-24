@@ -86,9 +86,11 @@ type UnsyncedConfig struct {
 }
 
 type ChangesResult struct {
-	Service       string
-	Window        time.Duration
-	Commits       []Commit
+	Service string
+	Window  time.Duration
+	Commits []Commit
+	// LastCommit — последний коммит ветки по умолчанию, если за окно коммитов нет
+	LastCommit    *Commit
 	Unreleased    *Unreleased
 	Deploys       []*deployModel.Main
 	ConfigChanges []ConfigChange

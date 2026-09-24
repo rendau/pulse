@@ -11,6 +11,8 @@ import (
 type Client interface {
 	// GetFileContent читает файл из ветки по умолчанию. Отсутствие файла — found=false, не ошибка.
 	GetFileContent(ctx context.Context, repoUrl, path string) ([]byte, bool, error)
+	// RepoInfo — ветка по умолчанию, описание и topics репозитория (кэш на несколько часов).
+	RepoInfo(ctx context.Context, repoUrl string) (*githubModel.Repo, error)
 	// ListCommits — коммиты ветки по умолчанию за интервал, новые первыми, не более limit.
 	ListCommits(ctx context.Context, repoUrl string, since, until time.Time, limit int) ([]githubModel.Commit, error)
 	// CompareCommits — что есть в ветке по умолчанию сверх base (задеплоенного SHA).

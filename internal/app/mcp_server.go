@@ -18,7 +18,8 @@ const mcpInstructions = `pulse — единая точка доступа к и�
 	`Все инструменты read-only. Порядок диагностики: get_cluster_health, если лежит многое; иначе resolve_service → get_service_snapshot → затем get_timeline («что изменилось»), при необходимости query_logs / query_metrics / get_changes / get_service_info; ` +
 	`при ошибках источников — ping. Имя, названное человеком, переводи в имя каталога через resolve_service ` +
 	`(list_services — если нужен перечень); имена из ответов инструментов (поле service, список services) ` +
-	`уже точные — используй как есть, без перепроверки.`
+	`уже точные — используй как есть, без перепроверки. resolve_service ничего не нашёл — попробуй перевод на английский ` +
+	`и синонимы («платежи» → payment, acquiring), затем list_services; не угадывай молча — назови кандидатов и спроси.`
 
 // MCPServerCreate собирает MCP-сервер и регистрирует инструменты.
 func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {

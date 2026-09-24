@@ -20,6 +20,14 @@ const (
 
 	minTokenLen        = 3
 	fuzzyMinSimilarity = 0.65
+
+	// tokenFactor — совпадение по одному слову запроса слабее совпадения всей фразы:
+	// «notifire-sms» (имя workload'а сервиса sms) не должно проигрывать словам notifire и sms
+	tokenFactor = 0.85
+	// translitFactor — латинский вариант кириллического запроса — догадка, чуть слабее прямого
+	translitFactor = 0.95
+	// ambiguousGap — лидер и второй кандидат ближе этого — переспросить
+	ambiguousGap = 0.05
 )
 
 // Resolve переводит формулировку в кандидатов каталога. Обычный код, не LLM:
@@ -42,12 +50,16 @@ func Rank(services []*model.Main, query string) []*model.Candidate {
 		return nil
 	}
 
-	probes := lo.Uniq(append([]string{whole}, fuzzy.Tokens(query, minTokenLen)...))
+	probes := rankProbes(query, whole)
 
 	candidates := lo.FilterMap(services, func(svc *model.Main, _ int) (*model.Candidate, bool) {
 		best := model.Candidate{Service: svc}
-		for _, probe := range probes {
-			score, matchedBy := scoreService(svc, probe)
+		for _, p := range probes {
+			score, matchedBy := scoreService(svc, p.text)
+			score *= p.factor
+			if p.translit && matchedBy != "" {
+				matchedBy = constant.MatchedByTranslit
+			}
 			if score > best.Confidence {
 				best.Confidence, best.MatchedBy = score, matchedBy
 			}
@@ -69,9 +81,34 @@ func Rank(services []*model.Main, query string) []*model.Candidate {
 	return candidates
 }
 
-// Ambiguous — нужно ли агенту переспросить пользователя.
+// Ambiguous — нужно ли агенту переспросить пользователя: кандидатов нет, лидер неуверенный
+// или второй почти равен лидеру.
 func Ambiguous(candidates []*model.Candidate) bool {
-	return len(candidates) == 0 || candidates[0].Confidence < ResolveAmbiguousThreshold
+	if len(candidates) == 0 || candidates[0].Confidence < ResolveAmbiguousThreshold {
+		return true
+	}
+	return len(candidates) > 1 && candidates[0].Confidence-candidates[1].Confidence < ambiguousGap
+}
+
+type probe struct {
+	text     string
+	factor   float64
+	translit bool
+}
+
+// rankProbes — чем сравнивать: вся фраза, отдельные слова (слабее) и латинские варианты
+// кириллицы для того и другого.
+func rankProbes(query, whole string) []probe {
+	probes := []probe{{text: whole, factor: 1}}
+	for _, token := range fuzzy.Tokens(query, minTokenLen) {
+		probes = append(probes, probe{text: token, factor: tokenFactor})
+	}
+	for _, p := range probes {
+		for _, variant := range fuzzy.Translit(p.text) {
+			probes = append(probes, probe{text: variant, factor: p.factor * translitFactor, translit: true})
+		}
+	}
+	return lo.UniqBy(probes, func(p probe) string { return p.text })
 }
 
 func scoreService(svc *model.Main, probe string) (float64, string) {

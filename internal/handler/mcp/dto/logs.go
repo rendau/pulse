@@ -19,6 +19,8 @@ type QueryLogsReq struct {
 	Window  string `json:"window,omitempty" jsonschema:"Go duration: 15m, 1h (по умолчанию), 24h (максимум по умолчанию)"`
 	Mode    string `json:"mode,omitempty" jsonschema:"patterns (по умолчанию) — агрегированные паттерны со счётчиком; raw — последние строки"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"для raw: число строк, максимум 100"`
+	// Workload — сузить до одного workload'а сервиса
+	Workload string `json:"workload,omitempty" jsonschema:"только логи одного workload'а сервиса (имя из workloads в get_service_info, например notifire-sms); пусто — все"`
 }
 
 type QueryLogsRep struct {
@@ -40,12 +42,14 @@ type LogPattern struct {
 	Example   string    `json:"example"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+	Workloads []string  `json:"workloads,omitempty" jsonschema:"workload'ы сервиса, из подов которых строки паттерна"`
 }
 
 type LogLine struct {
-	TS    time.Time `json:"ts"`
-	Level string    `json:"level,omitempty"`
-	Text  string    `json:"text"`
+	TS       time.Time `json:"ts"`
+	Level    string    `json:"level,omitempty"`
+	Workload string    `json:"workload,omitempty"`
+	Text     string    `json:"text"`
 }
 
 const maxLineChars = 2000
@@ -61,7 +65,7 @@ func EncodeQueryLogsRep(v *usecaseLogsModel.QueryResult) QueryLogsRep {
 		Truncated:  v.Truncated,
 		Patterns:   lo.Map(v.Patterns, EncodeLogPattern),
 		Lines: lo.Map(v.Lines, func(l logsModel.Line, _ int) LogLine {
-			return LogLine{TS: tz.In(l.TS), Level: l.Level, Text: lo.Ellipsis(l.Text, maxLineChars)}
+			return LogLine{TS: tz.In(l.TS), Level: l.Level, Workload: l.Workload, Text: lo.Ellipsis(l.Text, maxLineChars)}
 		}),
 	}
 }
@@ -74,5 +78,6 @@ func EncodeLogPattern(v logsModel.Pattern, _ int) LogPattern {
 		Example:   lo.Ellipsis(v.Example, maxLineChars),
 		FirstSeen: tz.In(v.FirstSeen),
 		LastSeen:  tz.In(v.LastSeen),
+		Workloads: v.Workloads,
 	}
 }

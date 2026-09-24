@@ -20,6 +20,7 @@ import (
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
+	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
 	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
 )
 
@@ -185,8 +186,19 @@ func (u *Usecase) Changes(ctx context.Context, serviceName string, win time.Dura
 				addError(constant.SourceGithub, err)
 				return nil
 			}
+			// за окно коммитов нет — последний коммит ветки, каким бы старым он ни был:
+			// «о чём последний коммит?» не должно упираться в окно
+			var last []githubModel.Commit
+			if len(commits) == 0 {
+				if last, err = u.github.ListCommits(egCtx, service.RepoUrl, time.Time{}, now, 1); err != nil {
+					addError(constant.SourceGithub, err)
+				}
+			}
 			mu.Lock()
 			result.Commits = lo.Map(commits, encodeCommit)
+			if len(last) > 0 {
+				result.LastCommit = new(encodeCommit(last[0], 0))
+			}
 			mu.Unlock()
 			return nil
 		})

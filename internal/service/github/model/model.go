@@ -26,3 +26,11 @@ type Comparison struct {
 	BehindBy int
 	Commits  []Commit
 }
+
+// Repo — сведения о репозитории: ветка по умолчанию, описание и topics (по ним поиск
+// находит сервисы без service.yaml: «платёжный шлюз» в описании → acquiring-broker).
+type Repo struct {
+	DefaultBranch string
+	Description   string
+	Topics        []string
+}

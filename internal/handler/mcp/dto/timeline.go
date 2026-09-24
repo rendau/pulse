@@ -51,6 +51,7 @@ type ChangesRep struct {
 	Service       string         `json:"service"`
 	Window        string         `json:"window"`
 	Commits       []Commit       `json:"commits" jsonschema:"коммиты ветки по умолчанию за окно, новые первыми"`
+	LastCommit    *Commit        `json:"last_commit,omitempty" jsonschema:"последний коммит ветки по умолчанию — есть, только если за окно коммитов нет"`
 	Unreleased    *Unreleased    `json:"unreleased,omitempty" jsonschema:"смержено, но ещё не в проде; отсутствует, если задеплоенный коммит неизвестен"`
 	Deploys       []Deploy       `json:"deploys"`
 	ConfigChanges []ConfigChange `json:"config_changes" jsonschema:"по убыванию времени; значения секретов никогда не возвращаются, обычный конфиг — только безопасные значения, остальное ***"`
@@ -132,6 +133,9 @@ func EncodeChangesRep(v *usecaseTimelineModel.ChangesResult) ChangesRep {
 			BehindBy:       v.Unreleased.BehindBy,
 			Commits:        lo.Map(v.Unreleased.Commits, encodeCommit),
 		}
+	}
+	if v.LastCommit != nil {
+		rep.LastCommit = new(encodeCommit(*v.LastCommit, 0))
 	}
 	return rep
 }

@@ -85,11 +85,16 @@ func (f *fakeK8s) ListEvents(context.Context, string, time.Time) ([]k8sModel.Eve
 
 type fakeGithub struct {
 	commits []githubModel.Commit
-	cmp     *githubModel.Comparison
-	err     error
+	// older — коммиты вне окна: отдаются только запросу без since («последний коммит»)
+	older []githubModel.Commit
+	cmp   *githubModel.Comparison
+	err   error
 }
 
-func (f *fakeGithub) ListCommits(context.Context, string, time.Time, time.Time, int) ([]githubModel.Commit, error) {
+func (f *fakeGithub) ListCommits(_ context.Context, _ string, since, _ time.Time, _ int) ([]githubModel.Commit, error) {
+	if since.IsZero() && len(f.older) > 0 {
+		return f.older, f.err
+	}
 	return f.commits, f.err
 }
 
@@ -497,4 +502,25 @@ func TestTimeline_PodsListedPerNamespaceInClusterScope(t *testing.T) {
 	assert.Contains(t, summaries, "payments-api: контейнер payments-api-1/app убит по OOM, всего рестартов 1")
 	assert.Contains(t, summaries, "delivery: контейнер delivery-1/app перезапущен (Error), всего рестартов 2")
 	assert.NotContains(t, strings.Join(summaries, "\n"), "other-1")
+}
+
+// TestChanges_LastCommitOutsideWindow — «о чём последний коммит?»: за окно коммитов нет —
+// в ответе последний коммит ветки (случай seller из переписки с ботом).
+func TestChanges_LastCommitOutsideWindow(t *testing.T) {
+	now := time.Now().UTC()
+	old := githubModel.Commit{SHA: "c0", Author: "a", Message: "old fix", Date: now.Add(-30 * 24 * time.Hour)}
+
+	res, err := newUsecase(now, &fakeGithub{older: []githubModel.Commit{old}, cmp: &githubModel.Comparison{}}, &fakeKusec{}, nil).
+		Changes(context.Background(), "payments-api", 7*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, res.Commits)
+	require.NotNil(t, res.LastCommit)
+	assert.Equal(t, "c0", res.LastCommit.SHA)
+	assert.Equal(t, "old fix", res.LastCommit.Message)
+
+	// коммиты в окне есть — last_commit не нужен
+	res, err = newUsecase(now, &fakeGithub{commits: []githubModel.Commit{{SHA: "c1", Date: now}}, older: []githubModel.Commit{old}, cmp: &githubModel.Comparison{}}, &fakeKusec{}, nil).
+		Changes(context.Background(), "payments-api", time.Hour)
+	require.NoError(t, err)
+	assert.Nil(t, res.LastCommit)
 }

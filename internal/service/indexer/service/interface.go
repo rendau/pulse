@@ -8,6 +8,7 @@ import (
 	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
 )
@@ -21,6 +22,7 @@ type k8sClientI interface {
 
 type githubClientI interface {
 	GetFileContent(ctx context.Context, repoUrl, path string) ([]byte, bool, error)
+	RepoInfo(ctx context.Context, repoUrl string) (*githubModel.Repo, error)
 	ResolveImageCommit(ctx context.Context, repoUrl, imagePath, digest string) (string, error)
 	PackageRepoUrl(ctx context.Context, imagePath string) (string, error)
 }

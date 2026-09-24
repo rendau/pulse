@@ -25,7 +25,7 @@ type Candidate struct {
 	Service    string   `json:"service"`
 	Title      string   `json:"title,omitempty"`
 	Confidence float64  `json:"confidence"`
-	MatchedBy  string   `json:"matched_by" jsonschema:"name | alias | title | fuzzy | description"`
+	MatchedBy  string   `json:"matched_by" jsonschema:"name | alias | cluster_name | title | fuzzy | translit (латинский вариант кириллицы — догадка) | description"`
 	Namespaces []string `json:"namespaces,omitempty"`
 	OwnerTeam  string   `json:"owner_team,omitempty"`
 }

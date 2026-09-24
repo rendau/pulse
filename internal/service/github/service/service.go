@@ -15,8 +15,8 @@ import (
 
 type Service struct {
 	client *github.Client
-	// branches — кэш веток по умолчанию: owner/repo → branch
-	branches sync.Map
+	// repos — кэш сведений о репозиториях: owner/repo → repoCacheEntry (repoInfo)
+	repos sync.Map
 	// imageCommits — digest образа → коммит сборки (imageCommit)
 	imageCommits sync.Map
 	// packageRepos — путь образа → репозиторий пакета (packageRepo)
