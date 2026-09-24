@@ -154,7 +154,7 @@ domain service → repo
 - В `down` объекты удаляются в порядке, обратном `up` (с учётом внешних ключей).
 
 ### API (MCP)
-- Инструменты регистрируются в `internal/handler/mcp/handler.go` через `mcp.AddTool` с типизированными
+- Инструменты регистрируются в `internal/handler/mcp/handler.go` через `addTool` с типизированными
   In/Out DTO (`internal/handler/mcp/dto`); схема выводится из json/jsonschema-тегов.
 - Все инструменты read-only (Р5 ТЗ): `ToolAnnotations{ReadOnlyHint: true}`.
 - Регистрация — через `addTool` (`handler/mcp/schema.go`), не `mcp.AddTool`: схема ответа допускает
