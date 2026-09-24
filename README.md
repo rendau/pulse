@@ -19,7 +19,8 @@ go run ./cmd/
 Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.
 
 MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTTP, stateless),
-авторизация — `Authorization: Bearer ${MCP_AUTH_TOKEN}`.
+авторизация — `Authorization: Bearer <токен>`: `MCP_AUTH_TOKEN` (бот pulse_bot) или любой из
+`MCP_EXTERNAL_TOKENS` (внешние клиенты, через запятую).
 Служебные ручки на `SYSTEM_HTTP_PORT`: `/healthcheck`, `/readiness`, `/metrics`, `/docs/*`.
 
 ## Инструменты

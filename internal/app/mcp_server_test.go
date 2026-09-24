@@ -29,8 +29,9 @@ func TestMCPServer_Ping(t *testing.T) {
 	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil, nil)
 	server := MCPServerCreate(handler.Register)
 
-	const token = "secret-token"
-	httpServer := MCPHttpServerCreate("0", "/mcp", token, server)
+	// токен бота и внешних клиентов; пустые игнорируются
+	const token, externalToken = "secret-token", "external-token"
+	httpServer := MCPHttpServerCreate("0", "/mcp", []string{token, externalToken, ""}, server)
 	ts := httptest.NewServer(httpServer.Handler)
 	defer ts.Close()
 
@@ -39,6 +40,31 @@ func TestMCPServer_Ping(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	for name, bearer := range map[string]string{"wrong token": "nope", "empty token": ""} {
+		t.Run(name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp", nil)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+bearer)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		})
+	}
+
+	t.Run("external token", func(t *testing.T) {
+		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+			Endpoint:   ts.URL + "/mcp",
+			HTTPClient: &http.Client{Transport: &bearerTransport{token: externalToken}},
+		}, nil)
+		require.NoError(t, err)
+		defer func() { _ = session.Close() }()
+
+		_, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "ping"})
+		require.NoError(t, err)
 	})
 
 	t.Run("tools list and ping call", func(t *testing.T) {

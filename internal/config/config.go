@@ -17,8 +17,12 @@ var Conf = struct {
 	SystemHttpPort string `env:"SYSTEM_HTTP_PORT" envDefault:"3003"` // healthcheck, readiness, metrics, docs
 
 	// MCP
-	MCPAuthToken string `env:"MCP_AUTH_TOKEN"` // пусто — без проверки (локальная разработка)
-	MCPPath      string `env:"MCP_PATH" envDefault:"/mcp"`
+	// bearer-токены: MCP_AUTH_TOKEN — бота pulse_bot (ходит изнутри кластера),
+	// MCP_EXTERNAL_TOKENS — внешних клиентов (агенты, люди) через запятую, у каждого свой;
+	// оба пусты — без проверки (локальная разработка)
+	MCPAuthToken      string   `env:"MCP_AUTH_TOKEN"`
+	MCPExternalTokens []string `env:"MCP_EXTERNAL_TOKENS" envSeparator:","`
+	MCPPath           string   `env:"MCP_PATH" envDefault:"/mcp"`
 
 	// путь к yaml с правилами; отсутствие файла — не ошибка, берутся дефолты
 	RulesPath string `env:"RULES_PATH" envDefault:"./conf.yml"`
