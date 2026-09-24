@@ -256,3 +256,29 @@ func TestHealth_FailedJobPods(t *testing.T) {
 	assert.Empty(t, other.Service)
 	assert.False(t, other.Since.IsZero(), "нет времени завершения — время старта пода")
 }
+
+// TestHealth_EventServices: Warning-события привязаны к сервисам — через под, workload
+// каталога или поды владельца (Job); объект без пода и workload'а — без сервиса.
+func TestHealth_EventServices(t *testing.T) {
+	now := time.Now()
+	k8s := &fakeK8s{
+		nodes: []k8sModel.Node{{Name: "n1", Ready: true}},
+		pods: []k8sModel.Pod{
+			{Namespace: "loom", Name: "lt-sync-1-abc-x1", Phase: "Succeeded", Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"}},
+			{Namespace: "prod", Name: "payments-api-7d9f-q2", Phase: "Running", Ready: true},
+		},
+		events: []k8sModel.Event{
+			{Namespace: "loom", ObjectKind: "Job", ObjectName: "lt-sync-1-abc", Reason: "BackoffLimitExceeded", Type: "Warning", Count: 1, LastTS: now},
+			{Namespace: "loom", ObjectKind: "Pod", ObjectName: "lt-sync-1-abc-x1", Reason: "FailedCreatePodSandBox", Type: "Warning", Count: 1, LastTS: now},
+			{Namespace: "prod", ObjectKind: "Deployment", ObjectName: "payments-api", Reason: "BackoffLimitExceeded", Type: "Warning", Count: 1, LastTS: now},
+			{Namespace: "dev", ObjectKind: "Pod", ObjectName: "gone-1", Reason: "FailedCreatePodSandBox", Type: "Warning", Count: 1, LastTS: now},
+		},
+	}
+
+	h, err := newUsecase(k8s, nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+
+	byReason := lo.KeyBy(h.EventReasons, func(r clusterModel.EventReason) string { return r.Reason })
+	assert.Equal(t, []string{"loom", "payments-api"}, byReason["BackoffLimitExceeded"].Services)
+	assert.Equal(t, []string{"loom"}, byReason["FailedCreatePodSandBox"].Services)
+}

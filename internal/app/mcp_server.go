@@ -16,7 +16,9 @@ import (
 const mcpInstructions = `pulse — единая точка доступа к инфраструктурному контексту компании: ` +
 	`каталог сервисов, их состояние в Kubernetes, метрики, логи и изменения. ` +
 	`Все инструменты read-only. Порядок диагностики: get_cluster_health, если лежит многое; иначе resolve_service → get_service_snapshot → затем get_timeline («что изменилось»), при необходимости query_logs / query_metrics / get_changes / get_service_info; ` +
-	`при ошибках источников — ping. Имена сервисов бери только из resolve_service/list_services.`
+	`при ошибках источников — ping. Имя, названное человеком, переводи в имя каталога через resolve_service ` +
+	`(list_services — если нужен перечень); имена из ответов инструментов (поле service, список services) ` +
+	`уже точные — используй как есть, без перепроверки.`
 
 // MCPServerCreate собирает MCP-сервер и регистрирует инструменты.
 func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {

@@ -88,8 +88,8 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error { c.nodes(egCtx); return nil })
-	eg.Go(func() error { c.pods(egCtx); return nil })
-	eg.Go(func() error { c.events(egCtx); return nil })
+	// события — после подов: объект события привязывается к сервису через свой под
+	eg.Go(func() error { c.pods(egCtx); c.events(egCtx); return nil })
 	eg.Go(func() error { c.alerts(egCtx); return nil })
 	eg.Go(func() error { c.metrics(egCtx); return nil })
 	_ = eg.Wait()
@@ -107,6 +107,9 @@ type collector struct {
 	workloads []*workloadModel.Main
 	services  map[string]struct{} // имена сервисов каталога
 	now       time.Time
+
+	// podServices — сервис каждого пода по namespace (заполняет pods, читает events)
+	podServices map[string]map[string]string
 
 	mu               sync.Mutex
 	nodesUnavailable bool
@@ -162,6 +165,7 @@ func (c *collector) pods(ctx context.Context) {
 
 	result := clusterModel.Pods{Total: len(pods)}
 	since := c.now.Add(-c.h.Window)
+	podServices := make(map[string]map[string]string, 16)
 	for _, pod := range pods {
 		switch pod.Phase {
 		case "Running":
@@ -175,6 +179,11 @@ func (c *collector) pods(ctx context.Context) {
 		}
 
 		service := c.serviceOf(&pod)
+		if podServices[pod.Namespace] == nil {
+			podServices[pod.Namespace] = map[string]string{}
+		}
+		podServices[pod.Namespace][pod.Name] = service
+
 		add := func(reason, message, image string, at time.Time) {
 			result.ProblemsTotal++
 			if len(result.Problems) < c.u.conf.MaxProblemPods {
@@ -225,6 +234,7 @@ func (c *collector) pods(ctx context.Context) {
 
 	c.mu.Lock()
 	c.h.Pods = result
+	c.podServices = podServices
 	c.mu.Unlock()
 }
 
@@ -246,6 +256,30 @@ func (c *collector) serviceOf(pod *k8sModel.Pod) string {
 	}
 	if _, ok := c.services[pod.Labels[managedByLabel]]; ok {
 		return pod.Labels[managedByLabel]
+	}
+	return ""
+}
+
+// objectService — сервис объекта Warning-события: сам под; объект workload'а каталога
+// (Deployment, ReplicaSet по префиксу имени); Job или другой владелец — по его подам
+// (имя пода = имя владельца + суффикс). Не нашлось — пусто.
+func (c *collector) objectService(namespace, name string) string {
+	c.mu.Lock()
+	pods := c.podServices[namespace]
+	c.mu.Unlock()
+
+	if service := pods[name]; service != "" {
+		return service
+	}
+	for _, w := range c.workloads {
+		if w.Namespace == namespace && (name == w.Name || strings.HasPrefix(name, w.Name+"-")) {
+			return w.ServiceName
+		}
+	}
+	for pod, service := range pods {
+		if service != "" && strings.HasPrefix(pod, name+"-") {
+			return service
+		}
 	}
 	return ""
 }
@@ -276,6 +310,7 @@ func (c *collector) events(ctx context.Context) {
 	type agg struct {
 		count      int
 		namespaces map[string]struct{}
+		services   map[string]struct{}
 		example    string
 		lastTS     time.Time
 	}
@@ -286,11 +321,14 @@ func (c *collector) events(ctx context.Context) {
 		}
 		a, ok := byReason[e.Reason]
 		if !ok {
-			a = &agg{namespaces: map[string]struct{}{}}
+			a = &agg{namespaces: map[string]struct{}{}, services: map[string]struct{}{}}
 			byReason[e.Reason] = a
 		}
 		a.count += int(max(e.Count, 1))
 		a.namespaces[e.Namespace] = struct{}{}
+		if service := c.objectService(e.Namespace, e.ObjectName); service != "" {
+			a.services[service] = struct{}{}
+		}
 		if e.LastTS.After(a.lastTS) {
 			a.lastTS = e.LastTS
 			a.example = fmt.Sprintf("%s/%s %s: %s", e.Namespace, e.ObjectName, e.ObjectKind, lo.Ellipsis(strings.TrimSpace(e.Message), 200))
@@ -298,7 +336,9 @@ func (c *collector) events(ctx context.Context) {
 	}
 
 	reasons := lo.MapToSlice(byReason, func(reason string, a *agg) clusterModel.EventReason {
-		return clusterModel.EventReason{Reason: reason, Count: a.count, Namespaces: len(a.namespaces), Example: a.example, LastTS: a.lastTS}
+		services := lo.Keys(a.services)
+		sort.Strings(services)
+		return clusterModel.EventReason{Reason: reason, Count: a.count, Namespaces: len(a.namespaces), Services: services, Example: a.example, LastTS: a.lastTS}
 	})
 	sort.Slice(reasons, func(i, j int) bool {
 		if reasons[i].Count != reasons[j].Count {

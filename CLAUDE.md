@@ -52,7 +52,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам),
   `endpoints` (call_service_endpoint: allowlist по id, только GET, валидация параметров,
   PII через redact, лимиты строк/байт/таймаута), `cluster` (get_cluster_health: ноды, поды
-  по кластеру, Warning-события по причинам, инфра-алерты = не привязанные к каталогу,
+  по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
+  `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
   метрики кластера с базовой линией), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
   индексера, маршруты из снапшота ruto, трафик из метрик gateway). Исключение из правила
   «usecase не ходит в соседний usecase»:

@@ -62,6 +62,7 @@ type EventReason struct {
 	Reason     string
 	Count      int
 	Namespaces int
+	Services   []string // сервисы каталога, к объектам которых относятся события
 	Example    string
 	LastTS     time.Time
 }

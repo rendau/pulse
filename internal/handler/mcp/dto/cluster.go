@@ -65,6 +65,7 @@ type EventReason struct {
 	Reason     string    `json:"reason"`
 	Count      int       `json:"count"`
 	Namespaces int       `json:"namespaces"`
+	Services   []string  `json:"services,omitempty" jsonschema:"сервисы каталога, к объектам которых относятся события"`
 	Example    string    `json:"example"`
 	LastTS     time.Time `json:"last_ts"`
 }
@@ -92,7 +93,7 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 			Truncated:     v.Pods.ProblemsTotal > len(v.Pods.Problems),
 		},
 		EventReasons: lo.Map(v.EventReasons, func(r clusterModel.EventReason, _ int) EventReason {
-			return EventReason{Reason: r.Reason, Count: r.Count, Namespaces: r.Namespaces, Example: r.Example, LastTS: tz.In(r.LastTS)}
+			return EventReason{Reason: r.Reason, Count: r.Count, Namespaces: r.Namespaces, Services: r.Services, Example: r.Example, LastTS: tz.In(r.LastTS)}
 		}),
 		InfraAlerts:         lo.Map(v.InfraAlerts, encodeAlert),
 		ServiceAlertsActive: v.ServiceAlertsActive,
