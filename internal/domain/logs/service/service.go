@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
@@ -74,18 +75,24 @@ func canonicalLevel(s string) string {
 	}
 }
 
-// MessageOf извлекает сообщение из JSON-строки (msg/message/error), иначе возвращает строку
-// целиком: у структурированных логов шаблон должен строиться по сообщению, а не по всему JSON
-// с временем и трассировкой.
+// MessageOf извлекает сообщение из структурированной строки, иначе возвращает строку целиком:
+// шаблон должен строиться по сообщению, а не по всей строке с временем и трассировкой.
+// Понимает JSON (msg/message + error/err), обёртку сборщика логов {"log": "…"} (fluent-bit,
+// docker) и logfmt (level=ERROR msg="…" error="…", текстовый slog).
 func (s *Service) MessageOf(line string) string {
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasPrefix(trimmed, "{") {
-		return trimmed
+		return logfmtMessage(trimmed)
 	}
 
 	var fields map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &fields); err != nil {
 		return trimmed
+	}
+
+	// обёртка сборщика: сообщение приложения — внутри log
+	if inner, ok := fields["log"].(string); ok && fields["msg"] == nil && fields["message"] == nil {
+		return s.MessageOf(inner)
 	}
 
 	parts := make([]string, 0, 2)
@@ -157,4 +164,36 @@ func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 	}
 
 	return patterns
+}
+
+// logfmtKeyRe — ключ logfmt со значением в кавычках или без.
+var logfmtKeyRe = regexp.MustCompile(`(?:^|\s)(msg|message|error|err)=("(?:[^"\\]|\\.)*"|\S+)`)
+
+// logfmtMessage — msg и error из строки logfmt; не logfmt — строка как есть.
+func logfmtMessage(line string) string {
+	var msg, errText string
+	for _, m := range logfmtKeyRe.FindAllStringSubmatch(line, -1) {
+		value := m[2]
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+		switch m[1] {
+		case "msg", "message":
+			if msg == "" {
+				msg = value
+			}
+		default:
+			if errText == "" {
+				errText = value
+			}
+		}
+	}
+	switch {
+	case msg == "":
+		return line
+	case errText == "":
+		return msg
+	default:
+		return msg + ": " + errText
+	}
 }
