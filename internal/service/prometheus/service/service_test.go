@@ -65,3 +65,37 @@ func TestQueryDecode(t *testing.T) {
 	require.Len(t, series, 1)
 	assert.Len(t, series[0].Points, 2)
 }
+
+func TestQueryDropsNonFinite(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/query":
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"job":"a"},"value":[1700000000,"NaN"]},` +
+				`{"metric":{"job":"b"},"value":[1700000000,"+Inf"]},` +
+				`{"metric":{"job":"c"},"value":[1700000000,"0.5"]}]}}`))
+		case "/api/v1/query_range":
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"job":"a"},"values":[[1700000000,"NaN"],[1700000060,"-Inf"]]},` +
+				`{"metric":{"job":"b"},"values":[[1700000000,"NaN"],[1700000060,"2"]]}]}}`))
+		}
+	}))
+	defer ts.Close()
+
+	s := New(ts.URL, Auth{})
+	ctx := context.Background()
+
+	// 0/0 при нулевом трафике — «нет данных», а не значение
+	samples, err := s.Query(ctx, "x", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, samples, 1)
+	assert.Equal(t, "c", samples[0].Labels["job"])
+
+	// ряд без единой определённой точки отбрасывается целиком
+	series, err := s.QueryRange(ctx, "x", time.Unix(1700000000, 0), time.Unix(1700000060, 0), time.Minute)
+	require.NoError(t, err)
+	require.Len(t, series, 1)
+	assert.Equal(t, "b", series[0].Labels["job"])
+	require.Len(t, series[0].Points, 1)
+	assert.Equal(t, 2.0, series[0].Points[0].Value)
+}

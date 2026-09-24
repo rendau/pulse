@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -52,6 +53,9 @@ func (s *Service) Query(ctx context.Context, promql string, at time.Time) ([]pro
 		if err != nil {
 			return nil, err
 		}
+		if !finite(point.Value) {
+			continue
+		}
 		samples = append(samples, prometheusModel.Sample{Labels: item.Metric, TS: point.TS, Value: point.Value})
 	}
 
@@ -89,7 +93,13 @@ func (s *Service) QueryRange(ctx context.Context, promql string, start, end time
 			if err != nil {
 				return nil, err
 			}
+			if !finite(point.Value) {
+				continue
+			}
 			points = append(points, point)
+		}
+		if len(points) == 0 {
+			continue
 		}
 		series = append(series, prometheusModel.Series{Labels: item.Metric, Points: points})
 	}
@@ -143,6 +153,13 @@ func decodePoint(v [2]any) (prometheusModel.Point, error) {
 
 	sec, frac := int64(ts), ts-float64(int64(ts))
 	return prometheusModel.Point{TS: time.Unix(sec, int64(frac*1e9)).UTC(), Value: value}, nil
+}
+
+// finite — значение определено. NaN и ±Inf в PromQL — «нет значения» (0/0 при нулевом
+// трафике, деление на пустой ряд): такие точки отбрасываются — для потребителей это
+// отсутствие данных, а в JSON ответа инструмента их всё равно не записать.
+func finite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 func formatTime(t time.Time) string {

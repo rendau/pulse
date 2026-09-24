@@ -189,9 +189,6 @@ func (c *collector) traffic(ctx context.Context) {
 
 	requests, failures, statuses := map[string]float64{}, map[string]float64{}, map[string]float64{}
 	for _, s := range samples["requests"] {
-		if !finite(s.Value) {
-			continue
-		}
 		route, status := s.Labels["method"], s.Labels["status"]
 		requests[route] += s.Value
 		statuses[status] += s.Value
@@ -199,13 +196,13 @@ func (c *collector) traffic(ctx context.Context) {
 			failures[route] += s.Value
 		}
 	}
-	p95 := lo.SliceToMap(lo.Filter(samples["route_p95"], func(s prometheusModel.Sample, _ int) bool { return finite(s.Value) }),
+	p95 := lo.SliceToMap(samples["route_p95"],
 		func(s prometheusModel.Sample) (string, float64) { return s.Labels["method"], s.Value })
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requests, c.failures, c.statuses, c.p95 = requests, failures, statuses, p95
-	if total := samples["total_p95"]; len(total) > 0 && finite(total[0].Value) {
+	if total := samples["total_p95"]; len(total) > 0 {
 		c.totalP95 = new(total[0].Value)
 	}
 }
@@ -283,10 +280,6 @@ func promRegexAlternation(values []string) string {
 	return strings.Join(lo.Map(values, func(v string, _ int) string {
 		return strings.ReplaceAll(regexp.QuoteMeta(v), `\`, `\\`)
 	}), "|")
-}
-
-func finite(v float64) bool {
-	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 // round — три значащих знака после запятой: increase() даёт дробные счётчики, модели они не нужны.
