@@ -315,6 +315,7 @@ func encodePodContainer(cs corev1.ContainerStatus, _ int) k8sModel.PodContainer 
 	case cs.State.Terminated != nil:
 		result.State = "terminated"
 		result.Reason = cs.State.Terminated.Reason
+		result.TerminatedAt = cs.State.Terminated.FinishedAt.Time
 	}
 
 	if cs.LastTerminationState.Terminated != nil {

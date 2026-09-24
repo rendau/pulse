@@ -50,7 +50,8 @@ type Pods struct {
 type PodProblem struct {
 	Namespace string
 	Pod       string
-	Service   string // сервис каталога, если под относится к его workload'у
+	Service   string // сервис каталога: по workload'у, образу или оркестратору (managed-by)
+	Image     string // образ проблемного контейнера без тега и digest
 	Reason    string
 	Message   string
 	Since     time.Time

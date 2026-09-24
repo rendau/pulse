@@ -31,7 +31,7 @@ type ClusterHealthRep struct {
 type ClusterNodes struct {
 	Total     int           `json:"total"`
 	Ready     int           `json:"ready"`
-	Problems  []NodeProblem `json:"problems,omitempty"`
+	Problems  []NodeProblem `json:"problems" jsonschema:"ноды с проблемами (NotReady, MemoryPressure, DiskPressure, PIDPressure, Unschedulable); пустой список — проблем нет"`
 	CPUCores  float64       `json:"cpu_cores_allocatable"`
 	MemoryGiB float64       `json:"memory_gib_allocatable"`
 }
@@ -46,7 +46,7 @@ type ClusterPods struct {
 	Running       int                 `json:"running"`
 	Pending       int                 `json:"pending"`
 	Failed        int                 `json:"failed"`
-	Problems      []ClusterPodProblem `json:"problems,omitempty"`
+	Problems      []ClusterPodProblem `json:"problems" jsonschema:"пустой список — проблемных подов нет"`
 	ProblemsTotal int                 `json:"problems_total"`
 	Truncated     bool                `json:"truncated"`
 }
@@ -55,9 +55,10 @@ type ClusterPodProblem struct {
 	Namespace string    `json:"namespace"`
 	Pod       string    `json:"pod"`
 	Service   string    `json:"service,omitempty"`
+	Image     string    `json:"image,omitempty"`
 	Reason    string    `json:"reason"`
 	Message   string    `json:"message,omitempty"`
-	Since     time.Time `json:"since,omitempty"`
+	Since     time.Time `json:"since,omitzero"`
 }
 
 type EventReason struct {
@@ -85,7 +86,7 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 		Pods: ClusterPods{
 			Total: v.Pods.Total, Running: v.Pods.Running, Pending: v.Pods.Pending, Failed: v.Pods.Failed,
 			Problems: lo.Map(v.Pods.Problems, func(p clusterModel.PodProblem, _ int) ClusterPodProblem {
-				return ClusterPodProblem{Namespace: p.Namespace, Pod: p.Pod, Service: p.Service, Reason: p.Reason, Message: p.Message, Since: tz.In(p.Since)}
+				return ClusterPodProblem{Namespace: p.Namespace, Pod: p.Pod, Service: p.Service, Image: p.Image, Reason: p.Reason, Message: p.Message, Since: tz.In(p.Since)}
 			}),
 			ProblemsTotal: v.Pods.ProblemsTotal,
 			Truncated:     v.Pods.ProblemsTotal > len(v.Pods.Problems),

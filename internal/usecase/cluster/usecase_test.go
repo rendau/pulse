@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mechta-market/pulse/internal/constant"
+	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
 	clusterService "github.com/mechta-market/pulse/internal/domain/cluster/service"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
@@ -25,7 +26,10 @@ import (
 type fakeWorkload struct{}
 
 func (fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloadModel.Main, int64, error) {
-	return []*workloadModel.Main{{Namespace: "prod", Name: "payments-api", ServiceName: "payments-api"}}, 1, nil
+	return []*workloadModel.Main{
+		{Namespace: "prod", Name: "payments-api", ServiceName: "payments-api"},
+		{Namespace: "loom", Name: "loom", ServiceName: "loom"},
+	}, 2, nil
 }
 
 type fakeK8s struct {
@@ -206,4 +210,49 @@ func TestHealth_ProblemPodsThreshold(t *testing.T) {
 	assert.Equal(t, 3, h.Pods.ProblemsTotal)
 	assert.Equal(t, snapshotModel.HealthDegraded, h.Health)
 	assert.Contains(t, strings.Join(h.SummaryHints, "\n"), "ImagePullBackOff")
+}
+
+// TestHealth_FailedJobPods: упавший под — одна запись со временем завершения контейнера;
+// под Job'а без workload'а каталога привязан к оркестратору (managed-by), образ — без digest.
+func TestHealth_FailedJobPods(t *testing.T) {
+	now := time.Now()
+	finished := now.Add(-3 * time.Minute)
+	k8s := &fakeK8s{
+		nodes: []k8sModel.Node{{Name: "n1", Ready: true}},
+		pods: []k8sModel.Pod{
+			{
+				Namespace: "loom", Name: "lt-zeon-sync-1-abc-x1", Phase: "Failed", StartedAt: now.Add(-10 * time.Minute),
+				Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"},
+				Containers: []k8sModel.PodContainer{{
+					Name: "task", Image: "ghcr.io/mechta-market/airflow-dags/dags@sha256:219acc66d359bc23a8fdc4494c3d299e73d403d5c0074705c6b5cf2716d1f464",
+					State: "terminated", Reason: "Error", TerminatedAt: finished,
+				}},
+			},
+			// оркестратор не из каталога — сервис не угадываем
+			{
+				Namespace: "batch", Name: "job-2", Phase: "Failed", StartedAt: now.Add(-time.Minute),
+				Labels:     map[string]string{"app.kubernetes.io/managed-by": "Helm"},
+				Containers: []k8sModel.PodContainer{{Name: "app", Image: "busybox", State: "terminated", Reason: "Error"}},
+			},
+		},
+	}
+
+	h, err := newUsecase(k8s, nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+
+	require.Len(t, h.Pods.Problems, 2, "под не дублируется записью контейнера")
+	assert.Equal(t, 2, h.Pods.ProblemsTotal)
+
+	byPod := lo.KeyBy(h.Pods.Problems, func(p clusterModel.PodProblem) string { return p.Pod })
+	job := byPod["lt-zeon-sync-1-abc-x1"]
+	assert.Equal(t, "lt-zeon-sync-1-abc-x1", job.Pod)
+	assert.Equal(t, "Failed", job.Reason)
+	assert.Equal(t, "task: Error", job.Message)
+	assert.Equal(t, "loom", job.Service)
+	assert.Equal(t, "ghcr.io/mechta-market/airflow-dags/dags", job.Image)
+	assert.True(t, finished.Equal(job.Since))
+
+	other := byPod["job-2"]
+	assert.Empty(t, other.Service)
+	assert.False(t, other.Since.IsZero(), "нет времени завершения — время старта пода")
 }

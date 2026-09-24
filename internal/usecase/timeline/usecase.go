@@ -16,6 +16,7 @@ import (
 
 	"github.com/mechta-market/pulse/internal/constant"
 	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
+	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
@@ -114,6 +115,11 @@ func (u *Usecase) Timeline(ctx context.Context, req *model.TimelineReq) (*model.
 	_ = eg.Wait()
 
 	sort.SliceStable(c.events, func(i, j int) bool { return c.events[i].TS.After(c.events[j].TS) })
+
+	// по кластеру — только сервисы с событиями за окно, а не весь каталог
+	if clusterScope {
+		names = lo.Uniq(lo.FilterMap(c.events, func(e eventModel.Event, _ int) (string, bool) { return e.Service, e.Service != "" }))
+	}
 
 	result := &model.TimelineResult{
 		Services:   names,

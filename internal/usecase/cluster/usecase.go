@@ -19,7 +19,9 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	"github.com/mechta-market/pulse/internal/util/imageref"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -73,7 +75,13 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 	}
 
 	now := time.Now().UTC()
-	c := &collector{u: u, h: &clusterModel.Health{GeneratedAt: now, Window: win}, workloads: workloads, now: now}
+	c := &collector{
+		u:         u,
+		h:         &clusterModel.Health{GeneratedAt: now, Window: win},
+		workloads: workloads,
+		services:  lo.SliceToMap(workloads, func(w *workloadModel.Main) (string, struct{}) { return w.ServiceName, struct{}{} }),
+		now:       now,
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, u.conf.Deadline)
 	defer cancel()
@@ -97,6 +105,7 @@ type collector struct {
 	u         *Usecase
 	h         *clusterModel.Health
 	workloads []*workloadModel.Main
+	services  map[string]struct{} // имена сервисов каталога
 	now       time.Time
 
 	mu               sync.Mutex
@@ -165,34 +174,49 @@ func (c *collector) pods(ctx context.Context) {
 			result.Succeeded++
 		}
 
-		service := c.serviceOf(pod.Namespace, pod.Name)
-		add := func(reason, message string, at time.Time) {
+		service := c.serviceOf(&pod)
+		add := func(reason, message, image string, at time.Time) {
 			result.ProblemsTotal++
 			if len(result.Problems) < c.u.conf.MaxProblemPods {
 				result.Problems = append(result.Problems, clusterModel.PodProblem{
-					Namespace: pod.Namespace, Pod: pod.Name, Service: service, Reason: reason, Message: message, Since: at,
+					Namespace: pod.Namespace, Pod: pod.Name, Service: service, Image: imageName(image),
+					Reason: reason, Message: message, Since: at,
 				})
 			}
 		}
 
-		switch {
-		case pod.Phase == "Pending" && !pod.StartedAt.IsZero() && c.now.Sub(pod.StartedAt) > pendingGrace:
-			add("Pending", "", pod.StartedAt)
-		case pod.Phase == "Failed":
-			add("Failed", "", pod.StartedAt)
+		// упавший под — одна запись: причины контейнеров в message, время — когда
+		// завершился последний (контейнеры отдельно не повторяются)
+		if pod.Phase == "Failed" {
+			failed := lo.Filter(pod.Containers, func(ct k8sModel.PodContainer, _ int) bool {
+				return ct.State == "terminated" && ct.Reason != "Completed"
+			})
+			at := lo.Reduce(failed, func(at time.Time, ct k8sModel.PodContainer, _ int) time.Time {
+				return lo.Latest(at, ct.TerminatedAt)
+			}, time.Time{})
+			if at.IsZero() {
+				at = pod.StartedAt
+			}
+			image := lo.FirstOr(failed, lo.FirstOr(pod.Containers, k8sModel.PodContainer{})).Image
+			add("Failed", strings.Join(lo.Map(failed, func(ct k8sModel.PodContainer, _ int) string { return ct.Name + ": " + ct.Reason }), ", "), image, at)
+			continue
+		}
+
+		if pod.Phase == "Pending" && !pod.StartedAt.IsZero() && c.now.Sub(pod.StartedAt) > pendingGrace {
+			add("Pending", "", lo.FirstOr(pod.Containers, k8sModel.PodContainer{}).Image, pod.StartedAt)
 		}
 		for _, ct := range pod.Containers {
 			switch {
 			case ct.State != "running" && ct.Reason != "" && ct.Reason != "Completed" && ct.Reason != "ContainerCreating":
-				add(ct.Reason, ct.Name, ct.LastTerminatedAt)
+				add(ct.Reason, ct.Name, ct.Image, lo.Ternary(ct.State == "terminated", ct.TerminatedAt, ct.LastTerminatedAt))
 			case ct.LastTerminationReason == "OOMKilled" && !ct.LastTerminatedAt.Before(since):
-				add("OOMKilled", ct.Name, ct.LastTerminatedAt)
+				add("OOMKilled", ct.Name, ct.Image, ct.LastTerminatedAt)
 			// контейнер уже поднялся, но перезапускался внутри окна: флапающий под виден,
 			// даже если опрос не попал в момент back-off (счётчик рестартов — за всю жизнь пода,
 			// поэтому фильтр только по времени последнего завершения)
 			case ct.Restarts > 0 && !ct.LastTerminatedAt.IsZero() && !ct.LastTerminatedAt.Before(since) &&
 				ct.LastTerminationReason != "Completed":
-				add(constant.PodProblemRestarting, fmt.Sprintf("%s: рестартов всего %d", ct.Name, ct.Restarts), ct.LastTerminatedAt)
+				add(constant.PodProblemRestarting, fmt.Sprintf("%s: рестартов всего %d", ct.Name, ct.Restarts), ct.Image, ct.LastTerminatedAt)
 			}
 		}
 	}
@@ -204,13 +228,41 @@ func (c *collector) pods(ctx context.Context) {
 	c.mu.Unlock()
 }
 
-func (c *collector) serviceOf(namespace, podName string) string {
+// serviceOf — сервис каталога, к которому относится под: по workload'у каталога; под без
+// него (Job, созданный оркестратором, — задачи loom и т.п.) — по имени репозитория образа,
+// иначе по оркестратору из app.kubernetes.io/managed-by, если такие сервисы есть в каталоге.
+func (c *collector) serviceOf(pod *k8sModel.Pod) string {
 	for _, w := range c.workloads {
-		if w.Namespace == namespace && strings.HasPrefix(podName, w.Name+"-") {
+		if w.Namespace == pod.Namespace && strings.HasPrefix(pod.Name, w.Name+"-") {
 			return w.ServiceName
 		}
 	}
+	for _, ct := range pod.Containers {
+		if ref, err := imageref.Parse(ct.Image); err == nil {
+			if _, ok := c.services[ref.RepoName()]; ok {
+				return ref.RepoName()
+			}
+		}
+	}
+	if _, ok := c.services[pod.Labels[managedByLabel]]; ok {
+		return pod.Labels[managedByLabel]
+	}
 	return ""
+}
+
+// managedByLabel — оркестратор, создавший под (loom, Helm…).
+const managedByLabel = "app.kubernetes.io/managed-by"
+
+// imageName — образ без тега и digest: версия ничего не говорит о проблеме, а digest длинный.
+func imageName(image string) string {
+	if image == "" {
+		return ""
+	}
+	ref, err := imageref.Parse(image)
+	if err != nil {
+		return image
+	}
+	return strings.TrimPrefix(ref.Host+"/"+ref.Path, "/")
 }
 
 // events — Warning-события за окно по всему кластеру, сгруппированные по причине.

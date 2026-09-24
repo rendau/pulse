@@ -21,7 +21,7 @@ type GetTimelineReq struct {
 }
 
 type TimelineRep struct {
-	Services   []string      `json:"services"`
+	Services   []string      `json:"services" jsonschema:"сервисы запроса; для scope=cluster — только сервисы с событиями за окно, самые свежие первыми"`
 	Window     string        `json:"window"`
 	Events     []Event       `json:"events" jsonschema:"по убыванию времени: deploy | commit | config_change | alert_firing | scale | restart | oom_kill | warning"`
 	TotalCount int           `json:"total_count"`

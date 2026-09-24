@@ -82,6 +82,8 @@ type PodContainer struct {
 	State string
 	// Reason — причина текущего waiting/terminated (CrashLoopBackOff, ImagePullBackOff…)
 	Reason string
+	// TerminatedAt — когда контейнер завершился (для State=terminated)
+	TerminatedAt time.Time
 	// LastTerminationReason — причина последнего завершения (OOMKilled, Error…)
 	LastTerminationReason string
 	LastTerminatedAt      time.Time

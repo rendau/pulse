@@ -245,7 +245,9 @@ func TestTimeline_ClusterScopeAndErrors(t *testing.T) {
 
 	res, err := u.Timeline(context.Background(), &model.TimelineReq{Scope: model.ScopeCluster, Window: time.Hour})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"payments-api", "delivery"}, res.Services)
+	// по кластеру — только сервисы с событиями, по свежести событий
+	assert.Equal(t, lo.Uniq(lo.FilterMap(res.Events, func(e eventModel_Event, _ int) (string, bool) { return e.Service, e.Service != "" })), res.Services)
+	assert.ElementsMatch(t, []string{"payments-api", "delivery"}, res.Services)
 	sources := lo.Map(res.Errors, func(e model.SourceError, _ int) string { return e.Source })
 	assert.ElementsMatch(t, []string{constant.SourcePrometheus}, sources, "в scope=cluster коммиты и kusec не запрашиваются")
 	assert.NotEmpty(t, res.Events)
