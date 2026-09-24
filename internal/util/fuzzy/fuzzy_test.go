@@ -31,5 +31,7 @@ func TestTranslit(t *testing.T) {
 	assert.Equal(t, "planora", Translit("планора")[0])
 	assert.Contains(t, Translit("нотифаер-смс"), "notifaer-sms")
 	assert.Contains(t, Translit("қазпочта"), "qazpochta")
+	assert.Contains(t, Translit("лум"), "loom")
+	assert.Contains(t, Translit("фид"), "feed")
 	assert.LessOrEqual(t, len(Translit("кхцйыжюяёвщ")), maxTranslitVariants)
 }

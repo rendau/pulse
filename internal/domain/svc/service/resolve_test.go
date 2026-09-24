@@ -84,14 +84,14 @@ func TestRank_ClusterNames(t *testing.T) {
 // TestRank_ChatCases — случаи из переписки с ботом.
 func TestRank_ChatCases(t *testing.T) {
 	services := []*model.Main{
-		{Name: "caravan"}, {Name: "caravaneer"}, {Name: "seller"}, {Name: "planora"},
+		{Name: "caravan"}, {Name: "caravaneer"}, {Name: "seller"}, {Name: "planora"}, {Name: "loom"}, {Name: "master-feed"},
 		{Name: "notifire", ClusterNames: []string{"notifire"}},
 		{Name: "sms", ClusterNames: []string{"notifire-sms", "sms-im", "sms-service"}},
 		{Name: "notifire-pg"},
 	}
 
 	// кириллица → латиница: «к» пишут и k, и c
-	for query, want := range map[string]string{"караван": "caravan", "что с караваном": "caravan", "селлер": "seller", "планора": "planora"} {
+	for query, want := range map[string]string{"караван": "caravan", "что с караваном": "caravan", "селлер": "seller", "планора": "planora", "лум": "loom", "мастер фид": "master-feed"} {
 		candidates := Rank(services, query)
 		require.NotEmpty(t, candidates, query)
 		assert.Equal(t, want, candidates[0].Service.Name, query)
