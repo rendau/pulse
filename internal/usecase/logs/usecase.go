@@ -35,15 +35,16 @@ type Usecase struct {
 
 	svc      svcServiceI
 	workload workloadServiceI
+	k8s      k8sClientI
 	loki     LokiI
 	patterns patternsServiceI
 }
 
-func New(conf Config, svc svcServiceI, workload workloadServiceI, loki LokiI, patterns patternsServiceI) *Usecase {
+func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, loki LokiI, patterns patternsServiceI) *Usecase {
 	if conf.MaxWindow <= 0 {
 		conf.MaxWindow = 24 * time.Hour
 	}
-	return &Usecase{conf: conf, svc: svc, workload: workload, loki: loki, patterns: patterns}
+	return &Usecase{conf: conf, svc: svc, workload: workload, k8s: k8s, loki: loki, patterns: patterns}
 }
 
 var allowedLevels = []string{logsModel.LevelError, logsModel.LevelWarn, logsModel.LevelInfo, logsModel.LevelDebug}
@@ -97,7 +98,8 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	if err != nil {
 		return nil, fmt.Errorf("workload.List: %w", err)
 	}
-	names := workloadNames(workloads)
+	groups := u.podGroups(ctx, service, workloads)
+	names := lo.Map(groups, func(g podGroup, _ int) string { return g.Name })
 
 	// один workload сервиса: сужаем селектор (свой селектор из service.yaml — фильтром строк)
 	if w := strings.TrimSpace(req.Workload); w != "" {
@@ -105,10 +107,10 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 			return nil, fmt.Errorf("%w: workload %q is not part of service %s; expected one of: %s",
 				errs.InvalidRequest, w, service.Name, strings.Join(names, ", "))
 		}
-		workloads = lo.Filter(workloads, func(wl *workloadModel.Main, _ int) bool { return wl.Name == w })
+		groups = lo.Filter(groups, func(g podGroup, _ int) bool { return g.Name == w })
 	}
 
-	selector, err := u.selector(service, workloads)
+	selector, err := u.selector(service, groups)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +118,7 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	end := time.Now().UTC()
 	start := end.Add(-win)
 
-	lines, err := u.fetch(ctx, selector, req.Pattern, level, start, end, limit, names)
+	lines, err := u.fetch(ctx, selector, req.Pattern, level, start, end, limit, groups)
 	if err != nil {
 		return nil, err
 	}
@@ -148,13 +150,14 @@ func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloa
 		return nil, fmt.Errorf("%w: loki is not configured", errs.ServiceNA)
 	}
 
-	selector, err := u.selector(service, workloads)
+	groups := u.podGroups(ctx, service, workloads)
+	selector, err := u.selector(service, groups)
 	if err != nil {
 		return nil, err
 	}
 
 	end := time.Now().UTC()
-	lines, err := u.fetch(ctx, selector, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines, workloadNames(workloads))
+	lines, err := u.fetch(ctx, selector, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines, groups)
 	if err != nil {
 		return nil, err
 	}
@@ -162,22 +165,21 @@ func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloa
 	return u.patterns.Aggregate(lines, top), nil
 }
 
-// selector — LogQL-селектор сервиса: из service.yaml, иначе по шаблону из топологии.
-func (u *Usecase) selector(service *svcModel.Main, workloads []*workloadModel.Main) (string, error) {
+// selector — LogQL-селектор сервиса: из service.yaml, иначе по шаблону из топологии
+// (workload'ы и Job'ы оркестратора — podGroups).
+func (u *Usecase) selector(service *svcModel.Main, groups []podGroup) (string, error) {
 	if s := strings.TrimSpace(service.Metadata.Logs.Selector); s != "" {
 		return s, nil
 	}
-	if len(workloads) == 0 {
+	if len(groups) == 0 {
 		return "", fmt.Errorf("%w: service %s has no workloads in cluster and no logs.selector in service.yaml", errs.InvalidRequest, service.Name)
 	}
 
-	names := workloadNames(workloads)
-
 	return strings.NewReplacer(
-		"{namespace}", workloads[0].Namespace,
-		"{pod_regex}", "^("+strings.Join(names, "|")+")-.*",
+		"{namespace}", groups[0].Namespace,
+		"{pod_regex}", podRegex(groups),
 		"{service}", service.Name,
-		"{workloads}", strings.Join(names, "|"),
+		"{workloads}", strings.Join(lo.FilterMap(groups, func(g podGroup, _ int) (string, bool) { return g.Name, !g.Jobs }), "|"),
 	).Replace(u.conf.DefaultSelector), nil
 }
 
@@ -185,8 +187,8 @@ func (u *Usecase) selector(service *svcModel.Main, workloads []*workloadModel.Ma
 // Фильтр по уровню применяется в LogQL как грубое регулярное выражение (сужает выдачу
 // на стороне Loki) и затем точно — по определённому уровню строки. PII в тексте строк
 // маскируется сразу (redact.Text): дальше — в паттерны, примеры и ответ — уходит маскированное.
-// workloads — имена workload'ов сервиса: по ним строка привязывается к workload'у через под.
-func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, start, end time.Time, limit int, workloads []string) ([]logsModel.Line, error) {
+// groups — workload'ы и Job'ы сервиса: по ним строка привязывается к workload'у через под.
+func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, start, end time.Time, limit int, groups []podGroup) ([]logsModel.Line, error) {
 	query := selector
 	if level != "" {
 		query += ` |~ "(?i)` + levelRegexp(level) + `"`
@@ -203,7 +205,7 @@ func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, st
 	lines := make([]logsModel.Line, 0, 256)
 	for _, stream := range streams {
 		streamLevel := u.patterns.DetectLevel("level=" + stream.Labels["level"])
-		workload := workloadOfPod(podOf(stream.Labels), workloads)
+		workload := groupOfPod(podOf(stream.Labels), groups)
 		for _, e := range stream.Entries {
 			line := logsModel.Line{TS: e.TS, Text: redact.Text(e.Line), Level: u.patterns.DetectLevel(e.Line), Workload: workload}
 			if line.Level == "" {
@@ -234,18 +236,6 @@ func podOf(labels map[string]string) string {
 		}
 	}
 	return ""
-}
-
-// workloadOfPod — workload, которому принадлежит под: самый длинный префикс «имя-»
-// (sms-im-7d9f-q2 → sms-im, а не sms).
-func workloadOfPod(pod string, workloads []string) string {
-	best := ""
-	for _, w := range workloads {
-		if strings.HasPrefix(pod, w+"-") && len(w) > len(best) {
-			best = w
-		}
-	}
-	return best
 }
 
 func workloadNames(workloads []*workloadModel.Main) []string {

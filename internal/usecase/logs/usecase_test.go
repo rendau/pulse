@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	logsService "github.com/mechta-market/pulse/internal/domain/logs/service"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
 )
@@ -29,6 +31,12 @@ func (f *fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloa
 	return f.items, int64(len(f.items)), nil
 }
 
+type fakeK8s struct{ pods []k8sModel.Pod }
+
+func (f *fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, error) {
+	return f.pods, nil
+}
+
 type fakeLoki struct {
 	query   string
 	limit   int
@@ -42,6 +50,10 @@ func (f *fakeLoki) QueryRange(_ context.Context, query string, _, _ time.Time, l
 }
 
 func newUsecase(loki LokiI, selector string) *Usecase {
+	return newUsecaseWithPods(loki, selector, nil)
+}
+
+func newUsecaseWithPods(loki LokiI, selector string, pods []k8sModel.Pod) *Usecase {
 	svc := &fakeSvc{service: &svcModel.Main{Name: "payments-api"}}
 	svc.service.Metadata.Logs.Selector = selector
 	wl := &fakeWorkload{items: []*workloadModel.Main{
@@ -49,7 +61,7 @@ func newUsecase(loki LokiI, selector string) *Usecase {
 		{Namespace: "prod", Kind: "CronJob", Name: "payments-api-reconcile"},
 	}}
 	return New(Config{MaxLines: 5000, MaxPatterns: 20, RawLimit: 100, MaxWindow: 24 * time.Hour,
-		DefaultSelector: `{namespace="{namespace}", pod=~"{pod_regex}"}`}, svc, wl, loki, logsService.New())
+		DefaultSelector: `{namespace="{namespace}", pod=~"{pod_regex}"}`}, svc, wl, &fakeK8s{pods: pods}, loki, logsService.New())
 }
 
 func sampleStreams(now time.Time) []lokiModel.Stream {
@@ -122,7 +134,7 @@ func TestQuery_Validation(t *testing.T) {
 	assert.ErrorContains(t, err, "LOKI_URL")
 
 	// без привязки к сервису запрос невозможен: нет workloads и нет селектора
-	empty := New(Config{DefaultSelector: "{x}"}, &fakeSvc{service: &svcModel.Main{Name: "ghost"}}, &fakeWorkload{}, &fakeLoki{}, logsService.New())
+	empty := New(Config{DefaultSelector: "{x}"}, &fakeSvc{service: &svcModel.Main{Name: "ghost"}}, &fakeWorkload{}, &fakeK8s{}, &fakeLoki{}, logsService.New())
 	_, err = empty.Query(ctx, &model.QueryReq{Service: "ghost"})
 	assert.ErrorContains(t, err, "no workloads")
 
@@ -171,4 +183,61 @@ func TestQuery_WorkloadsAndPII(t *testing.T) {
 	_, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "notifire-sms"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "payments-api, payments-api-reconcile", "в ошибке — список workload'ов сервиса")
+}
+
+// TestQuery_OrchestratorJobs — логи Job'ов, которые создаёт оркестратор (loom и т.п.): поды
+// без workload'а сервиса, но с managed-by сервиса или его образом, — в логах сервиса по общему
+// префиксу имён Job'ов (он покрывает и уже удалённые поды).
+func TestQuery_OrchestratorJobs(t *testing.T) {
+	job := func(pod, jobName, managedBy, image string) k8sModel.Pod {
+		return k8sModel.Pod{Namespace: "prod", Name: pod,
+			Labels:     map[string]string{"batch.kubernetes.io/job-name": jobName, "app.kubernetes.io/managed-by": managedBy},
+			Containers: []k8sModel.PodContainer{{Image: image}}}
+	}
+	pods := []k8sModel.Pod{
+		{Namespace: "prod", Name: "payments-api-7d9f-q2"}, // workload сервиса
+		job("pa-sync-1-abc-x1", "pa-sync-1-abc", "payments-api", "ghcr.io/org/dags/dags:latest"),
+		job("pa-sync-2-def-x2", "pa-sync-2-def", "payments-api", "ghcr.io/org/dags/dags:latest"),
+		job("pa-report-1-aaa-x3", "pa-report-1-aaa", "", "ghcr.io/org/payments-api:v1"), // по образу
+		job("other-1-bbb-x4", "other-1-bbb", "someone-else", "ghcr.io/org/other:v1"),    // чужой
+	}
+	now := time.Now()
+	loki := &fakeLoki{streams: []lokiModel.Stream{
+		{Labels: map[string]string{"pod": "pa-sync-9-old-gone"}, Entries: []lokiModel.Entry{{TS: now, Line: "ERROR task failed: no rows"}}},
+	}}
+	u := newUsecaseWithPods(loki, "", pods)
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Level: "error"})
+	require.NoError(t, err)
+	assert.Equal(t, `{namespace="prod", pod=~"^((payments-api|payments-api-reconcile)-.*|pa-.*)"}`, res.Selector)
+	require.Len(t, res.Patterns, 1)
+	assert.Equal(t, []string{"pa-*"}, res.Patterns[0].Workloads, "удалённый под — по префиксу Job'ов")
+
+	// только Job'ы
+	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "pa-*"})
+	require.NoError(t, err)
+	assert.Equal(t, `{namespace="prod", pod=~"^(pa-.*)"}`, res.Selector)
+}
+
+func TestJobGroups(t *testing.T) {
+	names := func(groups []podGroup) []string {
+		return lo.Map(groups, func(g podGroup, _ int) string { return g.Name })
+	}
+	jobs := []string{"lt-zeon-product-sync-1-9da3", "lt-zeon-delivery-fetch-1-2249"}
+
+	groups := jobGroups(jobs, []string{"loom-6c84-pg8rz"}, "loom")
+	require.Len(t, groups, 1)
+	assert.Equal(t, "lt-zeon-*", groups[0].Name)
+	assert.Equal(t, "lt-zeon-", groups[0].Prefix)
+
+	// один Job — префикс до хэша попытки
+	assert.Equal(t, []string{"lt-zeon-sync-1-*"}, names(jobGroups([]string{"lt-zeon-sync-1-9da3"}, nil, "loom")))
+
+	// общего префикса нет — по группе на Job
+	assert.Equal(t, []string{"alpha-1-*", "beta-2-*"}, names(jobGroups([]string{"alpha-1-aaa", "beta-2-bbb"}, nil, "ns")))
+
+	// общий префикс захватил бы чужой под — группы мельче, конфликтные отбрасываются
+	assert.Equal(t, []string{"lt-zeon-delivery-fetch-1-*", "lt-zeon-product-sync-1-*"},
+		names(jobGroups(jobs, []string{"lt-zeon-other-app-7d9f-q2"}, "loom")))
+	assert.Empty(t, jobGroups([]string{"lt-zeon-sync-1-9da3"}, []string{"lt-zeon-sync-1-evil-x"}, "loom"))
 }

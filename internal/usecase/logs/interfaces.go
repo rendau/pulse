@@ -7,6 +7,7 @@ import (
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
 )
@@ -25,6 +26,10 @@ type svcServiceI interface {
 
 type workloadServiceI interface {
 	List(ctx context.Context, pars *workloadModel.ListReq) ([]*workloadModel.Main, int64, error)
+}
+
+type k8sClientI interface {
+	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
 }
 
 // LokiI экспортирован: источник опционален, композиционный корень передаёт nil.

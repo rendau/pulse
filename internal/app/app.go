@@ -212,7 +212,7 @@ func (a *App) Init() {
 				MaxWindow:       rules.Logs.MaxWindow,
 				DefaultSelector: rules.Logs.DefaultSelector,
 			},
-			svcService, workloadService, lokiClient, domainLogsServiceP.New(),
+			svcService, workloadService, k8sService, lokiClient, domainLogsServiceP.New(),
 		)
 	}
 
