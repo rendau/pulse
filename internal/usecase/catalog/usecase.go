@@ -17,6 +17,7 @@ import (
 	"github.com/mechta-market/pulse/internal/errs"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	"github.com/mechta-market/pulse/internal/usecase/catalog/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
 const (
@@ -189,7 +190,7 @@ func podsState(pods []k8sModel.Pod) *model.PodsState {
 			}
 			if c.LastTerminationReason == "OOMKilled" {
 				state.Problems = append(state.Problems, fmt.Sprintf("%s/%s: last termination OOMKilled at %s",
-					pod.Name, c.Name, c.LastTerminatedAt.UTC().Format(time.RFC3339)))
+					pod.Name, c.Name, tz.In(c.LastTerminatedAt).Format(time.RFC3339)))
 			}
 		}
 	}

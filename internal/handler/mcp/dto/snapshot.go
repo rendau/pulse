@@ -8,6 +8,7 @@ import (
 	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	usecaseSnapshotModel "github.com/mechta-market/pulse/internal/usecase/snapshot/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -95,7 +96,7 @@ type Event struct {
 func EncodeSnapshotRep(v *snapshotModel.Snapshot) SnapshotRep {
 	rep := SnapshotRep{
 		Service:      v.Service,
-		GeneratedAt:  v.GeneratedAt,
+		GeneratedAt:  tz.In(v.GeneratedAt),
 		Window:       window.Format(v.Window),
 		Health:       v.Health,
 		SummaryHints: lo.Ternary(v.SummaryHints == nil, []string{}, v.SummaryHints),
@@ -118,7 +119,7 @@ func EncodeSnapshotRep(v *snapshotModel.Snapshot) SnapshotRep {
 }
 
 func encodeAlert(v snapshotModel.Alert, _ int) Alert {
-	return Alert{Name: v.Name, Severity: v.Severity, State: v.State, StartsAt: v.StartsAt, Summary: v.Summary, Labels: v.Labels, Count: v.Count}
+	return Alert{Name: v.Name, Severity: v.Severity, State: v.State, StartsAt: tz.In(v.StartsAt), Summary: v.Summary, Labels: v.Labels, Count: v.Count}
 }
 
 func encodeWorkloadState(v snapshotModel.WorkloadState, _ int) WorkloadState {
@@ -138,7 +139,7 @@ func encodeWorkloadState(v snapshotModel.WorkloadState, _ int) WorkloadState {
 }
 
 func encodePodProblem(v snapshotModel.PodProblem, _ int) PodProblem {
-	return PodProblem{Pod: v.Pod, Container: v.Container, Reason: v.Reason, Message: v.Message, At: v.At}
+	return PodProblem{Pod: v.Pod, Container: v.Container, Reason: v.Reason, Message: v.Message, At: tz.In(v.At)}
 }
 
 func encodeMetric(v snapshotModel.Metric, _ int) Metric {
@@ -151,7 +152,7 @@ func encodeMetric(v snapshotModel.Metric, _ int) Metric {
 }
 
 func EncodeEvent(v eventModel.Event, _ int) Event {
-	return Event{TS: v.TS.UTC(), Source: v.Source, Type: v.Type, Service: v.Service, Severity: v.Severity, Summary: v.Summary, Details: v.Details}
+	return Event{TS: tz.In(v.TS), Source: v.Source, Type: v.Type, Service: v.Service, Severity: v.Severity, Summary: v.Summary, Details: v.Details}
 }
 
 func encodeSnapshotSourceError(v snapshotModel.SourceError, _ int) SourceError {
@@ -197,13 +198,13 @@ func EncodeQueryMetricsRep(v *usecaseSnapshotModel.QueryMetricsResult) QueryMetr
 		Title:    v.Def.Title,
 		Unit:     v.Def.Unit,
 		PromQL:   v.Def.PromQL,
-		Start:    v.Start,
-		End:      v.End,
+		Start:    tz.In(v.Start),
+		End:      tz.In(v.End),
 		Step:     window.Format(v.Step),
 		Series: lo.Map(v.Series, func(s snapshotModel.Series, _ int) Series {
 			return Series{
 				Labels: s.Labels,
-				Points: lo.Map(s.Points, func(p snapshotModel.Point, _ int) Point { return Point{TS: p.TS.UTC(), Value: p.Value} }),
+				Points: lo.Map(s.Points, func(p snapshotModel.Point, _ int) Point { return Point{TS: tz.In(p.TS), Value: p.Value} }),
 			}
 		}),
 	}

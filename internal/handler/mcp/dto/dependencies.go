@@ -6,6 +6,7 @@ import (
 	"github.com/samber/lo"
 
 	usecaseDependenciesModel "github.com/mechta-market/pulse/internal/usecase/dependencies/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
 type GetDependenciesReq struct {
@@ -53,7 +54,7 @@ func EncodeDependenciesRep(v *usecaseDependenciesModel.Graph) DependenciesRep {
 			return GraphNode{Name: n.Name, Title: n.Title, External: n.External, Health: n.Health, Pods: n.PodsInfo, Distance: n.Distance}
 		}),
 		Edges: lo.Map(v.Edges, func(e usecaseDependenciesModel.Edge, _ int) GraphEdge {
-			return GraphEdge{From: e.From, To: e.To, Host: e.Host, Port: e.Port, Scheme: e.Scheme, Source: e.Source, Keys: e.Keys, LastSeen: e.LastSeen.UTC()}
+			return GraphEdge{From: e.From, To: e.To, Host: e.Host, Port: e.Port, Scheme: e.Scheme, Source: e.Source, Keys: e.Keys, LastSeen: tz.In(e.LastSeen)}
 		}),
 		Truncated: v.Truncated,
 		Errors: lo.Map(v.Errors, func(e usecaseDependenciesModel.SourceError, _ int) SourceError {

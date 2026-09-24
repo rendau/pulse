@@ -7,6 +7,7 @@ import (
 
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	usecaseLogsModel "github.com/mechta-market/pulse/internal/usecase/logs/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
 // query_logs
@@ -54,13 +55,13 @@ func EncodeQueryLogsRep(v *usecaseLogsModel.QueryResult) QueryLogsRep {
 		Service:    v.Service,
 		Selector:   v.Selector,
 		Mode:       v.Mode,
-		Start:      v.Start,
-		End:        v.End,
+		Start:      tz.In(v.Start),
+		End:        tz.In(v.End),
 		TotalLines: v.TotalLines,
 		Truncated:  v.Truncated,
 		Patterns:   lo.Map(v.Patterns, EncodeLogPattern),
 		Lines: lo.Map(v.Lines, func(l logsModel.Line, _ int) LogLine {
-			return LogLine{TS: l.TS.UTC(), Level: l.Level, Text: lo.Ellipsis(l.Text, maxLineChars)}
+			return LogLine{TS: tz.In(l.TS), Level: l.Level, Text: lo.Ellipsis(l.Text, maxLineChars)}
 		}),
 	}
 }
@@ -71,7 +72,7 @@ func EncodeLogPattern(v logsModel.Pattern, _ int) LogPattern {
 		Level:     v.Level,
 		Template:  lo.Ellipsis(v.Template, maxLineChars),
 		Example:   lo.Ellipsis(v.Example, maxLineChars),
-		FirstSeen: v.FirstSeen.UTC(),
-		LastSeen:  v.LastSeen.UTC(),
+		FirstSeen: tz.In(v.FirstSeen),
+		LastSeen:  tz.In(v.LastSeen),
 	}
 }

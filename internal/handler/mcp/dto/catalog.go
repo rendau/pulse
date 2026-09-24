@@ -7,6 +7,7 @@ import (
 
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	catalogModel "github.com/mechta-market/pulse/internal/usecase/catalog/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
 // resolve_service
@@ -188,8 +189,8 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 		Runbooks:      lo.Map(v.Service.Metadata.Runbooks, encodeRunbook),
 		Endpoints:     lo.Map(v.Service.Metadata.Endpoints, EncodeEndpointDef),
 		Workloads:     lo.Map(v.Workloads, encodeWorkloadInfo),
-		FirstSeen:     v.Service.FirstSeen.UTC(),
-		LastSeen:      v.Service.LastSeen.UTC(),
+		FirstSeen:     tz.In(v.Service.FirstSeen),
+		LastSeen:      tz.In(v.Service.LastSeen),
 		Errors:        lo.Map(v.Errors, encodeSourceError),
 	}
 }

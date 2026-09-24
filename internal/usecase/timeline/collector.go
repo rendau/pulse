@@ -21,6 +21,7 @@ import (
 	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
 // alertsQuery — история срабатываний: Alertmanager не хранит историю, её даёт Prometheus
@@ -222,7 +223,7 @@ func (c *collector) alertHistory(ctx context.Context, clusterScope bool) {
 		summary := fmt.Sprintf("%s: сработал алерт %s (%s)", key.service, key.name, severity)
 		switch {
 		case len(list) > 1:
-			summary = fmt.Sprintf("%s: алерт %s (%s) срабатывал %d раз, последний в %s", key.service, key.name, severity, len(list), latest.start.Format("15:04"))
+			summary = fmt.Sprintf("%s: алерт %s (%s) срабатывал %d раз, последний в %s", key.service, key.name, severity, len(list), tz.In(latest.start).Format("15:04"))
 		case longFiring[key]:
 			summary = fmt.Sprintf("%s: алерт %s (%s) горит с начала окна или раньше", key.service, key.name, severity)
 		}
@@ -236,11 +237,11 @@ func (c *collector) alertHistory(ctx context.Context, clusterScope bool) {
 		}
 		details := map[string]any{
 			"labels":   c.u.rules.MergeAlertLabels(lo.Map(list, func(f alertFiring, _ int) map[string]string { return f.labels })),
-			"ended_at": latest.end,
+			"ended_at": tz.In(latest.end),
 		}
 		if len(list) > 1 {
 			details["count"] = len(list)
-			details["last_at"] = latest.start
+			details["last_at"] = tz.In(latest.start)
 		}
 		c.add(eventModel.Event{
 			TS: first.start, Source: constant.SourcePrometheus, Type: constant.EventTypeAlertFiring, Service: key.service,

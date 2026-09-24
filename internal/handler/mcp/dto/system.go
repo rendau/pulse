@@ -6,6 +6,7 @@ import (
 	"github.com/samber/lo"
 
 	systemModel "github.com/mechta-market/pulse/internal/usecase/system/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
 // EmptyReq — инструмент без параметров.
@@ -27,7 +28,7 @@ type SourceStatus struct {
 func EncodePing(v *systemModel.Ping) PingRep {
 	return PingRep{
 		Version:     v.Version,
-		GeneratedAt: v.GeneratedAt,
+		GeneratedAt: tz.In(v.GeneratedAt),
 		Sources:     lo.Map(v.Sources, encodeSourceStatus),
 	}
 }

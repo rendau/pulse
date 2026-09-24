@@ -6,6 +6,7 @@ import (
 	"github.com/samber/lo"
 
 	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -69,7 +70,7 @@ type EventReason struct {
 
 func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 	return ClusterHealthRep{
-		GeneratedAt:  v.GeneratedAt,
+		GeneratedAt:  tz.In(v.GeneratedAt),
 		Window:       window.Format(v.Window),
 		Health:       v.Health,
 		SummaryHints: lo.Ternary(v.SummaryHints == nil, []string{}, v.SummaryHints),
@@ -84,13 +85,13 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 		Pods: ClusterPods{
 			Total: v.Pods.Total, Running: v.Pods.Running, Pending: v.Pods.Pending, Failed: v.Pods.Failed,
 			Problems: lo.Map(v.Pods.Problems, func(p clusterModel.PodProblem, _ int) ClusterPodProblem {
-				return ClusterPodProblem{Namespace: p.Namespace, Pod: p.Pod, Service: p.Service, Reason: p.Reason, Message: p.Message, Since: p.Since.UTC()}
+				return ClusterPodProblem{Namespace: p.Namespace, Pod: p.Pod, Service: p.Service, Reason: p.Reason, Message: p.Message, Since: tz.In(p.Since)}
 			}),
 			ProblemsTotal: v.Pods.ProblemsTotal,
 			Truncated:     v.Pods.ProblemsTotal > len(v.Pods.Problems),
 		},
 		EventReasons: lo.Map(v.EventReasons, func(r clusterModel.EventReason, _ int) EventReason {
-			return EventReason{Reason: r.Reason, Count: r.Count, Namespaces: r.Namespaces, Example: r.Example, LastTS: r.LastTS.UTC()}
+			return EventReason{Reason: r.Reason, Count: r.Count, Namespaces: r.Namespaces, Example: r.Example, LastTS: tz.In(r.LastTS)}
 		}),
 		InfraAlerts:         lo.Map(v.InfraAlerts, encodeAlert),
 		ServiceAlertsActive: v.ServiceAlertsActive,

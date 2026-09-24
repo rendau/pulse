@@ -7,6 +7,7 @@ import (
 
 	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
 	usecaseTimelineModel "github.com/mechta-market/pulse/internal/usecase/timeline/model"
+	"github.com/mechta-market/pulse/internal/util/tz"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -119,7 +120,7 @@ func EncodeChangesRep(v *usecaseTimelineModel.ChangesResult) ChangesRep {
 		ConfigChanges: lo.Map(v.ConfigChanges, encodeConfigChange),
 		UnsyncedConfig: lo.Map(v.UnsyncedConfig, func(u usecaseTimelineModel.UnsyncedConfig, _ int) UnsyncedConfig {
 			return UnsyncedConfig{
-				Kind: u.Kind, Object: u.Object, NotSyncedSince: u.NotSyncedSince, ExistsInCluster: u.ExistsInCluster,
+				Kind: u.Kind, Object: u.Object, NotSyncedSince: tz.InPtr(u.NotSyncedSince), ExistsInCluster: u.ExistsInCluster,
 				MissingInCluster: u.MissingInCluster, ExtraInCluster: u.ExtraInCluster, ValueDiffers: u.ValueDiffers,
 			}
 		}),
@@ -136,12 +137,12 @@ func EncodeChangesRep(v *usecaseTimelineModel.ChangesResult) ChangesRep {
 }
 
 func encodeCommit(v usecaseTimelineModel.Commit, _ int) Commit {
-	return Commit{SHA: v.SHA, Author: v.Author, Message: v.Message, Date: v.Date.UTC(), Url: v.Url}
+	return Commit{SHA: v.SHA, Author: v.Author, Message: v.Message, Date: tz.In(v.Date), Url: v.Url}
 }
 
 func encodeDeploy(v *deployModel.Main, _ int) Deploy {
 	return Deploy{
-		ObservedAt: v.ObservedAt.UTC(), Workload: v.Kind + "/" + v.Namespace + "/" + v.Name,
+		ObservedAt: tz.In(v.ObservedAt), Workload: v.Kind + "/" + v.Namespace + "/" + v.Name,
 		Image: v.Image, ImageDigest: v.ImageDigest, DeployedCommit: v.DeployedCommit,
 		PrevImage: v.PrevImage, PrevImageDigest: v.PrevImageDigest, PrevCommit: v.PrevCommit,
 	}
@@ -149,7 +150,7 @@ func encodeDeploy(v *deployModel.Main, _ int) Deploy {
 
 func encodeConfigChange(v usecaseTimelineModel.ConfigChange, _ int) ConfigChange {
 	return ConfigChange{
-		TS: v.TS.UTC(), Source: v.Source, Action: v.Action, Kind: v.Kind, Object: v.Object, Key: v.Key,
+		TS: tz.In(v.TS), Source: v.Source, Action: v.Action, Kind: v.Kind, Object: v.Object, Key: v.Key,
 		OldValue: v.OldValue, NewValue: v.NewValue, Fields: v.Fields, ChangedKeys: v.ChangedKeys,
 		Author: v.Author, Workload: v.Workload, SyncRunId: v.SyncRunId, Status: v.Status,
 	}
