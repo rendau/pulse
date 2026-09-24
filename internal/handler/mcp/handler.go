@@ -50,79 +50,79 @@ func New(
 func (h *Handler) Register(server *mcp.Server) {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "ping",
 		Description: pingDescription,
 		Annotations: readOnly,
 	}, h.Ping)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "resolve_service",
 		Description: resolveServiceDescription,
 		Annotations: readOnly,
 	}, h.ResolveService)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "list_services",
 		Description: listServicesDescription,
 		Annotations: readOnly,
 	}, h.ListServices)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_service_info",
 		Description: getServiceInfoDescription,
 		Annotations: readOnly,
 	}, h.GetServiceInfo)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_service_snapshot",
 		Description: getServiceSnapshotDescription,
 		Annotations: readOnly,
 	}, h.GetServiceSnapshot)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "query_metrics",
 		Description: queryMetricsDescription,
 		Annotations: readOnly,
 	}, h.QueryMetrics)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "query_logs",
 		Description: queryLogsDescription,
 		Annotations: readOnly,
 	}, h.QueryLogs)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_timeline",
 		Description: getTimelineDescription,
 		Annotations: readOnly,
 	}, h.GetTimeline)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_changes",
 		Description: getChangesDescription,
 		Annotations: readOnly,
 	}, h.GetChanges)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_dependencies",
 		Description: getDependenciesDescription,
 		Annotations: readOnly,
 	}, h.GetDependencies)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_public_api",
 		Description: getPublicApiDescription,
 		Annotations: readOnly,
 	}, h.GetPublicApi)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "call_service_endpoint",
 		Description: callServiceEndpointDescription,
 		Annotations: readOnly,
 	}, h.CallServiceEndpoint)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "get_cluster_health",
 		Description: getClusterHealthDescription,
 		Annotations: readOnly,

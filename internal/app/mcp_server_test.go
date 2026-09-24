@@ -87,6 +87,14 @@ func TestMCPServer_Ping(t *testing.T) {
 		assert.Contains(t, names, "get_public_api")
 		assert.LessOrEqual(t, len(names), 13, "не более 13 инструментов (ТЗ, раздел 8)")
 
+		// схемы ответов допускают новые поля: клиенты с запомненной схемой не ломаются
+		// после деплоя, добавившего поле
+		for _, tool := range tools.Tools {
+			raw, err := json.Marshal(tool.OutputSchema)
+			require.NoError(t, err)
+			assert.NotContains(t, string(raw), `"additionalProperties":false`, tool.Name)
+		}
+
 		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ping"})
 		require.NoError(t, err)
 		require.False(t, result.IsError)

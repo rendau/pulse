@@ -157,6 +157,9 @@ domain service → repo
 - Инструменты регистрируются в `internal/handler/mcp/handler.go` через `mcp.AddTool` с типизированными
   In/Out DTO (`internal/handler/mcp/dto`); схема выводится из json/jsonschema-тегов.
 - Все инструменты read-only (Р5 ТЗ): `ToolAnnotations{ReadOnlyHint: true}`.
+- Регистрация — через `addTool` (`handler/mcp/schema.go`), не `mcp.AddTool`: схема ответа допускает
+  новые поля (без `additionalProperties: false`), иначе клиенты с запомненной схемой ломаются после
+  деплоя. Поля ответа можно добавлять; удалять и переименовывать нельзя. Схема входа — строгая.
 - Ошибка источника не роняет ответ: частичный результат + поле `errors: [{source, message}]`.
 - Семантические ошибки (неизвестный сервис, неверный параметр) отдаются моделью как текст
   ошибки инструмента с подсказкой (см. `handler/mcp/errors.go`); неизвестное имя сервиса —
