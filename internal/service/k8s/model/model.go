@@ -128,3 +128,12 @@ type Node struct {
 	MemoryBytes    int64 // allocatable
 	CreatedAt      time.Time
 }
+
+// Job — задание batch/v1. Нужен, чтобы найти владельца Job'ов, которые оркестраторы
+// создают сами (без CronJob'а каталога), когда их поды уже удалены.
+type Job struct {
+	Namespace string
+	Name      string
+	Labels    map[string]string
+	Images    []string // образы контейнеров шаблона пода
+}

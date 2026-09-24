@@ -26,6 +26,7 @@ type k8sClientI interface {
 	ListNodes(ctx context.Context) ([]k8sModel.Node, error)
 	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
 	ListEvents(ctx context.Context, namespace string, since time.Time) ([]k8sModel.Event, error)
+	ListJobs(ctx context.Context, namespace string) ([]k8sModel.Job, error)
 }
 
 // PrometheusI и AlertmanagerI экспортированы: источники опциональны (nil, если не сконфигурированы).

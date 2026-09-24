@@ -4,6 +4,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -239,25 +240,52 @@ func (c *collector) pods(ctx context.Context) {
 }
 
 // serviceOf — сервис каталога, к которому относится под: по workload'у каталога; под без
-// него (Job, созданный оркестратором, — задачи loom и т.п.) — по имени репозитория образа,
-// иначе по оркестратору из app.kubernetes.io/managed-by, если такие сервисы есть в каталоге.
+// него (Job, созданный оркестратором, — задачи loom и т.п.) — по ownerService.
 func (c *collector) serviceOf(pod *k8sModel.Pod) string {
 	for _, w := range c.workloads {
 		if w.Namespace == pod.Namespace && strings.HasPrefix(pod.Name, w.Name+"-") {
 			return w.ServiceName
 		}
 	}
-	for _, ct := range pod.Containers {
-		if ref, err := imageref.Parse(ct.Image); err == nil {
+	return c.ownerService(lo.Map(pod.Containers, func(ct k8sModel.PodContainer, _ int) string { return ct.Image }), pod.Labels)
+}
+
+// ownerService — сервис объекта без workload'а каталога (под, Job): по имени репозитория
+// образа, иначе по оркестратору из app.kubernetes.io/managed-by — если такой сервис есть
+// в каталоге. Стандартные метки Kubernetes, без знания о конкретных оркестраторах.
+func (c *collector) ownerService(images []string, labels map[string]string) string {
+	for _, image := range images {
+		if ref, err := imageref.Parse(image); err == nil {
 			if _, ok := c.services[ref.RepoName()]; ok {
 				return ref.RepoName()
 			}
 		}
 	}
-	if _, ok := c.services[pod.Labels[managedByLabel]]; ok {
-		return pod.Labels[managedByLabel]
+	if _, ok := c.services[labels[managedByLabel]]; ok {
+		return labels[managedByLabel]
 	}
 	return ""
+}
+
+// jobServices — сервисы Job'ов, которые не нашлись по подам (поды уже удалены): Job'ы
+// читаются только в нужных namespace'ах. Ошибка (нет прав на jobs и т.п.) — не ошибка
+// ответа: привязка событий к сервисам — уточнение, без неё ответ полный.
+func (c *collector) jobServices(ctx context.Context, want map[string]map[string]struct{}) map[string]map[string]string {
+	result := make(map[string]map[string]string, len(want))
+	for namespace, names := range want {
+		jobs, err := c.u.k8s.ListJobs(ctx, namespace)
+		if err != nil {
+			slog.Warn("cluster health: list jobs", "namespace", namespace, "error", err)
+			continue
+		}
+		result[namespace] = map[string]string{}
+		for _, job := range jobs {
+			if _, ok := names[job.Name]; ok {
+				result[namespace][job.Name] = c.ownerService(job.Images, job.Labels)
+			}
+		}
+	}
+	return result
 }
 
 // objectService — сервис объекта Warning-события: сам под; объект workload'а каталога
@@ -315,11 +343,31 @@ func (c *collector) events(ctx context.Context) {
 		example    string
 		lastTS     time.Time
 	}
-	byReason := make(map[string]*agg, 16)
-	for _, e := range events {
-		if e.Type != "Warning" {
-			continue
+	warnings := lo.Filter(events, func(e k8sModel.Event, _ int) bool { return e.Type == "Warning" })
+
+	// сервис объекта каждого события; Job без подов — дозапросом Job'ов
+	services := make([]string, len(warnings))
+	unresolvedJobs := map[string]map[string]struct{}{}
+	for i, e := range warnings {
+		services[i] = c.objectService(e.Namespace, e.ObjectName)
+		if services[i] == "" && e.ObjectKind == "Job" {
+			if unresolvedJobs[e.Namespace] == nil {
+				unresolvedJobs[e.Namespace] = map[string]struct{}{}
+			}
+			unresolvedJobs[e.Namespace][e.ObjectName] = struct{}{}
 		}
+	}
+	if len(unresolvedJobs) > 0 {
+		jobs := c.jobServices(ctx, unresolvedJobs)
+		for i, e := range warnings {
+			if services[i] == "" && e.ObjectKind == "Job" {
+				services[i] = jobs[e.Namespace][e.ObjectName]
+			}
+		}
+	}
+
+	byReason := make(map[string]*agg, 16)
+	for i, e := range warnings {
 		a, ok := byReason[e.Reason]
 		if !ok {
 			a = &agg{namespaces: map[string]struct{}{}, services: map[string]struct{}{}}
@@ -327,8 +375,8 @@ func (c *collector) events(ctx context.Context) {
 		}
 		a.count += int(max(e.Count, 1))
 		a.namespaces[e.Namespace] = struct{}{}
-		if service := c.objectService(e.Namespace, e.ObjectName); service != "" {
-			a.services[service] = struct{}{}
+		if services[i] != "" {
+			a.services[services[i]] = struct{}{}
 		}
 		if e.LastTS.After(a.lastTS) {
 			a.lastTS = e.LastTS

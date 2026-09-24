@@ -36,6 +36,8 @@ type fakeK8s struct {
 	nodes    []k8sModel.Node
 	pods     []k8sModel.Pod
 	events   []k8sModel.Event
+	jobs     []k8sModel.Job
+	jobsErr  error
 	nodesErr error
 }
 
@@ -45,6 +47,9 @@ func (f *fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, err
 }
 func (f *fakeK8s) ListEvents(context.Context, string, time.Time) ([]k8sModel.Event, error) {
 	return f.events, nil
+}
+func (f *fakeK8s) ListJobs(_ context.Context, namespace string) ([]k8sModel.Job, error) {
+	return lo.Filter(f.jobs, func(j k8sModel.Job, _ int) bool { return j.Namespace == namespace }), f.jobsErr
 }
 
 type fakeProm struct{}
@@ -281,4 +286,35 @@ func TestHealth_EventServices(t *testing.T) {
 	byReason := lo.KeyBy(h.EventReasons, func(r clusterModel.EventReason) string { return r.Reason })
 	assert.Equal(t, []string{"loom", "payments-api"}, byReason["BackoffLimitExceeded"].Services)
 	assert.Equal(t, []string{"loom"}, byReason["FailedCreatePodSandBox"].Services)
+}
+
+// TestHealth_EventServices_JobWithoutPods: поды Job'а уже удалены — владелец по самому Job'у
+// (managed-by); нет прав на jobs — событие без сервиса, но ответ без ошибки.
+func TestHealth_EventServices_JobWithoutPods(t *testing.T) {
+	now := time.Now()
+	newK8s := func(jobsErr error) *fakeK8s {
+		return &fakeK8s{
+			nodes: []k8sModel.Node{{Name: "n1", Ready: true}},
+			events: []k8sModel.Event{
+				{Namespace: "loom", ObjectKind: "Job", ObjectName: "lt-sync-9-def", Reason: "BackoffLimitExceeded", Type: "Warning", Count: 1, LastTS: now},
+			},
+			jobs: []k8sModel.Job{
+				{Namespace: "loom", Name: "lt-sync-9-def", Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"}, Images: []string{"ghcr.io/org/dags/dags:latest"}},
+				{Namespace: "loom", Name: "other", Labels: map[string]string{"app.kubernetes.io/managed-by": "loom"}},
+			},
+			jobsErr: jobsErr,
+		}
+	}
+
+	h, err := newUsecase(newK8s(nil), nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+	require.Len(t, h.EventReasons, 1)
+	assert.Equal(t, []string{"loom"}, h.EventReasons[0].Services)
+
+	h, err = newUsecase(newK8s(errors.New("jobs is forbidden")), nil, nil).Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+	require.Len(t, h.EventReasons, 1)
+	assert.Empty(t, h.EventReasons[0].Services)
+	assert.NotContains(t, lo.Map(h.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source }), constant.SourceK8s,
+		"без прав на jobs ответ полный, только без привязки")
 }

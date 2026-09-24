@@ -91,7 +91,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
   `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 13
   инструментов — лимит исчерпан, новые только объединением с существующими.
-- RBAC индексера и инструментов: get/list на nodes, deployments, statefulsets, daemonsets, cronjobs,
+- RBAC индексера и инструментов: get/list на nodes, deployments, statefulsets, daemonsets, cronjobs, jobs,
   replicasets, pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy.
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).

@@ -27,5 +27,8 @@ type Client interface {
 	ListReplicaSets(ctx context.Context, namespace, selector string) ([]k8sModel.ReplicaSet, error)
 	// ListEvents возвращает события namespace'а не старше since.
 	ListEvents(ctx context.Context, namespace string, since time.Time) ([]k8sModel.Event, error)
+
+	// ListJobs возвращает Job'ы namespace'а: метки и образы шаблона пода.
+	ListJobs(ctx context.Context, namespace string) ([]k8sModel.Job, error)
 	Ping(ctx context.Context) error
 }
