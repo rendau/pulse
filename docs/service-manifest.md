@@ -628,40 +628,63 @@ gotemplate делает это из Go-структуры; в других ст�
 
 ## Go: модуль в gotemplate
 
-> Раздел будет дописан вместе с модулем.
+Сервисы, созданные из gotemplate, получают всё готовым: пакет `internal/infra/pulsekit` отдаёт
+манифест, ручку состояния и диагностические ручки; при генерации cookiecutter спрашивает название,
+описание, команду и критичность (`internal/app/manifest.go`), Postgres уже объявлен зависимостью,
+полный коммит сборки передаётся через ldflags. Старому сервису на gotemplate — перенести пакет
+`internal/infra/pulsekit` и `internal/app/manifest.go` из шаблона и подключить, как ниже.
 
-Модуль не знает заранее, с чем работает сервис: **зависимости регистрирует сам сервис** в
-`app.go`, там же, где создаёт подключения, — одной строкой рядом с каждым клиентом:
+**Зависимости** сервис объявляет сам — одной строкой рядом с созданием клиента в `app.go`:
 
 ```go
 // pg
 a.pgpool, err = initPgPool(config.Conf.PgDsn)
 errCheck(err, "pgpool init")
-pulsekit.Depend("pg", "postgres", "ocenter-pg", true, pulsekit.PingPg(a.pgpool))
+a.pulsekit.Depend("pg", "postgres", hostOf(config.Conf.PgDsn), true, a.pgpool.Ping)
 
 // 1С — своя проверка функцией
-pulsekit.Depend("onec", "http", "onec-proxy", false, func(ctx context.Context) error {
+a.pulsekit.Depend("onec", "http", "onec-proxy", false, func(ctx context.Context) error {
 	return onecClient.Ping(ctx)
 })
 ```
 
-Для стандартных клиентов (pgx, Redis, Kafka) проверки готовые, для остальных — своя функция
-«проверь, что работает». Postgres подключает сам шаблон, поэтому его строка в шаблоне уже есть:
-новый сервис получает манифест и проверку базы без своего кода. Новая интеграция — ещё одна
-строка рядом с созданием её клиента.
+Аргументы: `id`, вид (`postgres`, `redis`, `kafka`, `http`…), `target` — хост без учётных данных,
+`critical`, проверка «работает ли» (Ping клиента). Проверки идут в фоне раз в 30 с; в ручке
+состояния — своё короткое сообщение («таймаут», «в соединении отказано»), а не текст ошибки.
 
-Остальное модуль делает сам:
+**Диагностическая ручка** — функция с типизированным ответом, схема строится из типа:
 
-- отдаёт `/.well-known/pulse` — раздел `service` из конфигурации сервиса, `build` — из ldflags,
-  `dependencies` — из зарегистрированных;
-- отдаёт `/.well-known/pulse/status` — результаты фоновых проверок зарегистрированных
-  зависимостей;
-- строит схему `response` из структуры ответа; поля с тегом `pulse:"personal=phone"` помечает
-  `x-personal: "phone"` (значение отдаётся как есть — токенизирует pulse);
-- проверяет манифест на старте (секретные имена полей, строковые параметры без `pattern`) —
-  ошибка видна в тестах сервиса, а не после выкатки.
+```go
+type orderStatusRep struct {
+	Number  string       `json:"number"`
+	Status  string       `json:"status"`
+	Phone   string       `json:"customer_phone" pulse:"personal=phone"`
+	Reason  string       `json:"stuck_reason" pulse:"maxLength=300"`
+	History []historyRep `json:"history" pulse:"maxItems=50"`
+}
 
----
+pulsekit.Handle(a.pulsekit, pulsekit.Endpoint{
+	Id:          "order_status",
+	Title:       "Где заказ в конвейере",
+	Description: "Вызывай, когда спрашивают о конкретном заказе по номеру…",
+	Path:        "/diag/order/{number}",
+	Params:      map[string]pulsekit.Param{"number": {Pattern: "[0-9]{5,12}"}},
+}, func(ctx context.Context, params map[string]string) (orderStatusRep, error) {
+	order, err := ordersUsecase.Status(ctx, params["number"])
+	if errors.Is(err, errs.ObjectNotFound) {
+		return orderStatusRep{}, pulsekit.Error{Status: http.StatusNotFound, Message: "заказ не найден"}
+	}
+	…
+})
+```
+
+- Персональное поле — тег `pulse:"personal=<вид>"`; значение отдаётся как есть, токеном его заменит
+  pulse (ключ токенов есть только у pulse).
+- Правила стандарта проверяются при регистрации — паникой, то есть в тестах сервиса, а не после
+  выкатки: строковый параметр без `Pattern`/`Enum`/`Personal`, поле или параметр с именем секрета,
+  словарь не с числами, `target` с учётными данными.
+- Ошибка для человека — `pulsekit.Error{Status, Message}`; любая другая ошибка уходит как
+  «внутренняя ошибка»: её текст наружу не попадает.
 
 ## Настройки pulse (для администратора)
 
