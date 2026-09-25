@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,10 +22,12 @@ import (
 // minSearchLen — короче искать по всем логам кластера бессмысленно: совпадёт почти всё.
 const minSearchLen = 3
 
-// search — поиск текста (номер заказа, id клиента) во всех логах кластера: строки
-// привязываются к сервисам каталога по поду, в ответе — где и сколько нашлось.
+// search — поиск текста (номер заказа, id клиента) во всех логах кластера: «что по заказу
+// 234115» — все следы по всем сервисам. Строки привязываются к сервисам каталога по поду,
+// в ответе — где и сколько нашлось. Дефолты под расследование: окно — потолок окна логов
+// (заказ мог пройти вчера), режим raw (в паттернах номер замаскирован), строки — по времени.
 // Только Loki: обойти логи всех подов через Kubernetes API за разумное время нельзя.
-func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level, mode string, win time.Duration, limit int) (*model.QueryResult, error) {
+func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string) (*model.QueryResult, error) {
 	pattern := strings.TrimSpace(req.Pattern)
 	if len([]rune(pattern)) < minSearchLen {
 		return nil, fmt.Errorf("%w: service is required; to search all services pass pattern of %d+ characters (order number, customer id…)", errs.InvalidRequest, minSearchLen)
@@ -36,14 +39,18 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level, mode s
 		return nil, fmt.Errorf("%w: search across all services requires Loki (LOKI_URL is not configured); pass service", errs.ServiceNA)
 	}
 
+	mode := lo.CoalesceOrEmpty(req.Mode, model.ModeRaw)
+	win := lo.Ternary(req.Window > 0, req.Window, u.conf.MaxWindow)
+
 	owners, err := u.owners(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	// выборка — max_lines: счётчики по сервисам точнее, чем по показанным строкам
 	end := time.Now().UTC()
 	start := end.Add(-win)
-	lines, err := u.fetch(ctx, logQL(u.conf.ClusterSelector, pattern, level), level, start, end, limit, owners.attach)
+	lines, err := u.fetch(ctx, searchQL(u.conf.ClusterSelector, pattern, level), level, start, end, u.conf.MaxLines, owners.attach)
 	if err != nil {
 		return nil, err
 	}
@@ -55,12 +62,15 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level, mode s
 		Start:      start,
 		End:        end,
 		TotalLines: len(lines),
-		Truncated:  len(lines) >= limit,
+		Truncated:  len(lines) >= u.conf.MaxLines,
 		Services:   serviceHits(lines),
 	}
 
 	if mode == model.ModeRaw {
-		result.Lines = lines
+		// последние строки, но по порядку событий — след заказа читается сверху вниз
+		shown := lines[:min(len(lines), u.rawLimit(req.Limit))]
+		result.Truncated = result.Truncated || len(shown) < len(lines)
+		result.Lines = lo.Reverse(append([]logsModel.Line{}, shown...))
 		return result, nil
 	}
 
@@ -71,6 +81,19 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level, mode s
 	})
 	return result, nil
 }
+
+// searchQL — LogQL поиска. Идентификатор (без метасимволов, по краям буква или цифра) ищется
+// целым словом: подстрокой в Loki (быстро) и затем регэкспом с \b — номер 234115 не
+// должен находиться внутри 12341156.
+func searchQL(selector, pattern, level string) string {
+	query := logQL(selector, pattern, level)
+	if regexp.QuoteMeta(pattern) == pattern && wordEdgesRe.MatchString(pattern) {
+		query += " |~ " + strconv.Quote(`\b`+pattern+`\b`)
+	}
+	return query
+}
+
+var wordEdgesRe = regexp.MustCompile(`^\w(?:.*\w)?$`)
 
 // serviceHits — сколько строк нашлось у каждого сервиса (под не из каталога — по namespace'у),
 // больше всего — первым.

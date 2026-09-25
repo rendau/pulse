@@ -16,8 +16,8 @@ type QueryLogsReq struct {
 	Service string `json:"service,omitempty" jsonschema:"точное имя сервиса; пусто — поиск pattern во всех логах кластера (номер заказа, id клиента)"`
 	Level   string `json:"level,omitempty" jsonschema:"error | warn | info | debug; пусто — все уровни"`
 	Pattern string `json:"pattern,omitempty" jsonschema:"регулярное выражение по строке (RE2), например acquirer.*timeout"`
-	Window  string `json:"window,omitempty" jsonschema:"Go duration: 15m, 1h (по умолчанию), 24h (максимум по умолчанию)"`
-	Mode    string `json:"mode,omitempty" jsonschema:"patterns (по умолчанию) — агрегированные паттерны со счётчиком; raw — последние строки"`
+	Window  string `json:"window,omitempty" jsonschema:"Go duration: 15m, 1h (по умолчанию; без service — 24h), 24h (максимум по умолчанию)"`
+	Mode    string `json:"mode,omitempty" jsonschema:"patterns (по умолчанию; без service — raw) — агрегированные паттерны со счётчиком; raw — последние строки"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"для raw: число строк, максимум 100"`
 	// Workload — сузить до одного workload'а сервиса
 	Workload string `json:"workload,omitempty" jsonschema:"только логи одного workload'а сервиса (имя из workloads в get_service_info, например notifire-sms); пусто — все"`

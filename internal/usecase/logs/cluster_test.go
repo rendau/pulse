@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"os"
+	"strings"
 	"regexp"
 	"testing"
 	"time"
@@ -52,10 +53,14 @@ func TestQuery_SearchAllServices(t *testing.T) {
 	}}
 	u := newClusterUsecase(loki)
 
-	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-12345", Mode: model.ModeRaw})
+	// дефолты поиска: raw, окно — потолок логов
+	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-12345"})
 	require.NoError(t, err)
 
-	assert.Equal(t, `{kubernetes_namespace_name=~".+"} |= "ORD-12345"`, loki.query)
+	assert.Equal(t, `{kubernetes_namespace_name=~".+"} |= "ORD-12345" |~ "\\bORD-12345\\b"`, loki.query, "идентификатор — целым словом")
+	assert.Equal(t, 5000, loki.limit, "счётчики по сервисам — по всей выборке")
+	assert.Equal(t, model.ModeRaw, res.Mode)
+	assert.Equal(t, 24*time.Hour, res.End.Sub(res.Start))
 	assert.Empty(t, res.Service)
 	assert.Equal(t, 4, res.TotalLines)
 	require.Len(t, res.Services, 3)
@@ -63,17 +68,26 @@ func TestQuery_SearchAllServices(t *testing.T) {
 	assert.Equal(t, 2, res.Services[0].Count)
 	assert.Equal(t, now.Add(-3*time.Minute), res.Services[0].FirstSeen)
 
+	// строки — по времени, от ранних
 	require.Len(t, res.Lines, 4)
-	assert.Equal(t, "orders", res.Lines[0].Service)
-	assert.Equal(t, "orders-worker", res.Lines[0].Workload, "самый длинный префикс workload'а")
-	assert.NotContains(t, res.Lines[0].Text, "7011234567", "PII маскируется и при поиске")
-	assert.Equal(t, "sms-im", res.Lines[1].Service, "sms-im-…, а не sms")
-	assert.Empty(t, res.Lines[3].Service, "под не из каталога")
-	assert.Equal(t, "infra", res.Lines[3].Namespace)
+	assert.Empty(t, res.Lines[0].Service, "под не из каталога")
+	assert.Equal(t, "infra", res.Lines[0].Namespace)
+	assert.Equal(t, "orders", res.Lines[1].Service)
+	assert.Equal(t, "sms-im", res.Lines[2].Service, "sms-im-…, а не sms")
+	assert.Equal(t, "orders-worker", res.Lines[3].Workload, "самый длинный префикс workload'а")
+	assert.NotContains(t, res.Lines[3].Text, "7011234567", "PII маскируется и при поиске")
 
-	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: `ORD-\d+`})
+	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-12345", Limit: 2})
 	require.NoError(t, err)
-	assert.Contains(t, loki.query, `|~ "ORD-\\d+"`)
+	require.Len(t, res.Lines, 2, "показаны последние строки")
+	assert.Equal(t, "sms-im", res.Lines[0].Service)
+	assert.True(t, res.Truncated)
+	assert.Equal(t, 4, res.TotalLines)
+	require.Len(t, res.Services, 3, "счётчики — по всем найденным строкам")
+
+	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: `ORD-\d+`, Mode: model.ModePatterns})
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(loki.query, `|~ "ORD-\\d+"`), "регэксп — как есть")
 	require.Len(t, res.Patterns, 4)
 	services := lo.FlatMap(res.Patterns, func(p logsModel.Pattern, _ int) []string { return p.Services })
 	assert.ElementsMatch(t, []string{"orders", "orders", "sms-im"}, services)
@@ -172,7 +186,7 @@ func TestLive_ClusterQueries(t *testing.T) {
 		t.Logf("  %s/%s: %d, top=%q", s.Namespace, s.Service, s.Count, s.Top.Template)
 	}
 
-	search, err := u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-12345", Mode: model.ModeRaw})
+	search, err := u.Query(context.Background(), &model.QueryReq{Pattern: lo.CoalesceOrEmpty(os.Getenv("LOKI_LIVE_PATTERN"), "ORD-12345")})
 	require.NoError(t, err)
 	for _, h := range search.Services {
 		t.Logf("  hits %s/%s: %d", h.Namespace, h.Service, h.Count)

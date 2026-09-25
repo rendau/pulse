@@ -65,8 +65,7 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		return nil, fmt.Errorf("%w: level %q; expected one of %s", errs.InvalidRequest, req.Level, strings.Join(allowedLevels, ", "))
 	}
 
-	mode := lo.CoalesceOrEmpty(req.Mode, model.ModePatterns)
-	if mode != model.ModePatterns && mode != model.ModeRaw {
+	if req.Mode != "" && req.Mode != model.ModePatterns && req.Mode != model.ModeRaw {
 		return nil, fmt.Errorf("%w: mode %q; expected patterns or raw", errs.InvalidRequest, req.Mode)
 	}
 
@@ -76,25 +75,19 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		}
 	}
 
-	win := req.Window
-	if win <= 0 {
-		win = window.Default
-	}
-	if win > u.conf.MaxWindow {
-		return nil, fmt.Errorf("%w: window %s exceeds maximum %s for logs; narrow the window", errs.InvalidRequest, win, u.conf.MaxWindow)
-	}
-
-	limit := req.Limit
-	if mode == model.ModeRaw {
-		if limit <= 0 || limit > u.conf.RawLimit {
-			limit = u.conf.RawLimit
-		}
-	} else {
-		limit = u.conf.MaxLines
+	if req.Window > u.conf.MaxWindow {
+		return nil, fmt.Errorf("%w: window %s exceeds maximum %s for logs; narrow the window", errs.InvalidRequest, req.Window, u.conf.MaxWindow)
 	}
 
 	if strings.TrimSpace(req.Service) == "" {
-		return u.search(ctx, req, level, mode, win, limit)
+		return u.search(ctx, req, level)
+	}
+
+	mode := lo.CoalesceOrEmpty(req.Mode, model.ModePatterns)
+	win := lo.Ternary(req.Window > 0, req.Window, window.Default)
+	limit := u.rawLimit(req.Limit)
+	if mode != model.ModeRaw {
+		limit = u.conf.MaxLines
 	}
 
 	service, err := u.svc.GetOrSuggest(ctx, req.Service)
@@ -146,6 +139,14 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 
 	result.Patterns = u.patterns.Aggregate(lines, u.conf.MaxPatterns)
 	return result, nil
+}
+
+// rawLimit — число строк в режиме raw: запрошенное, но не больше raw_limit.
+func (u *Usecase) rawLimit(limit int) int {
+	if limit <= 0 || limit > u.conf.RawLimit {
+		return u.conf.RawLimit
+	}
+	return limit
 }
 
 func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, win time.Duration, top int) ([]logsModel.Pattern, error) {
