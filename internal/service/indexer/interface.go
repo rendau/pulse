@@ -1,6 +1,10 @@
 package indexer
 
-import "context"
+import (
+	"context"
+
+	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
+)
 
 // Indexer — фоновый обход кластера: строит каталог сервисов и workloads.
 type Indexer interface {
@@ -9,4 +13,6 @@ type Indexer interface {
 	// Start запускает периодический обход; Wait ждёт остановки после отмены ctx.
 	Start(ctx context.Context)
 	Wait()
+	// LastCycle — последний цикл; nil — ещё не было
+	LastCycle() *indexerModel.Cycle
 }

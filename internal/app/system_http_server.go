@@ -11,9 +11,11 @@ import (
 )
 
 // SystemHttpServerCreate builds the system HTTP server that exposes
-// service endpoints: /healthcheck, /readiness, /metrics.
-func SystemHttpServerCreate(port string, ready func(ctx context.Context) error) *http.Server {
+// service endpoints: /healthcheck, /readiness, /metrics and the pulse manifest
+// (/.well-known/pulse, /.well-known/pulse/status, /diag/*).
+func SystemHttpServerCreate(port string, ready func(ctx context.Context) error, register func(mux *http.ServeMux)) *http.Server {
 	mux := http.NewServeMux()
+	register(mux)
 
 	// healthcheck: процесс жив
 	mux.HandleFunc("/healthcheck", func(w http.ResponseWriter, r *http.Request) {

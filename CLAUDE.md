@@ -42,6 +42,13 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `mcp/` — MCP-инструменты (`handler.go` — регистрация и описания, по файлу на группу).
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
+- `internal/infra/pulsekit/` — манифест сервиса по стандарту (`docs/service-manifest.md`) для самого pulse:
+  `Depend(id, kind, target, critical, check)` — зависимость и её фоновая проверка (ручка состояния,
+  своё сообщение вместо текста ошибки), `Handle[T]` — диагностическая ручка, схема ответа из Go-типа
+  (json-теги, `pulse:"personal=…,maxLength=…,maxItems=…"`), правила стандарта — паникой при регистрации.
+  Тест сверяет манифест с `ParseManifest`. Манифест pulse — `app/manifest.go` (зависимости — источники,
+  ручка `indexer_last_cycle`), коммит сборки — `constant.Commit` (Makefile, ldflags). Прообраз модуля
+  gotemplate.
 - `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение),
   `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII — с тестами; `redact.Text` — телефоны,
   email, карты в свободном тексте; `redact.ReplacePII` — те же правила для токенов: строки логов при

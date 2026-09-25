@@ -28,6 +28,9 @@ type Service struct {
 
 	mapper *imageMapper
 	wg     sync.WaitGroup
+
+	lastMu sync.Mutex
+	last   *indexerModel.Cycle
 }
 
 func New(
@@ -85,5 +88,15 @@ func (s *Service) Wait() {
 func (s *Service) runLogged(ctx context.Context) {
 	if err := s.Run(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("indexer cycle failed", "error", err)
+		s.lastMu.Lock()
+		s.last = &indexerModel.Cycle{FinishedAt: time.Now(), Error: "цикл не завершился: ошибка каталога или кластера (подробности — в логе pulse)"}
+		s.lastMu.Unlock()
 	}
+}
+
+// LastCycle — последний цикл индексера; nil — ещё не было.
+func (s *Service) LastCycle() *indexerModel.Cycle {
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+	return s.last
 }

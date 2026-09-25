@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	domainWorkloadRepoDbP "github.com/mechta-market/pulse/internal/domain/workload/repo/db"
 	domainWorkloadServiceP "github.com/mechta-market/pulse/internal/domain/workload/service"
 	handlerMcpP "github.com/mechta-market/pulse/internal/handler/mcp"
+	"github.com/mechta-market/pulse/internal/infra/pulsekit"
 	serviceAlertmanagerServiceP "github.com/mechta-market/pulse/internal/service/alertmanager/service"
 	serviceGithubServiceP "github.com/mechta-market/pulse/internal/service/github/service"
 	serviceIndexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
@@ -60,6 +62,8 @@ type App struct {
 	pgpool *pgxpool.Pool
 
 	indexer *serviceIndexerServiceP.Service
+	// pulsekit — манифест и ручка состояния самого pulse (фоновые проверки источников)
+	pulsekit *pulsekit.Kit
 
 	mcpServer        *mcp.Server
 	httpServer       *http.Server
@@ -153,6 +157,33 @@ func (a *App) Init() {
 		systemUsecase = usecaseSystemP.New(sources)
 	}
 
+	// pulsekit (манифест pulse: сведения о себе и фоновые проверки источников — ручка состояния)
+	a.pulsekit = newPulsekit()
+	{
+		a.pulsekit.Depend("postgres", "postgres", hostOf(config.Conf.PgDsn), true, a.pgpool.Ping)
+		a.pulsekit.Depend("kubernetes", "http", "kubernetes API", true, k8sService.Ping)
+		a.pulsekit.Depend("github", "http", "api.github.com", false, githubService.Ping)
+		for _, m := range lo.UniqBy(rules.ImageMapping, func(m config.ImageMapping) string { return m.Registry }) {
+			a.pulsekit.Depend("registry_"+strings.NewReplacer(".", "_", "-", "_").Replace(m.Registry), "http", m.Registry, false,
+				func(ctx context.Context) error { return registryService.Ping(ctx, m.Registry) })
+		}
+		optional := []struct {
+			id, url string
+			ping    func(ctx context.Context) error
+		}{
+			{"prometheus", config.Conf.PrometheusUrl, optionalPing(prometheusService)},
+			{"loki", config.Conf.LokiUrl, optionalPing(lokiService)},
+			{"alertmanager", config.Conf.AlertmanagerUrl, optionalPing(alertmanagerService)},
+			{"ruto", config.Conf.RutoUrl, optionalPing(rutoService)},
+			{"kusec", config.Conf.KusecUrl, optionalPing(kusecService)},
+		}
+		for _, src := range optional {
+			if src.url != "" {
+				a.pulsekit.Depend(src.id, "http", hostOf(src.url), false, src.ping)
+			}
+		}
+	}
+
 	// svc (каталог сервисов)
 	svcRepo := domainSvcRepoDbP.New(a.pgpool)
 	svcService := domainSvcServiceP.New(svcRepo)
@@ -228,6 +259,9 @@ func (a *App) Init() {
 			caller, prometheusClient,
 		)
 	}
+
+	// диагностическая ручка pulse: последний цикл индексера
+	handleIndexerCycle(a.pulsekit, a.indexer)
 
 	// catalog
 	catalogUsecase := usecaseCatalogP.New(svcService, workloadService, k8sService)
@@ -405,7 +439,7 @@ func (a *App) Init() {
 
 	// system http server (healthcheck, readiness, docs, metrics)
 	{
-		a.systemHttpServer = SystemHttpServerCreate(config.Conf.SystemHttpPort, a.pgpool.Ping)
+		a.systemHttpServer = SystemHttpServerCreate(config.Conf.SystemHttpPort, a.pgpool.Ping, a.pulsekit.Register)
 	}
 }
 
@@ -417,6 +451,9 @@ func (a *App) Start() {
 	slog.Info("Starting")
 
 	// indexer
+	// pulsekit
+	a.pulsekit.Start(a.ctx)
+
 	if a.indexer != nil {
 		a.indexer.Start(a.ctx)
 		slog.Info("indexer started", "interval", config.Conf.IndexerInterval.String())
@@ -486,6 +523,9 @@ func (a *App) WaitJobs() {
 	slog.Info("waiting jobs")
 
 	// indexer
+	// pulsekit
+	a.pulsekit.Wait()
+
 	if a.indexer != nil {
 		a.indexer.Wait()
 	}

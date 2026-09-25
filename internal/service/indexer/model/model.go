@@ -37,3 +37,18 @@ type ImageMapping struct {
 	// Path — маска пути образа (path.Match); пусто — любой путь registry
 	Path string
 }
+
+// Cycle — последний цикл индексера (диагностическая ручка pulse).
+type Cycle struct {
+	FinishedAt        time.Time
+	Duration          time.Duration
+	Workloads         int
+	Services          int
+	WithMetadata      int
+	WithManifest      int
+	MetadataErrors    int
+	CommitsResolved   int
+	GithubUnavailable bool
+	// Error — цикл не завершился (текст для человека); пусто — завершился
+	Error string
+}

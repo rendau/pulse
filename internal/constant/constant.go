@@ -6,8 +6,13 @@ const (
 	MaxPageSize = 1000
 )
 
-// Version подставляется при сборке: -ldflags "-X .../internal/constant.Version=<ver>".
-var Version = "dev"
+// Version, Commit, BuiltAt подставляются при сборке: -ldflags "-X .../internal/constant.Version=<ver>"
+// (Commit — полный SHA: манифест сервиса, build.commit).
+var (
+	Version = "dev"
+	Commit  = ""
+	BuiltAt = ""
+)
 
 // источники данных (Event.Source, статусы в ping)
 const (

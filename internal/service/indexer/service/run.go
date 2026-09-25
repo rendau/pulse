@@ -17,6 +17,7 @@ import (
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
+	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
 	localConstant "github.com/mechta-market/pulse/internal/service/indexer/service/constant"
 	localModel "github.com/mechta-market/pulse/internal/service/indexer/service/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
@@ -115,6 +116,13 @@ func (s *Service) Run(ctx context.Context) error {
 	stats.StaleServices = len(staleServices)
 
 	stats.Duration = time.Since(started)
+	s.lastMu.Lock()
+	s.last = &indexerModel.Cycle{
+		FinishedAt: time.Now(), Duration: stats.Duration, Workloads: stats.Workloads, Services: stats.Services,
+		WithMetadata: stats.WithMetadata, WithManifest: stats.Manifests, MetadataErrors: stats.MetadataErrors,
+		CommitsResolved: stats.CommitsResolved, GithubUnavailable: stats.GithubUnavailable,
+	}
+	s.lastMu.Unlock()
 	slog.Info("indexer cycle done",
 		"workloads", stats.Workloads,
 		"services", stats.Services,
