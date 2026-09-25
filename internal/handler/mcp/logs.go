@@ -19,7 +19,8 @@ const queryLogsDescription = `Логи сервиса из Loki, по умолч
 	`Не подходит для метрик и событий кластера.`
 
 func (h *Handler) QueryLogs(ctx context.Context, _ *mcp.CallToolRequest, req dto.QueryLogsReq) (*mcp.CallToolResult, dto.QueryLogsRep, error) {
-	win, err := parseWindow(req.Window)
+	// окно по умолчанию выбирает usecase: у логов сервиса 1h, у поиска по всем сервисам — 24h
+	win, err := parseWindowDefault(req.Window, 0)
 	if err != nil {
 		return nil, dto.QueryLogsRep{}, toolError(err)
 	}

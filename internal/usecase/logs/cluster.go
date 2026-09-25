@@ -126,8 +126,9 @@ func serviceHits(lines []logsModel.Line) []logsModel.ServiceHits {
 // errorLineRe — error-строка в логах всего кластера. Строже, чем фильтр логов одного сервиса:
 // счётчик идёт прямо из Loki, без уточнения уровня по строке, поэтому слово error в
 // info-строке («errors=0») не должно считаться. Уровень — полем level/severity (в том числе
-// внутри обёртки сборщика, где кавычки экранированы) или словом ERROR/FATAL/PANIC капсом.
-const errorLineRe = `(?i:(?:level|lvl|severity)\\?"?\s*[:=]\s*\\?"?(?:error|err|fatal|panic|crit|critical)\b)|\b(?:ERROR|FATAL|PANIC|CRITICAL)\b|\bpanic: `
+// внутри обёртки сборщика, где кавычки экранированы; detected_level в логах запросов Loki —
+// не уровень) или словом ERROR/FATAL/PANIC капсом.
+const errorLineRe = `(?i:\b(?:level|lvl|severity)\\?"?\s*[:=]\s*\\?"?(?:error|err|fatal|panic|crit|critical)\b)|\b(?:ERROR|FATAL|PANIC|CRITICAL)\b|\bpanic: `
 
 // namespaceLabels — лейбл namespace'а в разных сборщиках логов: promtail/alloy, fluent-bit, OTel.
 var namespaceLabels = []string{"namespace", "kubernetes_namespace_name", "k8s_namespace_name"}
@@ -156,7 +157,9 @@ func (u *Usecase) ClusterErrors(ctx context.Context, win time.Duration, top int)
 	}
 
 	end := time.Now().UTC()
-	filtered := u.conf.ClusterSelector + " |~ " + strconv.Quote(errorLineRe)
+	// сначала дешёвый фильтр подстрок (Loki сводит альтернативу литералов к contains без
+	// регэкспа), строгий регэксп — только по оставшимся строкам
+	filtered := u.conf.ClusterSelector + ` |~ "(?i)err|fatal|panic|crit"` + " |~ " + strconv.Quote(errorLineRe)
 	countQuery := fmt.Sprintf("sum by (%s) (count_over_time(%s [%ds]))",
 		strings.Join(append(append([]string{}, namespaceLabels...), podLabels...), ", "), filtered, int(win.Seconds()))
 

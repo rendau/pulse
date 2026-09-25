@@ -156,15 +156,16 @@ func TestClusterErrors(t *testing.T) {
 func TestErrorLineRe(t *testing.T) {
 	re := regexp.MustCompile(errorLineRe)
 	for line, want := range map[string]bool{
-		`{"level":"error","msg":"boom"}`:                       true,
-		`level=ERROR msg="boom"`:                               true,
-		`{"log":"{\"level\":\"error\",\"msg\":\"boom\"}\n"}`:   true,
-		`2026-09-25 ERROR payment failed`:                      true,
-		`panic: runtime error: index out of range`:             true,
-		`{"severity":"CRITICAL"}`:                              true,
-		`{"level":"info","msg":"no error, errors=0"}`:          false,
-		`level=info msg="retry after error"`:                   false,
-		`{"log":"{\"level\":\"info\",\"msg\":\"error=nil\"}"}`: false,
+		`{"level":"error","msg":"boom"}`:                            true,
+		`level=ERROR msg="boom"`:                                    true,
+		`{"log":"{\"level\":\"error\",\"msg\":\"boom\"}\n"}`:        true,
+		`2026-09-25 ERROR payment failed`:                           true,
+		`panic: runtime error: index out of range`:                  true,
+		`{"severity":"CRITICAL"}`:                                   true,
+		`{"level":"info","msg":"no error, errors=0"}`:               false,
+		`level=info msg="retry after error"`:                        false,
+		`level=info query="{app=\"x\"} | detected_level=\"error\""`: false,
+		`{"log":"{\"level\":\"info\",\"msg\":\"error=nil\"}"}`:      false,
 	} {
 		assert.Equal(t, want, re.MatchString(line), line)
 	}

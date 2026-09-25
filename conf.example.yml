@@ -60,8 +60,10 @@ logs:
   # (логи в Loki шлёт fluent-bit: лейблы kubernetes_namespace_name, kubernetes_pod_name)
   default_selector: '{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}'
   # LogQL-селектор всех логов кластера: поиск по всем сервисам (query_logs без service)
-  # и ошибки в логах кластера (get_cluster_health)
-  cluster_selector: '{kubernetes_namespace_name=~".+"}'
+  # и ошибки в логах кластера (get_cluster_health). Без namespace'а самого Loki (logger): он пишет
+  # в лог каждый запрос с его текстом — поиск находил бы сам себя, а detected_level="error"
+  # из запросов считался бы ошибкой
+  cluster_selector: '{kubernetes_namespace_name=~".+", kubernetes_namespace_name!="logger"}'
 
 timeline:
   # общий дедлайн сбора изменений; потолок событий в ответе; коммитов на репозиторий за окно
