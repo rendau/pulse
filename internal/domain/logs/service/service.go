@@ -118,6 +118,7 @@ func (s *Service) MessageOf(line string) string {
 func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 	groups := make(map[string]*model.Pattern, 64)
 	workloads := make(map[string]map[string]struct{}, 64)
+	services := make(map[string]map[string]struct{}, 64)
 
 	for _, line := range lines {
 		message := s.MessageOf(line.Text)
@@ -134,10 +135,14 @@ func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 			}
 			groups[key] = p
 			workloads[key] = map[string]struct{}{}
+			services[key] = map[string]struct{}{}
 		}
 		p.Count++
 		if line.Workload != "" {
 			workloads[key][line.Workload] = struct{}{}
+		}
+		if line.Service != "" {
+			services[key][line.Service] = struct{}{}
 		}
 		if line.TS.Before(p.FirstSeen) {
 			p.FirstSeen = line.TS
@@ -150,6 +155,10 @@ func (s *Service) Aggregate(lines []model.Line, top int) []model.Pattern {
 	patterns := lo.MapToSlice(groups, func(key string, p *model.Pattern) model.Pattern {
 		p.Workloads = lo.Keys(workloads[key])
 		sort.Strings(p.Workloads)
+		if len(services[key]) > 0 {
+			p.Services = lo.Keys(services[key])
+			sort.Strings(p.Services)
+		}
 		return *p
 	})
 	sort.SliceStable(patterns, func(i, j int) bool {

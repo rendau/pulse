@@ -15,6 +15,7 @@ import (
 	"github.com/mechta-market/pulse/internal/constant"
 	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
 	clusterService "github.com/mechta-market/pulse/internal/domain/cluster/service"
+	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
@@ -72,7 +73,7 @@ func (f fakeAM) ListAlerts(context.Context) ([]alertmanagerModel.Alert, error) {
 func newUsecase(k8s *fakeK8s, am AlertmanagerI, prom PrometheusI) *Usecase {
 	return New(Config{Deadline: 2 * time.Second, Metrics: []snapshotModel.MetricDef{
 		{Id: "cluster_cpu_usage_ratio", PromQL: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`, Direction: "lower_is_better"},
-	}}, fakeWorkload{}, k8s, prom, am,
+	}}, fakeWorkload{}, k8s, prom, am, nil,
 		clusterService.New(clusterService.Config{PendingPodsThreshold: 2}),
 		snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
 }
@@ -317,4 +318,37 @@ func TestHealth_EventServices_JobWithoutPods(t *testing.T) {
 	assert.Empty(t, h.EventReasons[0].Services)
 	assert.NotContains(t, lo.Map(h.Errors, func(e snapshotModel.SourceError, _ int) string { return e.Source }), constant.SourceK8s,
 		"без прав на jobs ответ полный, только без привязки")
+}
+
+type fakeLogs struct {
+	result *logsModel.ClusterErrors
+	err    error
+	window time.Duration
+	top    int
+}
+
+func (f *fakeLogs) ClusterErrors(_ context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error) {
+	f.window, f.top = window, top
+	return f.result, f.err
+}
+
+func TestHealth_LogErrors(t *testing.T) {
+	logs := &fakeLogs{result: &logsModel.ClusterErrors{Window: time.Hour, Total: 7, ServicesTotal: 1,
+		Services: []logsModel.ServiceErrors{{Service: "payments-api", Namespace: "prod", Count: 7}}}}
+	u := New(Config{Deadline: 2 * time.Second, MaxLogServices: 5}, fakeWorkload{}, &fakeK8s{}, nil, nil, logs,
+		clusterService.New(clusterService.Config{}), snapshotService.New(snapshotService.Config{}))
+
+	h, err := u.Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+	require.NotNil(t, h.LogErrors)
+	assert.Equal(t, 7, h.LogErrors.Total)
+	assert.Equal(t, time.Hour, logs.window)
+	assert.Equal(t, 5, logs.top)
+
+	// Loki недоступен — ответ не падает, источник в errors
+	logs.result, logs.err = nil, errors.New("loki: timeout")
+	h, err = u.Health(context.Background(), time.Hour)
+	require.NoError(t, err)
+	assert.Nil(t, h.LogErrors)
+	assert.True(t, lo.ContainsBy(h.Errors, func(e snapshotModel.SourceError) bool { return e.Source == "loki" }))
 }

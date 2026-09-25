@@ -11,5 +11,7 @@ import (
 type Client interface {
 	// QueryRange выполняет LogQL-запрос за интервал; limit — максимум строк (backward: новые первыми).
 	QueryRange(ctx context.Context, query string, start, end time.Time, limit int) ([]lokiModel.Stream, error)
+	// QueryVector выполняет метрический запрос (count_over_time) на момент at.
+	QueryVector(ctx context.Context, query string, at time.Time) ([]lokiModel.Sample, error)
 	Ping(ctx context.Context) error
 }

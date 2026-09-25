@@ -5,6 +5,7 @@ import (
 	"time"
 
 	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
+	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
@@ -36,6 +37,12 @@ type PrometheusI interface {
 
 type AlertmanagerI interface {
 	ListAlerts(ctx context.Context) ([]alertmanagerModel.Alert, error)
+}
+
+// LogsI — узкий порт к usecase логов (исключение из правила «usecase не ходит в соседний»,
+// как у снапшота): селектор кластера, привязка подов к сервисам и паттерны — там.
+type LogsI interface {
+	ClusterErrors(ctx context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error)
 }
 
 type rulesServiceI interface {

@@ -55,11 +55,11 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   PII через redact, лимиты строк/байт/таймаута), `cluster` (get_cluster_health: ноды, поды
   по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
   `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
-  метрики кластера с базовой линией), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
+  метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
   индексера, маршруты из снапшота ruto, трафик из метрик gateway). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
-  селектор + выборку + агрегацию.
+  селектор + выборку + агрегацию; так же `cluster` берёт `ClusterErrors` у `logs` (порт `LogsI`).
 - `internal/domain/` — доменная модель, сервисы и репозитории.
   - `svc`, `workload` — каталог (Postgres); `snapshot` — детерминированные правила снапшота
     (health, summary_hints, базовая линия) без обращения к источникам; `event` — нормализованное
@@ -143,6 +143,13 @@ domain service → repo
   покрывает и удалённые поды, но не должен захватывать чужие поды namespace'а (`util/jobprefix`).
   Источник логов — Loki, а если его нет или он не ответил — Kubernetes API (`pods/log`,
   `logs/kubernetes.go`): живые поды сервиса, хвост контейнеров и прошлый запуск; `source` в ответе.
+- Логи всего кластера (`logs/cluster.go`, селектор `logs.cluster_selector`, только Loki):
+  `query_logs` без `service` — поиск `pattern` (номер заказа, id клиента; ≥3 символов) по всем
+  логам, строка → сервис по workload'у с самым длинным префиксом имени пода, в ответе `services`
+  (где и сколько); `get_cluster_health.log_errors` — точный счётчик error-строк по подам
+  (`count_over_time`, строгий `errorLineRe`: уровень полем или ERROR капсом) + самый частый
+  паттерн из выборки, top `cluster.max_log_services`. Паттерн без метасимволов уходит в Loki
+  подстрокой (`|=`), с метасимволами — регэкспом (`|~`).
 - Образ, который запускается только Job'ами оркестратора (код задач в своей репе, своего
   Deployment/CronJob нет), индексер заводит отдельным сервисом (`indexer/service/jobs.go`):
   workload `Job` — семейство Job'ов, имя — общий префикс их имён. Ошибки задач привязываются
@@ -342,4 +349,7 @@ gofmt  →  go vet ./...  →  go test ./...  →  golangci-lint run  →  за�
     -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ping","arguments":{}}}'
   ```
+- Живой прогон запросов логов кластера против Loki в docker (`docker run --rm -d --name pulse-loki
+  -p 3110:3100 grafana/loki:3.4.2`, строки — через `/loki/api/v1/push`):
+  `LOKI_LIVE_URL=http://localhost:3110 go test ./internal/usecase/logs/ -run TestLive -v`.
 - Живой тест registry-клиента: `REGISTRY_LIVE_IMAGE=ghcr.io/actions/actions-runner:latest go test ./internal/service/registry/... -run TestLive -v`.

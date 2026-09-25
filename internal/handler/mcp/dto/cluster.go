@@ -6,6 +6,7 @@ import (
 	"github.com/samber/lo"
 
 	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
+	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	"github.com/mechta-market/pulse/internal/util/tz"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
@@ -25,7 +26,23 @@ type ClusterHealthRep struct {
 	InfraAlerts         []Alert       `json:"infra_alerts" jsonschema:"активные алерты, не привязанные к сервисам каталога"`
 	ServiceAlertsActive int           `json:"service_alerts_active"`
 	Metrics             []Metric      `json:"metrics"`
+	LogErrors           *LogErrors    `json:"log_errors,omitempty" jsonschema:"ошибки в логах всего кластера по сервисам; нет — логи недоступны (см. errors)"`
 	Errors              []SourceError `json:"errors"`
+}
+
+type LogErrors struct {
+	Window        string            `json:"window"`
+	Total         int               `json:"total" jsonschema:"error-строк во всех логах кластера за окно"`
+	Services      []ServiceLogError `json:"services" jsonschema:"сервисы с наибольшим числом ошибок; пустой список — ошибок нет"`
+	ServicesTotal int               `json:"services_total"`
+}
+
+type ServiceLogError struct {
+	Service   string    `json:"service,omitempty" jsonschema:"пусто — под не из каталога, смотри namespace"`
+	Namespace string    `json:"namespace"`
+	Count     int       `json:"count"`
+	TopError  string    `json:"top_error,omitempty" jsonschema:"самая частая ошибка (шаблон); подробности — query_logs(service, level=error)"`
+	LastSeen  time.Time `json:"last_seen,omitzero"`
 }
 
 type ClusterNodes struct {
@@ -98,6 +115,29 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 		InfraAlerts:         lo.Map(v.InfraAlerts, encodeAlert),
 		ServiceAlertsActive: v.ServiceAlertsActive,
 		Metrics:             lo.Map(v.Metrics, encodeMetric),
+		LogErrors:           encodeLogErrors(v.LogErrors),
 		Errors:              lo.Map(v.Errors, encodeSnapshotSourceError),
+	}
+}
+
+// topErrorChars — шаблон ошибки в выжимке по кластеру короче, чем в query_logs: ответ
+// get_cluster_health не должен расти от логов.
+const topErrorChars = 300
+
+func encodeLogErrors(v *logsModel.ClusterErrors) *LogErrors {
+	if v == nil {
+		return nil
+	}
+	return &LogErrors{
+		Window:        window.Format(v.Window),
+		Total:         v.Total,
+		ServicesTotal: v.ServicesTotal,
+		Services: lo.Map(v.Services, func(s logsModel.ServiceErrors, _ int) ServiceLogError {
+			e := ServiceLogError{Service: s.Service, Namespace: s.Namespace, Count: s.Count}
+			if s.Top.Count > 0 {
+				e.TopError, e.LastSeen = lo.Ellipsis(s.Top.Template, topErrorChars), tz.In(s.Top.LastSeen)
+			}
+			return e
+		}),
 	}
 }

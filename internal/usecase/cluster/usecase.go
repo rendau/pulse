@@ -32,6 +32,7 @@ type Config struct {
 	MaxProblemPods  int
 	MaxEventReasons int
 	MaxInfraAlerts  int
+	MaxLogServices  int
 	Metrics         []snapshotModel.MetricDef
 }
 
@@ -42,11 +43,12 @@ type Usecase struct {
 	k8s          k8sClientI
 	prometheus   PrometheusI
 	alertmanager AlertmanagerI
+	logs         LogsI
 	rules        rulesServiceI
 	baseline     baselineServiceI
 }
 
-func New(conf Config, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
+func New(conf Config, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, logs LogsI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
 	if conf.Deadline <= 0 {
 		conf.Deadline = 8 * time.Second
 	}
@@ -59,7 +61,10 @@ func New(conf Config, workload workloadServiceI, k8s k8sClientI, prometheus Prom
 	if conf.MaxInfraAlerts <= 0 {
 		conf.MaxInfraAlerts = 30
 	}
-	return &Usecase{conf: conf, workload: workload, k8s: k8s, prometheus: prometheus, alertmanager: alertmanager, rules: rules, baseline: baseline}
+	if conf.MaxLogServices <= 0 {
+		conf.MaxLogServices = 10
+	}
+	return &Usecase{conf: conf, workload: workload, k8s: k8s, prometheus: prometheus, alertmanager: alertmanager, logs: logs, rules: rules, baseline: baseline}
 }
 
 const pendingGrace = 2 * time.Minute
@@ -93,6 +98,7 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 	eg.Go(func() error { c.pods(egCtx); c.events(egCtx); return nil })
 	eg.Go(func() error { c.alerts(egCtx); return nil })
 	eg.Go(func() error { c.metrics(egCtx); return nil })
+	eg.Go(func() error { c.logErrors(egCtx); return nil })
 	_ = eg.Wait()
 
 	c.h.Errors = lo.UniqBy(c.h.Errors, func(e snapshotModel.SourceError) string { return e.Source })
@@ -522,6 +528,24 @@ func (c *collector) metrics(ctx context.Context) {
 
 	c.mu.Lock()
 	c.h.Metrics = metrics
+	c.mu.Unlock()
+}
+
+// logErrors — ошибки в логах всего кластера по сервисам: «есть ли ошибки в логах» без
+// перебора сервисов по одному.
+func (c *collector) logErrors(ctx context.Context) {
+	if c.u.logs == nil {
+		return
+	}
+
+	result, err := c.u.logs.ClusterErrors(ctx, c.h.Window, c.u.conf.MaxLogServices)
+	if err != nil {
+		c.addError(constant.SourceLoki, err)
+		return
+	}
+
+	c.mu.Lock()
+	c.h.LogErrors = result
 	c.mu.Unlock()
 }
 

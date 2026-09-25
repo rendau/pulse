@@ -13,7 +13,7 @@ import (
 // query_logs
 
 type QueryLogsReq struct {
-	Service string `json:"service" jsonschema:"точное имя сервиса"`
+	Service string `json:"service,omitempty" jsonschema:"точное имя сервиса; пусто — поиск pattern во всех логах кластера (номер заказа, id клиента)"`
 	Level   string `json:"level,omitempty" jsonschema:"error | warn | info | debug; пусто — все уровни"`
 	Pattern string `json:"pattern,omitempty" jsonschema:"регулярное выражение по строке (RE2), например acquirer.*timeout"`
 	Window  string `json:"window,omitempty" jsonschema:"Go duration: 15m, 1h (по умолчанию), 24h (максимум по умолчанию)"`
@@ -34,6 +34,16 @@ type QueryLogsRep struct {
 	Truncated  bool         `json:"truncated" jsonschema:"true — строк за окно больше лимита выборки, сузь окно или добавь pattern"`
 	Patterns   []LogPattern `json:"patterns,omitempty"`
 	Lines      []LogLine    `json:"lines,omitempty"`
+	// Services — только при поиске без service
+	Services []LogServiceHits `json:"services,omitempty" jsonschema:"поиск по всем сервисам: где и сколько строк нашлось, больше всего — первым"`
+}
+
+type LogServiceHits struct {
+	Service   string    `json:"service,omitempty" jsonschema:"пусто — под не из каталога, смотри namespace"`
+	Namespace string    `json:"namespace,omitempty"`
+	Count     int       `json:"count"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
 }
 
 type LogPattern struct {
@@ -44,13 +54,17 @@ type LogPattern struct {
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
 	Workloads []string  `json:"workloads,omitempty" jsonschema:"workload'ы сервиса, из подов которых строки паттерна"`
+	Services  []string  `json:"services,omitempty" jsonschema:"поиск по всем сервисам: сервисы, в логах которых паттерн"`
 }
 
 type LogLine struct {
 	TS       time.Time `json:"ts"`
 	Level    string    `json:"level,omitempty"`
 	Workload string    `json:"workload,omitempty"`
-	Text     string    `json:"text"`
+	// Service, Namespace — только при поиске без service; namespace — если под не из каталога
+	Service   string `json:"service,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Text      string `json:"text"`
 }
 
 const maxLineChars = 2000
@@ -67,7 +81,14 @@ func EncodeQueryLogsRep(v *usecaseLogsModel.QueryResult) QueryLogsRep {
 		Truncated:  v.Truncated,
 		Patterns:   lo.Map(v.Patterns, EncodeLogPattern),
 		Lines: lo.Map(v.Lines, func(l logsModel.Line, _ int) LogLine {
-			return LogLine{TS: tz.In(l.TS), Level: l.Level, Workload: l.Workload, Text: lo.Ellipsis(l.Text, maxLineChars)}
+			line := LogLine{TS: tz.In(l.TS), Level: l.Level, Workload: l.Workload, Service: l.Service, Text: lo.Ellipsis(l.Text, maxLineChars)}
+			if l.Service == "" {
+				line.Namespace = l.Namespace
+			}
+			return line
+		}),
+		Services: lo.Map(v.Services, func(h logsModel.ServiceHits, _ int) LogServiceHits {
+			return LogServiceHits{Service: h.Service, Namespace: h.Namespace, Count: h.Count, FirstSeen: tz.In(h.FirstSeen), LastSeen: tz.In(h.LastSeen)}
 		}),
 	}
 }
@@ -81,5 +102,6 @@ func EncodeLogPattern(v logsModel.Pattern, _ int) LogPattern {
 		FirstSeen: tz.In(v.FirstSeen),
 		LastSeen:  tz.In(v.LastSeen),
 		Workloads: v.Workloads,
+		Services:  v.Services,
 	}
 }

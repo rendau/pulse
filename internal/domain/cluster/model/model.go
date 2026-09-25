@@ -3,6 +3,7 @@ package model
 import (
 	"time"
 
+	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
 )
 
@@ -19,7 +20,9 @@ type Health struct {
 	InfraAlerts         []snapshotModel.Alert
 	ServiceAlertsActive int
 	Metrics             []snapshotModel.Metric
-	Errors              []snapshotModel.SourceError
+	// LogErrors — ошибки в логах всего кластера по сервисам; nil — логи недоступны
+	LogErrors *logsModel.ClusterErrors
+	Errors    []snapshotModel.SourceError
 }
 
 type Nodes struct {

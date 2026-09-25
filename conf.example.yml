@@ -59,6 +59,9 @@ logs:
   # Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads}
   # (логи в Loki шлёт fluent-bit: лейблы kubernetes_namespace_name, kubernetes_pod_name)
   default_selector: '{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}'
+  # LogQL-селектор всех логов кластера: поиск по всем сервисам (query_logs без service)
+  # и ошибки в логах кластера (get_cluster_health)
+  cluster_selector: '{kubernetes_namespace_name=~".+"}'
 
 timeline:
   # общий дедлайн сбора изменений; потолок событий в ответе; коммитов на репозиторий за окно
@@ -101,6 +104,8 @@ cluster:
   max_problem_pods: 50
   max_event_reasons: 15
   max_infra_alerts: 30
+  # сколько сервисов с наибольшим числом ошибок в логах показывать (log_errors)
+  max_log_services: 10
   # метрики кластера с базовой линией; без секции — встроенный набор по node-exporter и
   # kube-state-metrics (cluster_cpu_usage_ratio, cluster_memory_usage_ratio, pods_not_ready,
   # container_restarts_1h)

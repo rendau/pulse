@@ -51,6 +51,9 @@ type Rules struct {
 		// DefaultSelector — LogQL-селектор, когда в service.yaml нет logs.selector.
 		// Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads} (w1|w2)
 		DefaultSelector string `yaml:"default_selector"`
+		// ClusterSelector — LogQL-селектор всех логов кластера: поиск по всем сервисам
+		// (query_logs без service) и ошибки кластера в get_cluster_health
+		ClusterSelector string `yaml:"cluster_selector"`
 	} `yaml:"logs"`
 
 	Timeline struct {
@@ -82,6 +85,8 @@ type Rules struct {
 		MaxProblemPods       int           `yaml:"max_problem_pods"`
 		MaxEventReasons      int           `yaml:"max_event_reasons"`
 		MaxInfraAlerts       int           `yaml:"max_infra_alerts"`
+		// MaxLogServices — сколько сервисов с наибольшим числом ошибок в логах показывать
+		MaxLogServices int `yaml:"max_log_services"`
 		// Metrics — метрики кластера с базовой линией (node-exporter / kube-state-metrics)
 		Metrics []MetricDef `yaml:"metrics"`
 	} `yaml:"cluster"`
@@ -217,6 +222,9 @@ func (r *Rules) applyDefaults() {
 	if r.Logs.DefaultSelector == "" {
 		r.Logs.DefaultSelector = `{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}`
 	}
+	if r.Logs.ClusterSelector == "" {
+		r.Logs.ClusterSelector = `{kubernetes_namespace_name=~".+"}`
+	}
 	if r.Timeline.Deadline <= 0 {
 		r.Timeline.Deadline = 8 * time.Second
 	}
@@ -264,6 +272,9 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Cluster.MaxInfraAlerts <= 0 {
 		r.Cluster.MaxInfraAlerts = 30
+	}
+	if r.Cluster.MaxLogServices <= 0 {
+		r.Cluster.MaxLogServices = 10
 	}
 	if len(r.Cluster.Metrics) == 0 {
 		r.Cluster.Metrics = defaultClusterMetrics()

@@ -20,6 +20,7 @@ const (
 
 // QueryReq — параметры query_logs.
 type QueryReq struct {
+	// Service — пусто: поиск Pattern во всех логах кластера (номер заказа, id клиента)
 	Service string
 	Level   string // error | warn | info | debug | "" (все)
 	Pattern string // регулярное выражение по строке (LogQL |~)
@@ -43,4 +44,6 @@ type QueryResult struct {
 	Truncated bool
 	Patterns  []logsModel.Pattern
 	Lines     []logsModel.Line
+	// Services — поиск по всем сервисам: сколько строк нашлось у каждого
+	Services []logsModel.ServiceHits
 }

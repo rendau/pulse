@@ -54,6 +54,15 @@ type fakeLoki struct {
 	limit   int
 	streams []lokiModel.Stream
 	err     error
+
+	vectorQuery string
+	vector      []lokiModel.Sample
+	vectorErr   error
+}
+
+func (f *fakeLoki) QueryVector(_ context.Context, query string, _ time.Time) ([]lokiModel.Sample, error) {
+	f.vectorQuery = query
+	return f.vector, f.vectorErr
 }
 
 func (f *fakeLoki) QueryRange(_ context.Context, query string, _, _ time.Time, limit int) ([]lokiModel.Stream, error) {
@@ -119,7 +128,7 @@ func TestQuery_RawAndSelectorFromYaml(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, `{app="payments-api"}`, res.Selector)
-	assert.Contains(t, loki.query, `|~ "timeout"`)
+	assert.Contains(t, loki.query, `|= "timeout"`, "паттерн без метасимволов — подстрокой")
 	assert.Equal(t, 5, loki.limit)
 	assert.Len(t, res.Lines, 5)
 	assert.True(t, res.Truncated)

@@ -31,3 +31,21 @@ func TestQueryRangeDecode(t *testing.T) {
 	assert.Equal(t, int64(1700000001), streams[0].Entries[0].TS.Unix())
 	assert.Contains(t, streams[0].Entries[0].Line, "connection refused")
 }
+
+func TestQueryVectorDecode(t *testing.T) {
+	var gotPath, gotQuery string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.Query().Get("query")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+			{"metric":{"kubernetes_pod_name":"caravan-7d9f-q2"},"value":[1700000000.123,"42"]}]}}`))
+	}))
+	defer ts.Close()
+
+	samples, err := New(ts.URL, Auth{}).QueryVector(context.Background(), `count_over_time({app="x"}[1h])`, time.Unix(1700000000, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "/loki/api/v1/query", gotPath)
+	assert.Equal(t, `count_over_time({app="x"}[1h])`, gotQuery)
+	require.Len(t, samples, 1)
+	assert.Equal(t, "caravan-7d9f-q2", samples[0].Labels["kubernetes_pod_name"])
+	assert.InDelta(t, 42, samples[0].Value, 0)
+}

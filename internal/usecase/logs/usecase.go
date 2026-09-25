@@ -1,5 +1,6 @@
 // Package logs — query_logs: селектор из service.yaml или из топологии, выборка из Loki
-// и агрегация в паттерны. Запрос без привязки к сервису невозможен (критерий фазы 3).
+// и агрегация в паттерны. Без сервиса — только поиск по тексту во всех логах кластера
+// (cluster.go): номер заказа, id клиента; просто «все логи кластера» не отдаются.
 package logs
 
 import (
@@ -7,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,8 @@ type Config struct {
 	RawLimit        int
 	MaxWindow       time.Duration
 	DefaultSelector string
+	// ClusterSelector — LogQL-селектор всех логов кластера (поиск по всем сервисам, ошибки кластера)
+	ClusterSelector string
 }
 
 type Usecase struct {
@@ -43,6 +47,9 @@ type Usecase struct {
 func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, loki LokiI, patterns patternsServiceI) *Usecase {
 	if conf.MaxWindow <= 0 {
 		conf.MaxWindow = 24 * time.Hour
+	}
+	if conf.ClusterSelector == "" {
+		conf.ClusterSelector = `{kubernetes_namespace_name=~".+"}`
 	}
 	return &Usecase{conf: conf, svc: svc, workload: workload, k8s: k8s, loki: loki, patterns: patterns}
 }
@@ -84,6 +91,10 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		}
 	} else {
 		limit = u.conf.MaxLines
+	}
+
+	if strings.TrimSpace(req.Service) == "" {
+		return u.search(ctx, req, level, mode, win, limit)
 	}
 
 	service, err := u.svc.GetOrSuggest(ctx, req.Service)
@@ -159,7 +170,9 @@ func (u *Usecase) collect(ctx context.Context, service *svcModel.Main, groups []
 
 	var lokiErr error
 	if u.loki != nil {
-		lines, err := u.fetch(ctx, selector, pattern, level, start, end, limit, groups)
+		lines, err := u.fetch(ctx, logQL(selector, pattern, level), level, start, end, limit, func(labels map[string]string, line *logsModel.Line) {
+			line.Workload = groupOfPod(podOf(labels), groups)
+		})
 		if err == nil {
 			return lines, selector, model.SourceLoki, nil
 		}
@@ -197,20 +210,26 @@ func (u *Usecase) selector(service *svcModel.Main, groups []podGroup) (string, e
 	).Replace(u.conf.DefaultSelector), nil
 }
 
-// fetch собирает LogQL (селектор + фильтры), забирает строки и размечает уровень и workload.
-// Фильтр по уровню применяется в LogQL как грубое регулярное выражение (сужает выдачу
-// на стороне Loki) и затем точно — по определённому уровню строки. PII в тексте строк
-// маскируется сразу (redact.Text): дальше — в паттерны, примеры и ответ — уходит маскированное.
-// groups — workload'ы и Job'ы сервиса: по ним строка привязывается к workload'у через под.
-func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, start, end time.Time, limit int, groups []podGroup) ([]logsModel.Line, error) {
+// logQL — селектор с фильтрами. Фильтр по уровню — грубое регулярное выражение (сужает
+// выдачу на стороне Loki), точно уровень определяется по строке в fetch. Паттерн без
+// метасимволов ищется как подстрока (|=): Loki проверяет её быстрее регэкспа.
+func logQL(selector, pattern, level string) string {
 	query := selector
 	if level != "" {
 		query += ` |~ "(?i)` + levelRegexp(level) + `"`
 	}
 	if pattern != "" {
-		query += ` |~ ` + fmt.Sprintf("%q", pattern)
+		op := lo.Ternary(regexp.QuoteMeta(pattern) == pattern, "|=", "|~")
+		query += " " + op + " " + strconv.Quote(pattern)
 	}
+	return query
+}
 
+// fetch забирает строки по LogQL, размечает уровень и владельца (attach — по лейблам потока:
+// workload сервиса или сервис при поиске по всему кластеру). Строки с другим уровнем
+// отбрасываются. PII в тексте строк маскируется сразу (redact.Text): дальше — в паттерны,
+// примеры и ответ — уходит маскированное.
+func (u *Usecase) fetch(ctx context.Context, query, level string, start, end time.Time, limit int, attach func(labels map[string]string, line *logsModel.Line)) ([]logsModel.Line, error) {
 	streams, err := u.loki.QueryRange(ctx, query, start, end, limit)
 	if err != nil {
 		return nil, fmt.Errorf("loki.QueryRange: %w", err)
@@ -219,9 +238,11 @@ func (u *Usecase) fetch(ctx context.Context, selector, pattern, level string, st
 	lines := make([]logsModel.Line, 0, 256)
 	for _, stream := range streams {
 		streamLevel := u.patterns.DetectLevel("level=" + stream.Labels["level"])
-		workload := groupOfPod(podOf(stream.Labels), groups)
+		owner := logsModel.Line{}
+		attach(stream.Labels, &owner)
 		for _, e := range stream.Entries {
-			line := logsModel.Line{TS: e.TS, Text: redact.Text(e.Line), Level: u.patterns.DetectLevel(e.Line), Workload: workload}
+			line := owner
+			line.TS, line.Text, line.Level = e.TS, redact.Text(e.Line), u.patterns.DetectLevel(e.Line)
 			if line.Level == "" {
 				line.Level = streamLevel
 			}

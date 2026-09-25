@@ -16,6 +16,8 @@ type LogsI interface {
 	Query(ctx context.Context, req *model.QueryReq) (*model.QueryResult, error)
 	// TopErrors — верхние error-паттерны сервиса за окно; для снапшота.
 	TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, window time.Duration, top int) ([]logsModel.Pattern, error)
+	// ClusterErrors — ошибки по всем логам кластера (top сервисов); для здоровья кластера.
+	ClusterErrors(ctx context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error)
 }
 
 // ports
@@ -36,6 +38,7 @@ type k8sClientI interface {
 // LokiI экспортирован: источник опционален, композиционный корень передаёт nil.
 type LokiI interface {
 	QueryRange(ctx context.Context, query string, start, end time.Time, limit int) ([]lokiModel.Stream, error)
+	QueryVector(ctx context.Context, query string, at time.Time) ([]lokiModel.Sample, error)
 }
 
 type patternsServiceI interface {

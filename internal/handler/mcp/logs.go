@@ -13,8 +13,9 @@ const queryLogsDescription = `Логи сервиса из Loki, по умолч
 	`приходит одной строкой со счётчиком, примером и временем первого/последнего появления. ` +
 	`Выбирай после get_service_snapshot, чтобы узнать, НА ЧЁМ именно падает сервис (level=error), или проверить конкретную ошибку (pattern). ` +
 	`mode=raw — последние строки (≤100) для деталей; workload — только один workload сервиса (у паттерна видно, из каких он). ` +
+	`Без service — поиск pattern (номер заказа, id клиента) во всех логах кластера: services — где и сколько нашлось, mode=raw — сами строки. ` +
 	`Телефоны, email и номера карт в строках маскированы. Без Loki — из Kubernetes (source=kubernetes: только живые поды, хвост). ` +
-	`Не подходит для метрик и событий кластера. Требует точное имя сервиса.`
+	`Не подходит для метрик и событий кластера.`
 
 func (h *Handler) QueryLogs(ctx context.Context, _ *mcp.CallToolRequest, req dto.QueryLogsReq) (*mcp.CallToolResult, dto.QueryLogsRep, error) {
 	win, err := parseWindow(req.Window)

@@ -211,6 +211,7 @@ func (a *App) Init() {
 				RawLimit:        rules.Logs.RawLimit,
 				MaxWindow:       rules.Logs.MaxWindow,
 				DefaultSelector: rules.Logs.DefaultSelector,
+				ClusterSelector: rules.Logs.ClusterSelector,
 			},
 			svcService, workloadService, k8sService, lokiClient, domainLogsServiceP.New(),
 		)
@@ -347,11 +348,12 @@ func (a *App) Init() {
 				MaxProblemPods:  rules.Cluster.MaxProblemPods,
 				MaxEventReasons: rules.Cluster.MaxEventReasons,
 				MaxInfraAlerts:  rules.Cluster.MaxInfraAlerts,
+				MaxLogServices:  rules.Cluster.MaxLogServices,
 				Metrics: lo.Map(rules.Cluster.Metrics, func(m config.MetricDef, _ int) domainSnapshotModel.MetricDef {
 					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
 				}),
 			},
-			workloadService, k8sService, prometheusClient, alertmanagerClient,
+			workloadService, k8sService, prometheusClient, alertmanagerClient, logsUsecase,
 			domainClusterServiceP.New(domainClusterServiceP.Config{
 				PendingPodsThreshold: rules.Cluster.PendingPodsThreshold,
 				ProblemPodsThreshold: rules.Cluster.ProblemPodsThreshold,
