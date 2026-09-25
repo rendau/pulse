@@ -55,13 +55,18 @@ func (s *Service) Run(ctx context.Context) error {
 	// 1.2 репозиторий из привязки пакета ghcr: имя образа может не совпадать с репой
 	s.resolvePackageRepos(ctx, drafts)
 
+	// 1.3 манифест сервиса на подах (docs/service-manifest.md): сервис рассказывает о себе сам
+	s.probeManifests(ctx, drafts, pods, now)
+	stats.Manifests = lo.CountBy(drafts, func(d *workloadDraft) bool { return d.manifest != nil })
+
 	// 2. репозитории → service.yaml (параллельно, с общим кэшем на цикл)
 	repos := lo.Uniq(lo.FilterMap(drafts, func(d *workloadDraft, _ int) (string, bool) {
 		return d.repoUrl, d.repoUrl != ""
 	}))
 	metadata := s.fetchMetadata(ctx, repos, &stats)
 
-	// 3. digest → коммит (параллельно, кэш живёт в registry-клиенте)
+	// 3. digest → коммит: из манифеста, иначе по registry и GitHub (параллельно, кэш в клиентах)
+	resolveManifestCommits(drafts)
 	s.resolveCommits(ctx, drafts, &stats)
 
 	// 4. история деплоев: смена образа/digest относительно прошлого цикла
@@ -114,6 +119,7 @@ func (s *Service) Run(ctx context.Context) error {
 		"workloads", stats.Workloads,
 		"services", stats.Services,
 		"with_metadata", stats.WithMetadata,
+		"with_manifest", stats.Manifests,
 		"metadata_errors", stats.MetadataErrors,
 		"commits_resolved", stats.CommitsResolved,
 		"deploys", stats.Deploys,
@@ -131,6 +137,7 @@ type indexerStats struct {
 	Workloads         int
 	Services          int
 	WithMetadata      int
+	Manifests         int
 	MetadataErrors    int
 	CommitsResolved   int
 	Deploys           int
@@ -152,6 +159,10 @@ type workloadDraft struct {
 	serviceKey string
 	digest     string
 	commit     string
+	// manifest — действующий манифест сервиса (новый или прошлый из каталога); nil — нет
+	manifest *localModel.ParsedManifest
+	// manifestProbe — результат поиска в этом цикле; nil — не искали, прошлый остаётся
+	manifestProbe *workloadModel.Manifest
 }
 
 // newDraft выбирает главный контейнер (первый с образом из известного registry, иначе
@@ -226,6 +237,7 @@ func (d *workloadDraft) toEdit(cluster string, now time.Time) *workloadModel.Edi
 		Image:           new(d.imageRaw),
 		Selector:        new(d.Selector),
 		ConfigRefs:      new(lo.CoalesceSliceOrEmpty(d.ConfigRefs)),
+		Manifest:        d.manifestProbe,
 		FirstSeen:       new(now),
 		LastSeen:        new(now),
 	}
@@ -372,8 +384,9 @@ func (s *Service) resolvePackageRepos(ctx context.Context, drafts []*workloadDra
 }
 
 // buildServices группирует черновики по сервисам и собирает правки каталога.
-// Имя сервиса: name из service.yaml → имя из каталога (по repo_url, если GitHub недоступен)
-// → имя образа / workload'а.
+// Имя сервиса: name из манифеста → name из service.yaml → имя из каталога (по repo_url, если
+// GitHub недоступен) → имя образа / workload'а. Манифест важнее service.yaml: принят — файл
+// в репозитории не читается.
 func (s *Service) buildServices(ctx context.Context, drafts []*workloadDraft, metadata map[string]metadataResult, now time.Time) []*svcModel.Edit {
 	// прошлые имена по repo_url — чтобы при недоступном GitHub не потерять переименование
 	previousNames := s.previousNamesByRepo(ctx)
@@ -388,7 +401,13 @@ func (s *Service) buildServices(ctx context.Context, drafts []*workloadDraft, me
 			LastSeen:  new(now),
 		}
 
-		if d.repoUrl != "" {
+		if d.manifest != nil {
+			applyManifest(edit, d.manifest, d)
+			if edit.Description != nil && *edit.Description == "" && d.repoUrl != "" {
+				edit.Description = new(metadata[d.repoUrl].repoDescription)
+			}
+			d.serviceKey = *edit.Name
+		} else if d.repoUrl != "" {
 			meta := metadata[d.repoUrl]
 			switch {
 			case meta.err == nil && meta.found:
@@ -416,8 +435,19 @@ func (s *Service) buildServices(ctx context.Context, drafts []*workloadDraft, me
 		}
 
 		if existing, ok := edits[*edit.Name]; ok {
-			// несколько workloads одного сервиса: правка одна, last_seen общий
+			// несколько workloads одного сервиса: правка одна, last_seen общий; манифест
+			// важнее service.yaml, манифесты нескольких workload'ов сливаются
 			existing.LastSeen = edit.LastSeen
+			switch {
+			case d.manifest == nil:
+			case lo.FromPtr(existing.Metadata).Source != svcModel.MetadataSourceManifest:
+				edit.FirstSeen = existing.FirstSeen
+				edits[*edit.Name] = edit
+			default:
+				if err := mergeManifest(existing, d.manifest, d); err != nil {
+					slog.Warn("indexer: manifest conflict", "service", *edit.Name, "workload", d.Namespace+"/"+d.Name, "error", err)
+				}
+			}
 			continue
 		}
 		edits[*edit.Name] = edit

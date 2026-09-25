@@ -10,7 +10,9 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
 	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
+	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 )
 
 type k8sClientI interface {
@@ -30,6 +32,16 @@ type githubClientI interface {
 
 type registryClientI interface {
 	GetImageLabels(ctx context.Context, ref string) (map[string]string, error)
+}
+
+// PodGetterI — GET прямо в под: манифест сервиса (svcproxy или pods/proxy локально).
+type PodGetterI interface {
+	GetPod(ctx context.Context, target svcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error)
+}
+
+// PrometheusI экспортирован: источник опционален (порт /metrics пода — кандидат на манифест).
+type PrometheusI interface {
+	Query(ctx context.Context, promql string, at time.Time) ([]prometheusModel.Sample, error)
 }
 
 // RutoI экспортирован: источник опционален, композиционный корень передаёт nil.

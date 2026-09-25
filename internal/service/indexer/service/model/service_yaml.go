@@ -93,7 +93,8 @@ func DecodeServiceYaml(v *ServiceYaml) *svcModel.Edit {
 
 func decodeMetadata(v *ServiceYaml) svcModel.Metadata {
 	result := svcModel.Metadata{
-		Logs: svcModel.Logs{Selector: v.Logs.Selector},
+		Source: svcModel.MetadataSourceServiceYaml,
+		Logs:   svcModel.Logs{Selector: v.Logs.Selector},
 	}
 
 	for _, m := range v.Metrics {

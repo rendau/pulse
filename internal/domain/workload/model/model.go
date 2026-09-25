@@ -23,8 +23,35 @@ type Main struct {
 	Selector string
 	// ConfigRefs — имена configmap/secret шаблона пода (по ним находится приложение kusec)
 	ConfigRefs []string
-	FirstSeen  time.Time
-	LastSeen   time.Time
+	// Manifest — поиск манифеста сервиса на подах (docs/service-manifest.md)
+	Manifest  Manifest
+	FirstSeen time.Time
+	LastSeen  time.Time
+}
+
+// статусы поиска манифеста
+const (
+	ManifestOk          = "ok"
+	ManifestPartial     = "partial"
+	ManifestInvalid     = "invalid"
+	ManifestAbsent      = "absent"
+	ManifestUnreachable = "unreachable"
+)
+
+// Manifest — результат поиска манифеста на подах workload'а. Status пуст — ещё не искали.
+type Manifest struct {
+	Status string
+	// Reasons — что отклонено (partial) или почему не принят (invalid, unreachable)
+	Reasons []string
+	// Port — порт, на котором найден манифест (0 — не найден)
+	Port int
+	// Tried — какие порты пробовали и что там было («3003: 404», «8080: нет ответа»)
+	Tried []string
+	// Digest — образ, на котором искали: сменился — ищем заново
+	Digest    string
+	CheckedAt time.Time
+	// Raw — принятый манифест как получен (JSON); разбирается индексером каждый цикл
+	Raw []byte
 }
 
 // Key — составной первичный ключ.
@@ -52,6 +79,8 @@ type Edit struct {
 	DeployedCommit  *string
 	Selector        *string
 	ConfigRefs      *[]string
+	// Manifest — nil: в этом цикле не искали, прошлый результат остаётся
+	Manifest *Manifest
 	// FirstSeen пишется только при вставке; при обновлении не трогается
 	FirstSeen *time.Time
 	LastSeen  *time.Time

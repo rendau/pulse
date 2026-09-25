@@ -6,6 +6,7 @@ import (
 	"github.com/samber/lo"
 
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	catalogModel "github.com/mechta-market/pulse/internal/usecase/catalog/model"
 	"github.com/mechta-market/pulse/internal/util/tz"
 )
@@ -51,10 +52,10 @@ func encodeCandidate(v *catalogModel.Candidate, _ int) Candidate {
 // list_services
 
 type ListServicesReq struct {
-	Team        *string `json:"team,omitempty" jsonschema:"команда-владелец из service.yaml"`
+	Team        *string `json:"team,omitempty" jsonschema:"команда-владелец (из манифеста сервиса или service.yaml)"`
 	Namespace   *string `json:"namespace,omitempty" jsonschema:"namespace кластера"`
 	Criticality *string `json:"criticality,omitempty" jsonschema:"high | medium | low"`
-	HasMetadata *bool   `json:"has_metadata,omitempty" jsonschema:"только сервисы с service.yaml (true) или без него (false)"`
+	HasMetadata *bool   `json:"has_metadata,omitempty" jsonschema:"только сервисы с метаданными — манифест или service.yaml (true) — или без них (false)"`
 	Search      *string `json:"search,omitempty" jsonschema:"подстрока в имени, title или алиасах"`
 	Page        int64   `json:"page,omitempty" jsonschema:"номер страницы, с 0"`
 	PageSize    int64   `json:"page_size,omitempty" jsonschema:"размер страницы, по умолчанию 100, максимум 500"`
@@ -87,6 +88,8 @@ type ServiceSummary struct {
 	HasMetadata bool     `json:"has_metadata"`
 	// External — сторонний образ (postgres, redis…) без репозитория компании
 	External bool `json:"external,omitempty"`
+	// Manifest — манифест сервиса (лучший статус среди workload'ов)
+	Manifest string `json:"manifest,omitempty" jsonschema:"манифест сервиса: ok | partial | invalid | absent | unreachable; пусто — ещё не искали"`
 }
 
 func EncodeListServicesRep(items []*catalogModel.ServiceSummary, total int64, page, pageSize int64) ListServicesRep {
@@ -106,6 +109,7 @@ func encodeServiceSummary(v *catalogModel.ServiceSummary, _ int) ServiceSummary 
 		Namespaces:  v.Namespaces,
 		HasMetadata: v.Service.MetadataPresent,
 		External:    v.Service.RepoUrl == "",
+		Manifest:    v.Manifest,
 	}
 }
 
@@ -126,14 +130,24 @@ type ServiceInfoRep struct {
 	ClusterNames  []string       `json:"cluster_names,omitempty" jsonschema:"имена сервиса в кластере: workload'ы, k8s Service, приложения ruto"`
 	RepoUrl       string         `json:"repo_url,omitempty"`
 	HasMetadata   bool           `json:"has_metadata"`
+	MetadataFrom  string         `json:"metadata_source,omitempty" jsonschema:"откуда метаданные: manifest (сервис рассказал сам) | service_yaml"`
+	DocsUrl       string         `json:"docs_url,omitempty"`
+	Dependencies  []Dependency   `json:"dependencies,omitempty" jsonschema:"зависимости, которые сервис объявил сам (манифест)"`
 	Metrics       []MetricDef    `json:"metrics,omitempty"`
 	LogsSelector  string         `json:"logs_selector,omitempty"`
 	Runbooks      []Runbook      `json:"runbooks,omitempty"`
-	Endpoints     []EndpointDef  `json:"diagnostic_endpoints,omitempty" jsonschema:"диагностические ручки из service.yaml; вызов — call_service_endpoint"`
+	Endpoints     []EndpointDef  `json:"diagnostic_endpoints,omitempty" jsonschema:"диагностические ручки сервиса; вызов — call_service_endpoint"`
 	Workloads     []WorkloadInfo `json:"workloads"`
 	FirstSeen     time.Time      `json:"first_seen"`
 	LastSeen      time.Time      `json:"last_seen"`
 	Errors        []SourceError  `json:"errors,omitempty" jsonschema:"источники, которые не ответили: часть картины отсутствует"`
+}
+
+type Dependency struct {
+	Id       string `json:"id"`
+	Kind     string `json:"kind"`
+	Target   string `json:"target"`
+	Critical bool   `json:"critical,omitempty" jsonschema:"без неё сервис не работает"`
 }
 
 type MetricDef struct {
@@ -158,6 +172,15 @@ type WorkloadInfo struct {
 	ImageDigest     string     `json:"image_digest,omitempty"`
 	DeployedCommit  string     `json:"deployed_commit,omitempty"`
 	Pods            *PodsState `json:"pods,omitempty" jsonschema:"живое состояние подов; отсутствует, если кластер не ответил или у workload нет подов (CronJob)"`
+	Manifest        *Manifest  `json:"manifest,omitempty" jsonschema:"поиск манифеста сервиса на подах (docs/service-manifest.md)"`
+}
+
+type Manifest struct {
+	Status    string    `json:"status" jsonschema:"ok | partial (часть отклонена) | invalid | absent (порт отвечает, манифеста нет) | unreachable"`
+	Reasons   []string  `json:"reasons,omitempty" jsonschema:"что отклонено или почему не принят"`
+	Port      int       `json:"port,omitempty"`
+	Tried     []string  `json:"tried,omitempty" jsonschema:"какие порты пробовали и что там было"`
+	CheckedAt time.Time `json:"checked_at"`
 }
 
 type PodsState struct {
@@ -184,6 +207,9 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 		ClusterNames:  v.Service.ClusterNames,
 		RepoUrl:       v.Service.RepoUrl,
 		HasMetadata:   v.Service.MetadataPresent,
+		MetadataFrom:  v.Service.Metadata.Source,
+		DocsUrl:       v.Service.Metadata.DocsUrl,
+		Dependencies:  lo.Map(v.Service.Metadata.Dependencies, encodeDependency),
 		Metrics:       lo.Map(v.Service.Metadata.Metrics, encodeMetricDef),
 		LogsSelector:  v.Service.Metadata.Logs.Selector,
 		Runbooks:      lo.Map(v.Service.Metadata.Runbooks, encodeRunbook),
@@ -193,6 +219,10 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 		LastSeen:      tz.In(v.Service.LastSeen),
 		Errors:        lo.Map(v.Errors, encodeSourceError),
 	}
+}
+
+func encodeDependency(v svcModel.Dependency, _ int) Dependency {
+	return Dependency{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical}
 }
 
 func encodeMetricDef(v svcModel.Metric, _ int) MetricDef {
@@ -214,7 +244,15 @@ func encodeWorkloadInfo(v *catalogModel.WorkloadInfo, _ int) WorkloadInfo {
 		ImageDigest:     v.Workload.ImageDigest,
 		DeployedCommit:  v.Workload.DeployedCommit,
 		Pods:            encodePodsState(v.Pods),
+		Manifest:        encodeManifest(v.Workload.Manifest),
 	}
+}
+
+func encodeManifest(v workloadModel.Manifest) *Manifest {
+	if v.Status == "" {
+		return nil
+	}
+	return &Manifest{Status: v.Status, Reasons: v.Reasons, Port: v.Port, Tried: v.Tried, CheckedAt: tz.In(v.CheckedAt)}
 }
 
 func encodePodsState(v *catalogModel.PodsState) *PodsState {

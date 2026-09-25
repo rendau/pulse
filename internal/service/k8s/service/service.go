@@ -275,12 +275,21 @@ func encodeEnvVar(v corev1.EnvVar, _ int) k8sModel.EnvVar {
 
 func encodePod(p corev1.Pod, _ int) k8sModel.Pod {
 	result := k8sModel.Pod{
-		Namespace:  p.Namespace,
-		Name:       p.Name,
-		Phase:      string(p.Status.Phase),
-		NodeName:   p.Spec.NodeName,
-		Labels:     p.Labels,
-		Containers: lo.Map(p.Status.ContainerStatuses, encodePodContainer),
+		Namespace:   p.Namespace,
+		Name:        p.Name,
+		Phase:       string(p.Status.Phase),
+		NodeName:    p.Spec.NodeName,
+		Labels:      p.Labels,
+		Containers:  lo.Map(p.Status.ContainerStatuses, encodePodContainer),
+		IP:          p.Status.PodIP,
+		Annotations: p.Annotations,
+	}
+	for _, c := range p.Spec.Containers {
+		for _, port := range c.Ports {
+			result.Ports = append(result.Ports, k8sModel.PodPort{
+				Container: c.Name, Name: port.Name, Port: port.ContainerPort, Protocol: string(port.Protocol),
+			})
+		}
 	}
 
 	if p.Status.StartTime != nil {

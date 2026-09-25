@@ -170,12 +170,26 @@ func (a *App) Init() {
 	// event (нормализация событий)
 	eventService := domainEventServiceP.New()
 
+	// caller: вызовы ручек сервисов внутри кластера — прямо или через API-сервер (локально)
+	var caller interface {
+		usecaseEndpointsP.CallerI
+		serviceIndexerServiceP.PodGetterI
+	} = serviceSvcproxyServiceP.New(config.Conf.ClusterDomain)
+	if config.Conf.EndpointCallMode == "k8s-proxy" {
+		caller = k8sProxyCaller{k8sService}
+		slog.Info("service calls go through kubernetes API proxy (services/proxy, pods/proxy)")
+	}
+
 	// indexer
 	if config.Conf.IndexerEnabled {
 		// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
 		var rutoClient serviceIndexerServiceP.RutoI
 		if rutoService != nil {
 			rutoClient = rutoService
+		}
+		var prometheusClient serviceIndexerServiceP.PrometheusI
+		if prometheusService != nil {
+			prometheusClient = prometheusService
 		}
 
 		a.indexer = serviceIndexerServiceP.New(
@@ -187,8 +201,17 @@ func (a *App) Init() {
 					return serviceIndexerModel.ImageMapping{Registry: m.Registry, RepoTemplate: m.RepoTemplate, Org: m.Org, Path: m.Path}
 				}),
 				RutoGatewayService: rules.Ruto.GatewayService,
+				Manifest: serviceIndexerModel.ManifestConfig{
+					Path:             rules.Manifest.Path,
+					DefaultPorts:     rules.Manifest.DefaultPorts,
+					AnnotationPrefix: rules.Manifest.AnnotationPrefix,
+					RefreshAfter:     rules.Manifest.RefreshAfter,
+					RetryAfter:       rules.Manifest.RetryAfter,
+					SkipPorts:        rules.Manifest.SkipPorts,
+				},
 			},
 			k8sService, githubService, registryService, svcService, workloadService, deployService, dependencyService, rutoClient,
+			caller, prometheusClient,
 		)
 	}
 
@@ -315,12 +338,6 @@ func (a *App) Init() {
 	// endpoints (прокси к диагностическим ручкам)
 	var endpointsUsecase *usecaseEndpointsP.Usecase
 	{
-		var caller usecaseEndpointsP.CallerI = serviceSvcproxyServiceP.New(config.Conf.ClusterDomain)
-		if config.Conf.EndpointCallMode == "k8s-proxy" {
-			caller = k8sProxyCaller{k8sService}
-			slog.Info("endpoint calls go through kubernetes API proxy (services/proxy)")
-		}
-
 		endpointsUsecase = usecaseEndpointsP.New(
 			usecaseEndpointsP.Config{
 				MaxRows:      rules.Endpoints.MaxRows,
@@ -479,6 +496,18 @@ func (c k8sProxyCaller) Get(ctx context.Context, namespace, service string, port
 		return nil, err
 	}
 	resp := &serviceSvcproxyModel.Response{StatusCode: http.StatusOK, Body: body}
+	if int64(len(body)) > maxBytes {
+		resp.Body, resp.Truncated = body[:maxBytes], true
+	}
+	return resp, nil
+}
+
+func (c k8sProxyCaller) GetPod(ctx context.Context, target serviceSvcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*serviceSvcproxyModel.Response, error) {
+	status, body, err := c.k8s.ProxyGetPod(ctx, target.Namespace, target.Pod, target.Port, path, query, headers, maxBytes+1)
+	if err != nil {
+		return nil, err
+	}
+	resp := &serviceSvcproxyModel.Response{StatusCode: status, Body: body}
 	if int64(len(body)) > maxBytes {
 		resp.Body, resp.Truncated = body[:maxBytes], true
 	}

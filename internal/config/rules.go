@@ -106,6 +106,21 @@ type Rules struct {
 		MaxEndpoints int           `yaml:"max_endpoints"`
 	} `yaml:"ruto"`
 
+	// Manifest — манифест сервиса (docs/service-manifest.md)
+	Manifest struct {
+		// Path — путь манифеста; ручка состояния — Path/status
+		Path string `yaml:"path"`
+		// DefaultPorts — порты, если нет аннотации, цели Prometheus и портов с именами system/http
+		DefaultPorts []int `yaml:"default_ports"`
+		// AnnotationPrefix — префикс аннотаций пода (<prefix>port, <prefix>path)
+		AnnotationPrefix string `yaml:"annotation_prefix"`
+		// RefreshAfter — перечитать принятый манифест без выкатки; RetryAfter — повтор после неудачи
+		RefreshAfter time.Duration `yaml:"refresh_after"`
+		RetryAfter   time.Duration `yaml:"retry_after"`
+		// SkipPorts — заведомо не-HTTP порты: при переборе портов пода не трогаются
+		SkipPorts []int `yaml:"skip_ports"`
+	} `yaml:"manifest"`
+
 	Metrics struct {
 		// ограничения произвольного PromQL в query_metrics
 		MaxWindow time.Duration `yaml:"max_window"`
@@ -172,6 +187,26 @@ func LoadRules(path string) (*Rules, error) {
 }
 
 func (r *Rules) applyDefaults() {
+	if r.Manifest.Path == "" {
+		r.Manifest.Path = "/.well-known/pulse"
+	}
+	if len(r.Manifest.DefaultPorts) == 0 {
+		r.Manifest.DefaultPorts = []int{3003}
+	}
+	if r.Manifest.AnnotationPrefix == "" {
+		r.Manifest.AnnotationPrefix = "pulse/"
+	}
+	if r.Manifest.RefreshAfter <= 0 {
+		r.Manifest.RefreshAfter = 24 * time.Hour
+	}
+	if r.Manifest.RetryAfter <= 0 {
+		r.Manifest.RetryAfter = time.Hour
+	}
+	if r.Manifest.SkipPorts == nil {
+		// Postgres, MySQL, Redis, Kafka, ZooKeeper, RabbitMQ (AMQP и кластер), MongoDB,
+		// ClickHouse native, Elasticsearch transport, Memcached, NATS, etcd, gRPC по соглашению
+		r.Manifest.SkipPorts = []int{5432, 6432, 3306, 6379, 26379, 9092, 9093, 2181, 5672, 25672, 4369, 27017, 9000, 9300, 11211, 4222, 2379, 2380}
+	}
 	if r.Indexer.StaleAfter <= 0 {
 		r.Indexer.StaleAfter = time.Hour
 	}

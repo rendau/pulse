@@ -58,13 +58,32 @@ type ListReq struct {
 	Search *string
 }
 
-// Metadata — часть service.yaml, которую нельзя вывести из кластера:
-// семантика метрик, логов, раннбуки, диагностические ручки.
+// источники метаданных сервиса
+const (
+	MetadataSourceManifest    = "manifest"     // манифест сервиса (docs/service-manifest.md)
+	MetadataSourceServiceYaml = "service_yaml" // service.yaml в репозитории
+)
+
+// Metadata — то, что нельзя вывести из кластера: семантика метрик, логов, раннбуки,
+// зависимости, диагностические ручки. Из манифеста сервиса, иначе из service.yaml.
 type Metadata struct {
-	Metrics   []Metric
-	Logs      Logs
-	Runbooks  []Runbook
-	Endpoints []Endpoint
+	// Source — manifest | service_yaml; пусто — метаданных нет
+	Source       string
+	Metrics      []Metric
+	Logs         Logs
+	Runbooks     []Runbook
+	Endpoints    []Endpoint
+	Dependencies []Dependency
+	DocsUrl      string
+}
+
+// Dependency — зависимость, которую сервис объявил сам: основа ручки состояния.
+type Dependency struct {
+	Id     string
+	Kind   string // postgres | redis | kafka | … | http | grpc | other
+	Target string // имя сервиса в кластере или внешний хост, без учётных данных
+	// Critical — без неё сервис не работает (её down — сервис down)
+	Critical bool
 }
 
 type Metric struct {
@@ -92,26 +111,61 @@ type Runbook struct {
 
 // Endpoint — декларация диагностической ручки (фаза 6). Вызов возможен только по id.
 type Endpoint struct {
-	Id     string
-	Title  string
-	Path   string
-	Method string
+	Id          string
+	Title       string
+	Description string // для агента: когда вызывать
+	Path        string
+	Method      string
 	// Port и K8sService — куда ходить внутри кластера; пусто — дефолты из правил (порт)
 	// и имя сервиса каталога (k8s Service)
 	Port       int
 	K8sService string
-	Params     map[string]EndpointParam
-	MaxRows    int
-	PII        []string
-	Timeout    time.Duration
+	// Workload — ручка из манифеста: вызывается прямо в под этого workload'а, на порт манифеста
+	Workload *WorkloadRef
+	Params   map[string]EndpointParam
+	// Response — схема ответа из манифеста: к агенту доходят только объявленные поля
+	Response *Schema
+	// RowsPath — где в ответе список (для лимита строк); пусто — сам ответ, если это массив
+	RowsPath string
+	MaxRows  int
+	PII      []string
+	Timeout  time.Duration
+}
+
+// WorkloadRef — workload, который обслуживает ручку.
+type WorkloadRef struct {
+	Namespace string
+	Kind      string
+	Name      string
 }
 
 type EndpointParam struct {
-	Type     string
-	Default  string
-	Max      *float64
-	Min      *float64
-	Required bool
+	Type        string
+	Default     string
+	Max         *float64
+	Min         *float64
+	Required    bool
+	Pattern     string
+	Enum        []string
+	Description string
+	// Personal — вид персональных данных (phone, email…): параметр принимает токен
+	Personal string
+}
+
+// Schema — схема ответа ручки (подмножество JSON Schema из манифеста).
+type Schema struct {
+	Type       string // object | array | string | integer | number | boolean
+	Properties map[string]*Schema
+	Items      *Schema
+	// Values — схема значений словаря (additionalProperties): только number | integer | boolean
+	Values      *Schema
+	Enum        []string
+	Format      string
+	MaxLength   int
+	MaxItems    int
+	Description string
+	// Personal — вид персональных данных поля (phone, email…): значение заменяется токеном
+	Personal string
 }
 
 // Candidate — результат резолвинга человеческой формулировки в сервис.

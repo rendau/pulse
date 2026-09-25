@@ -1,0 +1,73 @@
+{
+  "pulse_manifest": 1,
+  "service": {
+    "name": "orders-center",
+    "title": "Центр заказов",
+    "description": "Принимает заказы с сайта и из приложения, ведёт их по статусам до выдачи. Главный источник правды о заказе.",
+    "aliases": ["ocenter", "оцентр", "заказы"],
+    "owner": { "team": "orders", "contacts": ["@orders_duty", "orders@company.kz"] },
+    "criticality": "high",
+    "repo_url": "https://github.com/mechta-market/ocenter",
+    "docs_url": "https://wiki.company.kz/orders-center"
+  },
+  "build": {
+    "version": "v1.42.0",
+    "commit": "9f597a7c1e2d4b8a0f3c6e5d7b9a1c2e4f6a8b0c",
+    "built_at": "2026-09-25T12:00:00+05:00"
+  },
+  "runbooks": [
+    { "title": "Заказы не уходят в 1С", "url": "https://wiki.company.kz/orders/1c-sync" }
+  ],
+  "dependencies": [
+    { "id": "pg", "kind": "postgres", "target": "ocenter-pg", "critical": true },
+    { "id": "kafka", "kind": "kafka", "target": "kafka", "critical": true },
+    { "id": "onec", "kind": "http", "target": "onec-proxy", "critical": false }
+  ],
+  "metrics": [
+    {
+      "id": "orders_created",
+      "title": "Созданные заказы в минуту",
+      "promql": "sum(rate(ocenter_orders_created_total[5m])) * 60",
+      "unit": "count",
+      "direction": "higher_is_better"
+    }
+  ],
+  "logs": {
+    "error_patterns": [
+      { "name": "1С недоступна", "pattern": "onec: .*(timeout|connection refused)" }
+    ]
+  },
+  "endpoints": [
+    {
+      "id": "order_status",
+      "title": "Где заказ в конвейере",
+      "description": "Вызывай, когда спрашивают о конкретном заказе по номеру: текущий статус, история смены статусов, на каком шаге застрял и почему. Не для поиска заказов клиента.",
+      "path": "/diag/order/{number}",
+      "params": {
+        "number": { "type": "string", "pattern": "^[0-9]{5,12}$", "description": "номер заказа" }
+      },
+      "timeout_ms": 3000,
+      "response": {
+        "type": "object",
+        "properties": {
+          "number": { "type": "string" },
+          "status": { "type": "string", "enum": ["new", "paid", "assembling", "shipped", "delivered", "canceled"] },
+          "stuck_reason": { "type": "string", "maxLength": 300 },
+          "customer_phone": { "type": "string", "x-personal": "phone" },
+          "history": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "string" },
+                "at": { "type": "string", "format": "date-time" },
+                "by_system": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

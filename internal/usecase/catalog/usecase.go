@@ -94,13 +94,14 @@ func (u *Usecase) List(ctx context.Context, pars *model.ListReq) ([]*model.Servi
 		return nil, 0, fmt.Errorf("svc.List: %w", err)
 	}
 
-	namespaces, err := u.namespacesByService(ctx, lo.Map(services, func(s *svcModel.Main, _ int) string { return s.Name }))
+	names := lo.Map(services, func(s *svcModel.Main, _ int) string { return s.Name })
+	workloads, err := u.workloadsByService(ctx, names)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	return lo.Map(services, func(s *svcModel.Main, _ int) *model.ServiceSummary {
-		return &model.ServiceSummary{Service: s, Namespaces: namespaces[s.Name]}
+		return &model.ServiceSummary{Service: s, Namespaces: namespacesOf(workloads[s.Name]), Manifest: bestManifest(workloads[s.Name])}
 	}), total, nil
 }
 
@@ -149,8 +150,16 @@ func (u *Usecase) Info(ctx context.Context, name string) (*model.ServiceInfo, er
 }
 
 func (u *Usecase) namespacesByService(ctx context.Context, names []string) (map[string][]string, error) {
+	workloads, err := u.workloadsByService(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+	return lo.MapValues(workloads, func(list []*workloadModel.Main, _ string) []string { return namespacesOf(list) }), nil
+}
+
+func (u *Usecase) workloadsByService(ctx context.Context, names []string) (map[string][]*workloadModel.Main, error) {
 	if len(names) == 0 {
-		return map[string][]string{}, nil
+		return map[string][]*workloadModel.Main{}, nil
 	}
 
 	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceNames: names})
@@ -158,17 +167,31 @@ func (u *Usecase) namespacesByService(ctx context.Context, names []string) (map[
 		return nil, fmt.Errorf("workload.List: %w", err)
 	}
 
-	result := make(map[string][]string, len(names))
-	for _, w := range workloads {
-		result[w.ServiceName] = append(result[w.ServiceName], w.Namespace)
-	}
-	for name, namespaces := range result {
-		namespaces = lo.Uniq(namespaces)
-		sort.Strings(namespaces)
-		result[name] = namespaces
-	}
+	return lo.GroupBy(workloads, func(w *workloadModel.Main) string { return w.ServiceName }), nil
+}
 
-	return result, nil
+func namespacesOf(workloads []*workloadModel.Main) []string {
+	namespaces := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Namespace }))
+	sort.Strings(namespaces)
+	return namespaces
+}
+
+// manifestRank — чем меньше, тем лучше статус манифеста.
+var manifestRank = map[string]int{
+	workloadModel.ManifestOk: 1, workloadModel.ManifestPartial: 2, workloadModel.ManifestInvalid: 3,
+	workloadModel.ManifestAbsent: 4, workloadModel.ManifestUnreachable: 5,
+}
+
+// bestManifest — лучший статус манифеста среди workload'ов сервиса; пусто — не искали.
+func bestManifest(workloads []*workloadModel.Main) string {
+	best := ""
+	for _, w := range workloads {
+		rank, ok := manifestRank[w.Manifest.Status]
+		if ok && (best == "" || rank < manifestRank[best]) {
+			best = w.Manifest.Status
+		}
+	}
+	return best
 }
 
 // podsState сводит поды к счётчикам и списку проблем в человекочитаемом виде.

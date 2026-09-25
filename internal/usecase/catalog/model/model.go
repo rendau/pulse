@@ -34,6 +34,8 @@ type ListReq struct {
 type ServiceSummary struct {
 	Service    *svcModel.Main
 	Namespaces []string
+	// Manifest — лучший статус манифеста среди workload'ов сервиса (пусто — не искали)
+	Manifest string
 }
 
 // ServiceInfo — карточка сервиса: метаданные, workloads и живое состояние подов.

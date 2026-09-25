@@ -94,6 +94,20 @@ ruto:
   deadline: 8s
   max_endpoints: 100
 
+manifest:
+  # манифест сервиса (docs/service-manifest.md): путь; ручка состояния — <path>/status
+  path: /.well-known/pulse
+  # порты, если у пода нет аннотации, цели Prometheus и портов с именами system/http
+  default_ports: [3003]
+  # аннотации пода: pulse/port, pulse/path
+  annotation_prefix: "pulse/"
+  # перечитать принятый манифест без выкатки; повтор после неудачи (нет манифеста, ошибки)
+  refresh_after: 24h
+  retry_after: 1h
+  # заведомо не-HTTP порты: при переборе портов пода (раз после выкатки) не трогаются;
+  # без ключа — встроенный список (postgres, redis, kafka, rabbitmq, mongodb…)
+  # skip_ports: [5432, 6379, 9092]
+
 endpoints:
   # жёсткие потолки для call_service_endpoint поверх декларации в service.yaml
   max_rows: 100

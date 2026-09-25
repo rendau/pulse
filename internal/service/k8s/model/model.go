@@ -69,6 +69,19 @@ type Pod struct {
 	NodeName   string
 	Labels     map[string]string
 	Containers []PodContainer
+	// IP — адрес пода (пусто, пока под не запущен); Annotations — аннотации пода;
+	// Ports — объявленные containerPorts всех контейнеров (манифест сервиса ищется на них)
+	IP          string
+	Annotations map[string]string
+	Ports       []PodPort
+}
+
+// PodPort — объявленный порт контейнера пода.
+type PodPort struct {
+	Container string
+	Name      string
+	Port      int32
+	Protocol  string // TCP | UDP | SCTP
 }
 
 // PodContainer — статус контейнера внутри пода.

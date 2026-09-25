@@ -11,10 +11,20 @@ import (
 // metadataJSON — repo-локальная DTO формата хранения jsonb-колонки metadata.
 // Только она знает про json-теги; доменная модель тегов не несёт.
 type metadataJSON struct {
-	Metrics   []metricJSON   `json:"metrics,omitempty"`
-	Logs      logsJSON       `json:"logs"`
-	Runbooks  []runbookJSON  `json:"runbooks,omitempty"`
-	Endpoints []endpointJSON `json:"endpoints,omitempty"`
+	Source       string           `json:"source,omitempty"`
+	Metrics      []metricJSON     `json:"metrics,omitempty"`
+	Logs         logsJSON         `json:"logs"`
+	Runbooks     []runbookJSON    `json:"runbooks,omitempty"`
+	Endpoints    []endpointJSON   `json:"endpoints,omitempty"`
+	Dependencies []dependencyJSON `json:"dependencies,omitempty"`
+	DocsUrl      string           `json:"docs_url,omitempty"`
+}
+
+type dependencyJSON struct {
+	Id       string `json:"id"`
+	Kind     string `json:"kind"`
+	Target   string `json:"target"`
+	Critical bool   `json:"critical,omitempty"`
 }
 
 type metricJSON struct {
@@ -41,37 +51,67 @@ type runbookJSON struct {
 }
 
 type endpointJSON struct {
-	Id      string                       `json:"id"`
-	Title   string                       `json:"title"`
-	Path    string                       `json:"path"`
-	Method  string                       `json:"method"`
-	Port    int                          `json:"port,omitempty"`
-	K8sSvc  string                       `json:"k8s_service,omitempty"`
-	Params  map[string]endpointParamJSON `json:"params,omitempty"`
-	MaxRows int                          `json:"max_rows"`
-	PII     []string                     `json:"pii,omitempty"`
-	Timeout int64                        `json:"timeout_ms"`
+	Id          string                       `json:"id"`
+	Title       string                       `json:"title"`
+	Description string                       `json:"description,omitempty"`
+	Path        string                       `json:"path"`
+	Method      string                       `json:"method"`
+	Port        int                          `json:"port,omitempty"`
+	K8sSvc      string                       `json:"k8s_service,omitempty"`
+	Workload    *workloadRefJSON             `json:"workload,omitempty"`
+	Params      map[string]endpointParamJSON `json:"params,omitempty"`
+	Response    *schemaJSON                  `json:"response,omitempty"`
+	RowsPath    string                       `json:"rows_path,omitempty"`
+	MaxRows     int                          `json:"max_rows"`
+	PII         []string                     `json:"pii,omitempty"`
+	Timeout     int64                        `json:"timeout_ms"`
+}
+
+type workloadRefJSON struct {
+	Namespace string `json:"namespace"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+}
+
+type schemaJSON struct {
+	Type        string                 `json:"type"`
+	Properties  map[string]*schemaJSON `json:"properties,omitempty"`
+	Items       *schemaJSON            `json:"items,omitempty"`
+	Values      *schemaJSON            `json:"values,omitempty"`
+	Enum        []string               `json:"enum,omitempty"`
+	Format      string                 `json:"format,omitempty"`
+	MaxLength   int                    `json:"max_length,omitempty"`
+	MaxItems    int                    `json:"max_items,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Personal    string                 `json:"personal,omitempty"`
 }
 
 type endpointParamJSON struct {
-	Type     string   `json:"type"`
-	Default  string   `json:"default,omitempty"`
-	Max      *float64 `json:"max,omitempty"`
-	Min      *float64 `json:"min,omitempty"`
-	Required bool     `json:"required,omitempty"`
+	Type        string   `json:"type"`
+	Default     string   `json:"default,omitempty"`
+	Max         *float64 `json:"max,omitempty"`
+	Min         *float64 `json:"min,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Pattern     string   `json:"pattern,omitempty"`
+	Enum        []string `json:"enum,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Personal    string   `json:"personal,omitempty"`
 }
 
 // encode: json → domain
 
 func encodeMetadata(v metadataJSON) domainModel.Metadata {
 	return domainModel.Metadata{
+		Source:  v.Source,
 		Metrics: lo.Map(v.Metrics, encodeMetric),
 		Logs: domainModel.Logs{
 			Selector:      v.Logs.Selector,
 			ErrorPatterns: lo.Map(v.Logs.ErrorPatterns, encodeErrorPattern),
 		},
-		Runbooks:  lo.Map(v.Runbooks, encodeRunbook),
-		Endpoints: lo.Map(v.Endpoints, encodeEndpoint),
+		Runbooks:     lo.Map(v.Runbooks, encodeRunbook),
+		Endpoints:    lo.Map(v.Endpoints, encodeEndpoint),
+		Dependencies: lo.Map(v.Dependencies, encodeDependency),
+		DocsUrl:      v.DocsUrl,
 	}
 }
 
@@ -87,34 +127,65 @@ func encodeRunbook(v runbookJSON, _ int) domainModel.Runbook {
 	return domainModel.Runbook{Title: v.Title, Url: v.Url}
 }
 
+func encodeDependency(v dependencyJSON, _ int) domainModel.Dependency {
+	return domainModel.Dependency{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical}
+}
+
 func encodeEndpoint(v endpointJSON, _ int) domainModel.Endpoint {
-	return domainModel.Endpoint{
-		Id:         v.Id,
-		Title:      v.Title,
-		Path:       v.Path,
-		Method:     v.Method,
-		Port:       v.Port,
-		K8sService: v.K8sSvc,
+	result := domainModel.Endpoint{
+		Id:          v.Id,
+		Title:       v.Title,
+		Description: v.Description,
+		Path:        v.Path,
+		Method:      v.Method,
+		Port:        v.Port,
+		K8sService:  v.K8sSvc,
 		Params: lo.MapValues(v.Params, func(p endpointParamJSON, _ string) domainModel.EndpointParam {
-			return domainModel.EndpointParam{Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required}
+			return domainModel.EndpointParam{
+				Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required,
+				Pattern: p.Pattern, Enum: p.Enum, Description: p.Description, Personal: p.Personal,
+			}
 		}),
-		MaxRows: v.MaxRows,
-		PII:     v.PII,
-		Timeout: time.Duration(v.Timeout) * time.Millisecond,
+		Response: encodeSchema(v.Response),
+		RowsPath: v.RowsPath,
+		MaxRows:  v.MaxRows,
+		PII:      v.PII,
+		Timeout:  time.Duration(v.Timeout) * time.Millisecond,
 	}
+	if v.Workload != nil {
+		result.Workload = &domainModel.WorkloadRef{Namespace: v.Workload.Namespace, Kind: v.Workload.Kind, Name: v.Workload.Name}
+	}
+	return result
+}
+
+func encodeSchema(v *schemaJSON) *domainModel.Schema {
+	if v == nil {
+		return nil
+	}
+	result := &domainModel.Schema{
+		Type: v.Type, Items: encodeSchema(v.Items), Values: encodeSchema(v.Values), Enum: v.Enum, Format: v.Format,
+		MaxLength: v.MaxLength, MaxItems: v.MaxItems, Description: v.Description, Personal: v.Personal,
+	}
+	if len(v.Properties) > 0 {
+		result.Properties = lo.MapValues(v.Properties, func(p *schemaJSON, _ string) *domainModel.Schema { return encodeSchema(p) })
+	}
+	return result
 }
 
 // decode: domain → json
 
 func decodeMetadata(v *domainModel.Metadata) metadataJSON {
 	return metadataJSON{
+		Source:  v.Source,
 		Metrics: lo.Map(v.Metrics, decodeMetric),
 		Logs: logsJSON{
 			Selector:      v.Logs.Selector,
 			ErrorPatterns: lo.Map(v.Logs.ErrorPatterns, decodeErrorPattern),
 		},
-		Runbooks:  lo.Map(v.Runbooks, decodeRunbook),
-		Endpoints: lo.Map(v.Endpoints, decodeEndpoint),
+		Runbooks:     lo.Map(v.Runbooks, decodeRunbook),
+		Endpoints:    lo.Map(v.Endpoints, decodeEndpoint),
+		Dependencies: lo.Map(v.Dependencies, decodeDependency),
+		DocsUrl:      v.DocsUrl,
 	}
 }
 
@@ -130,19 +201,47 @@ func decodeRunbook(v domainModel.Runbook, _ int) runbookJSON {
 	return runbookJSON{Title: v.Title, Url: v.Url}
 }
 
+func decodeDependency(v domainModel.Dependency, _ int) dependencyJSON {
+	return dependencyJSON{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical}
+}
+
 func decodeEndpoint(v domainModel.Endpoint, _ int) endpointJSON {
-	return endpointJSON{
-		Id:     v.Id,
-		Title:  v.Title,
-		Path:   v.Path,
-		Method: v.Method,
-		Port:   v.Port,
-		K8sSvc: v.K8sService,
+	result := endpointJSON{
+		Id:          v.Id,
+		Title:       v.Title,
+		Description: v.Description,
+		Path:        v.Path,
+		Method:      v.Method,
+		Port:        v.Port,
+		K8sSvc:      v.K8sService,
 		Params: lo.MapValues(v.Params, func(p domainModel.EndpointParam, _ string) endpointParamJSON {
-			return endpointParamJSON{Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required}
+			return endpointParamJSON{
+				Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required,
+				Pattern: p.Pattern, Enum: p.Enum, Description: p.Description, Personal: p.Personal,
+			}
 		}),
-		MaxRows: v.MaxRows,
-		PII:     v.PII,
-		Timeout: v.Timeout.Milliseconds(),
+		Response: decodeSchema(v.Response),
+		RowsPath: v.RowsPath,
+		MaxRows:  v.MaxRows,
+		PII:      v.PII,
+		Timeout:  v.Timeout.Milliseconds(),
 	}
+	if v.Workload != nil {
+		result.Workload = &workloadRefJSON{Namespace: v.Workload.Namespace, Kind: v.Workload.Kind, Name: v.Workload.Name}
+	}
+	return result
+}
+
+func decodeSchema(v *domainModel.Schema) *schemaJSON {
+	if v == nil {
+		return nil
+	}
+	result := &schemaJSON{
+		Type: v.Type, Items: decodeSchema(v.Items), Values: decodeSchema(v.Values), Enum: v.Enum, Format: v.Format,
+		MaxLength: v.MaxLength, MaxItems: v.MaxItems, Description: v.Description, Personal: v.Personal,
+	}
+	if len(v.Properties) > 0 {
+		result.Properties = lo.MapValues(v.Properties, func(p *domainModel.Schema, _ string) *schemaJSON { return decodeSchema(p) })
+	}
+	return result
 }

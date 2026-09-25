@@ -3,6 +3,8 @@ package model
 import (
 	"time"
 
+	"github.com/samber/lo"
+
 	domainModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 )
 
@@ -21,6 +23,7 @@ type Upsert struct {
 	DeployedCommit  *string
 	Selector        *string
 	ConfigRefs      *[]string
+	Manifest        *domainModel.Manifest
 	FirstSeen       *time.Time // только INSERT
 	LastSeen        *time.Time
 }
@@ -51,6 +54,16 @@ func (m *Upsert) CreateColumnMap() map[string]any {
 	}
 	if m.ConfigRefs != nil {
 		result["config_refs"] = *m.ConfigRefs
+	}
+	if m.Manifest != nil {
+		result["manifest_status"] = m.Manifest.Status
+		result["manifest_reasons"] = lo.CoalesceSliceOrEmpty(m.Manifest.Reasons)
+		result["manifest_port"] = m.Manifest.Port
+		result["manifest_tried"] = lo.CoalesceSliceOrEmpty(m.Manifest.Tried)
+		result["manifest_digest"] = m.Manifest.Digest
+		result["manifest_checked_at"] = m.Manifest.CheckedAt
+		// jsonb: nil — NULL (манифеста нет)
+		result["manifest"] = lo.Ternary(len(m.Manifest.Raw) > 0, m.Manifest.Raw, nil)
 	}
 	if m.FirstSeen != nil {
 		result["first_seen"] = *m.FirstSeen
@@ -94,6 +107,7 @@ func DecodeUpsert(v *domainModel.Edit, _ int) *Upsert {
 		DeployedCommit:  v.DeployedCommit,
 		Selector:        v.Selector,
 		ConfigRefs:      v.ConfigRefs,
+		Manifest:        v.Manifest,
 		FirstSeen:       v.FirstSeen,
 		LastSeen:        v.LastSeen,
 	}

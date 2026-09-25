@@ -30,3 +30,17 @@ func TestText(t *testing.T) {
 		assert.Equal(t, want, Text(in), in)
 	}
 }
+
+func TestSecretNameAndUserinfo(t *testing.T) {
+	for _, name := range []string{"password", "db_passwd", "api_key", "apiKey", "private_key", "access_token", "sessionId", "DSN", "Authorization"} {
+		assert.True(t, SecretName(name), name)
+	}
+	for _, name := range []string{"status", "number", "stuck_reason", "phone", "created_at", "key_count"} {
+		assert.False(t, SecretName(name), name)
+	}
+
+	assert.Equal(t, "dial postgres://***@ocenter-pg:5432/db: timeout", Userinfo("dial postgres://app:s3cr3t@ocenter-pg:5432/db: timeout"))
+	assert.Equal(t, "no creds http://host/x", Userinfo("no creds http://host/x"))
+	assert.True(t, HasPII("позвоните +7 701 123 45 67"))
+	assert.False(t, HasPII("заказ 234115 застрял"))
+}
