@@ -29,7 +29,18 @@ type QueryReq struct {
 	Limit   int    // для raw, ≤ raw_limit
 	// Workload — только логи одного workload'а сервиса (notifire-sms у сервиса sms); пусто — все
 	Workload string
+	// End — конец окна (пусто — сейчас); EndIsDay — задан днём: окно по умолчанию — эти сутки
+	End      time.Time
+	EndIsDay bool
 }
+
+// почему поиск назад по дням остановился
+const (
+	SearchStopFound     = "found"     // следы найдены, а перед ними дни без совпадений
+	SearchStopBudget    = "budget"    // кончилось время на поиск: проверено только с Start
+	SearchStopRetention = "retention" // дошёл до конца хранения логов
+	SearchStopLimit     = "limit"     // строк больше лимита выборки
+)
 
 // QueryResult — результат: паттерны либо сырые строки.
 type QueryResult struct {
@@ -46,4 +57,6 @@ type QueryResult struct {
 	Lines     []logsModel.Line
 	// Services — поиск по всем сервисам: сколько строк нашлось у каждого
 	Services []logsModel.ServiceHits
+	// SearchStop — поиск назад по дням (SearchStop*); пусто — искали в одном окне
+	SearchStop string
 }

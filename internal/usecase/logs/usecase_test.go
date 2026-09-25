@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -54,6 +55,9 @@ type fakeLoki struct {
 	limit   int
 	streams []lokiModel.Stream
 	err     error
+	// calls — окна запросов строк (поиск назад по суткам); delay — время ответа
+	calls []time.Time
+	delay time.Duration
 
 	vectorQuery string
 	vector      []lokiModel.Sample
@@ -65,9 +69,24 @@ func (f *fakeLoki) QueryVector(_ context.Context, query string, _ time.Time) ([]
 	return f.vector, f.vectorErr
 }
 
-func (f *fakeLoki) QueryRange(_ context.Context, query string, _, _ time.Time, limit int) ([]lokiModel.Stream, error) {
+// QueryRange отдаёт строки, попавшие в окно [start, end], как Loki.
+func (f *fakeLoki) QueryRange(ctx context.Context, query string, start, end time.Time, limit int) ([]lokiModel.Stream, error) {
 	f.query, f.limit = query, limit
-	return f.streams, f.err
+	f.calls = append(f.calls, start)
+	if f.delay > 0 {
+		select {
+		case <-time.After(f.delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	return lo.FilterMap(f.streams, func(s lokiModel.Stream, _ int) (lokiModel.Stream, bool) {
+		s.Entries = lo.Filter(s.Entries, func(e lokiModel.Entry, _ int) bool { return !e.TS.Before(start) && !e.TS.After(end) })
+		return s, len(s.Entries) > 0
+	}), nil
 }
 
 func newUsecase(loki LokiI, selector string) *Usecase {
@@ -283,4 +302,24 @@ func TestQuery_OrchestratorJobs(t *testing.T) {
 	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "pa-*"})
 	require.NoError(t, err)
 	assert.Equal(t, `{namespace="prod", pod=~"^(pa-.*)"}`, res.Selector)
+}
+
+func TestQuery_ServiceWithEnd(t *testing.T) {
+	loki := &fakeLoki{}
+	u := newUsecase(loki, "")
+	end := time.Now().Add(-48 * time.Hour)
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", End: end})
+	require.NoError(t, err)
+	assert.Equal(t, end.UTC(), res.End)
+	assert.Equal(t, time.Hour, res.End.Sub(res.Start), "окно по умолчанию — назад от end")
+
+	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", End: time.Now().Add(-24 * time.Hour).Truncate(24 * time.Hour), EndIsDay: true})
+	require.NoError(t, err)
+	assert.Equal(t, 24*time.Hour, res.End.Sub(res.Start), "день — сутки целиком")
+
+	// конец в будущем — сейчас
+	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", End: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), res.End, time.Second)
 }

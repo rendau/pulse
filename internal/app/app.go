@@ -212,6 +212,8 @@ func (a *App) Init() {
 				MaxWindow:       rules.Logs.MaxWindow,
 				DefaultSelector: rules.Logs.DefaultSelector,
 				ClusterSelector: rules.Logs.ClusterSelector,
+				Retention:       rules.Logs.Retention,
+				SearchBudget:    rules.Logs.SearchBudget,
 			},
 			svcService, workloadService, k8sService, lokiClient, domainLogsServiceP.New(),
 		)

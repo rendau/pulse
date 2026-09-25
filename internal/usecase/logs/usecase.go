@@ -32,6 +32,10 @@ type Config struct {
 	DefaultSelector string
 	// ClusterSelector — LogQL-селектор всех логов кластера (поиск по всем сервисам, ошибки кластера)
 	ClusterSelector string
+	// Retention — сколько Loki хранит логи: раньше искать нечего
+	Retention time.Duration
+	// SearchBudget — время на поиск по всем сервисам назад по дням
+	SearchBudget time.Duration
 }
 
 type Usecase struct {
@@ -47,6 +51,12 @@ type Usecase struct {
 func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, loki LokiI, patterns patternsServiceI) *Usecase {
 	if conf.MaxWindow <= 0 {
 		conf.MaxWindow = 24 * time.Hour
+	}
+	if conf.Retention <= 0 {
+		conf.Retention = 30 * 24 * time.Hour
+	}
+	if conf.SearchBudget <= 0 {
+		conf.SearchBudget = 30 * time.Second
 	}
 	if conf.ClusterSelector == "" {
 		conf.ClusterSelector = `{kubernetes_namespace_name=~".+"}`
@@ -84,7 +94,6 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	}
 
 	mode := lo.CoalesceOrEmpty(req.Mode, model.ModePatterns)
-	win := lo.Ternary(req.Window > 0, req.Window, window.Default)
 	limit := u.rawLimit(req.Limit)
 	if mode != model.ModeRaw {
 		limit = u.conf.MaxLines
@@ -110,8 +119,10 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		groups = lo.Filter(groups, func(g podGroup, _ int) bool { return g.Name == w })
 	}
 
-	end := time.Now().UTC()
-	start := end.Add(-win)
+	start, end, err := u.period(req, window.Default)
+	if err != nil {
+		return nil, err
+	}
 
 	lines, selector, source, err := u.collect(ctx, service, groups, req.Pattern, level, start, end, limit)
 	if err != nil {
@@ -139,6 +150,22 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 
 	result.Patterns = u.patterns.Aggregate(lines, u.conf.MaxPatterns)
 	return result, nil
+}
+
+// period — окно запроса: window назад от end (end пусто — сейчас). end днём без window — эти
+// сутки целиком. Окно не выходит за «сейчас» и за срок хранения логов.
+func (u *Usecase) period(req *model.QueryReq, def time.Duration) (time.Time, time.Time, error) {
+	now := time.Now().UTC()
+	oldest := now.Add(-u.conf.Retention)
+
+	end := lo.Ternary(req.End.IsZero(), now, req.End.UTC())
+	win := lo.Ternary(req.Window > 0, req.Window, lo.Ternary(req.EndIsDay, 24*time.Hour, def))
+	if !end.After(oldest) {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w: logs are kept for %s; end %s is older", errs.InvalidRequest, window.Format(u.conf.Retention), end.Format(time.RFC3339))
+	}
+
+	start := lo.Latest(end.Add(-win), oldest)
+	return start, lo.Earliest(end, now), nil
 }
 
 // rawLimit — число строк в режиме raw: запрошенное, но не больше raw_limit.

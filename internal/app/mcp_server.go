@@ -21,7 +21,8 @@ const mcpInstructions = `pulse — единая точка доступа к и�
 	`уже точные — используй как есть, без перепроверки. resolve_service ничего не нашёл — попробуй перевод на английский ` +
 	`и синонимы («платежи» → payment, acquiring), затем list_services; не угадывай молча — назови кандидатов и спроси. ` +
 	`Ошибки в логах без названного сервиса — get_cluster_health (log_errors), не переспрашивай сервис. ` +
-	`Номер заказа, id клиента и другой идентификатор — query_logs без service с pattern: найдёт сервисы и строки.`
+	`Номер заказа, id клиента и другой идентификатор — query_logs без service с pattern: найдёт сервисы и строки ` +
+	`(сам ищет назад по дням; названный день или время — в end).`
 
 // MCPServerCreate собирает MCP-сервер и регистрирует инструменты.
 func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {

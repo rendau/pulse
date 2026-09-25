@@ -133,7 +133,7 @@ func (s *Service) SummaryHints(snap *model.Snapshot, now time.Time) []string {
 	}
 
 	for _, e := range snap.Errors {
-		hints = append(hints, fmt.Sprintf("источник %s недоступен: часть картины отсутствует", e.Source))
+		hints = append(hints, e.Hint())
 	}
 
 	return hints

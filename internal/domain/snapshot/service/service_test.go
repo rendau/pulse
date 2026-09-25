@@ -78,7 +78,7 @@ func TestSummaryHints(t *testing.T) {
 			Pods: model.PodsState{Ready: 3, Total: 6, NewestStartedAt: now.Add(-24 * time.Minute),
 				Problems: []model.PodProblem{{Pod: "payments-api-1", Reason: "CrashLoopBackOff"}, {Pod: "payments-api-2", Reason: "CrashLoopBackOff"}}}}},
 		Metrics: []model.Metric{{MetricDef: model.MetricDef{Id: "success_rate"}, Current: new(0.31), SameTimeYesterday: new(0.97), DeltaVsYesterday: new(-68.0), Anomaly: true}},
-		Errors:  []model.SourceError{{Source: "loki"}},
+		Errors:  []model.SourceError{{Source: "loki"}, {Source: "prometheus", Message: "query: context deadline exceeded"}},
 	}
 
 	hints := s.SummaryHints(snap, now)
@@ -88,4 +88,5 @@ func TestSummaryHints(t *testing.T) {
 	assert.Contains(t, hints, "payments-api: самый свежий под запущен 24 мин назад (выкатка или рестарт)")
 	assert.Contains(t, hints, "success_rate упал на 68% относительно вчера (0.97 → 0.31)")
 	assert.Contains(t, hints, "источник loki недоступен: часть картины отсутствует")
+	assert.Contains(t, hints, "источник prometheus не успел ответить: часть картины отсутствует")
 }

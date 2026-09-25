@@ -54,6 +54,10 @@ type Rules struct {
 		// ClusterSelector — LogQL-селектор всех логов кластера: поиск по всем сервисам
 		// (query_logs без service) и ошибки кластера в get_cluster_health
 		ClusterSelector string `yaml:"cluster_selector"`
+		// Retention — сколько Loki хранит логи (retention_period): глубже искать нечего
+		Retention time.Duration `yaml:"retention"`
+		// SearchBudget — время на поиск по всем сервисам назад по суткам
+		SearchBudget time.Duration `yaml:"search_budget"`
 	} `yaml:"logs"`
 
 	Timeline struct {
@@ -222,6 +226,12 @@ func (r *Rules) applyDefaults() {
 	if r.Logs.DefaultSelector == "" {
 		r.Logs.DefaultSelector = `{kubernetes_namespace_name="{namespace}", kubernetes_pod_name=~"{pod_regex}"}`
 	}
+	if r.Logs.Retention <= 0 {
+		r.Logs.Retention = 720 * time.Hour
+	}
+	if r.Logs.SearchBudget <= 0 {
+		r.Logs.SearchBudget = 30 * time.Second
+	}
 	if r.Logs.ClusterSelector == "" {
 		r.Logs.ClusterSelector = `{kubernetes_namespace_name=~".+"}`
 	}
@@ -256,7 +266,7 @@ func (r *Rules) applyDefaults() {
 		r.Endpoints.DefaultPort = 80
 	}
 	if r.Cluster.Deadline <= 0 {
-		r.Cluster.Deadline = 8 * time.Second
+		r.Cluster.Deadline = 30 * time.Second
 	}
 	if r.Cluster.PendingPodsThreshold <= 0 {
 		r.Cluster.PendingPodsThreshold = 5

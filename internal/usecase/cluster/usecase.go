@@ -50,7 +50,7 @@ type Usecase struct {
 
 func New(conf Config, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, logs LogsI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
 	if conf.Deadline <= 0 {
-		conf.Deadline = 8 * time.Second
+		conf.Deadline = 30 * time.Second
 	}
 	if conf.MaxProblemPods <= 0 {
 		conf.MaxProblemPods = 50

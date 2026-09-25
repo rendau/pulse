@@ -137,7 +137,7 @@ func (s *Service) SummaryHints(h *model.Health, now time.Time) []string {
 	}
 
 	for _, e := range h.Errors {
-		hints = append(hints, fmt.Sprintf("источник %s недоступен: часть картины отсутствует", e.Source))
+		hints = append(hints, e.Hint())
 	}
 
 	return hints

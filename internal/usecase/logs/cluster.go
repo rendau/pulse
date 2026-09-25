@@ -25,8 +25,8 @@ const minSearchLen = 3
 
 // search — поиск текста (номер заказа, id клиента) во всех логах кластера: «что по заказу
 // 234115» — все следы по всем сервисам. Строки привязываются к сервисам каталога по поду,
-// в ответе — где и сколько нашлось. Дефолты под расследование: окно — потолок окна логов
-// (заказ мог пройти вчера), режим raw (в паттернах номер замаскирован), строки — по времени.
+// в ответе — где и сколько нашлось. Без окна и конца — назад по дням (scan); режим по
+// умолчанию raw (в паттернах номер замаскирован), строки — по времени.
 // Только Loki: обойти логи всех подов через Kubernetes API за разумное время нельзя.
 func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string) (*model.QueryResult, error) {
 	pattern := strings.TrimSpace(req.Pattern)
@@ -41,17 +41,23 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string)
 	}
 
 	mode := lo.CoalesceOrEmpty(req.Mode, model.ModeRaw)
-	win := lo.Ternary(req.Window > 0, req.Window, u.conf.MaxWindow)
-
 	owners, err := u.owners(ctx)
 	if err != nil {
 		return nil, err
 	}
+	query := searchQL(u.conf.ClusterSelector, pattern, level)
 
 	// выборка — max_lines: счётчики по сервисам точнее, чем по показанным строкам
-	end := time.Now().UTC()
-	start := end.Add(-win)
-	lines, err := u.fetch(ctx, searchQL(u.conf.ClusterSelector, pattern, level), level, start, end, u.conf.MaxLines, owners.attach)
+	var lines []logsModel.Line
+	var start, end time.Time
+	var stop string
+	if req.End.IsZero() && req.Window <= 0 {
+		lines, start, end, stop, err = u.scan(ctx, query, level, owners.attach)
+	} else {
+		if start, end, err = u.period(req, u.conf.MaxWindow); err == nil {
+			lines, err = u.fetch(ctx, query, level, start, end, u.conf.MaxLines, owners.attach)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +71,7 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string)
 		TotalLines: len(lines),
 		Truncated:  len(lines) >= u.conf.MaxLines,
 		Services:   serviceHits(lines),
+		SearchStop: stop,
 	}
 
 	if mode == model.ModeRaw {
@@ -82,6 +89,53 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string)
 		return p
 	})
 	return result, nil
+}
+
+// emptyDaysAfterHits — сколько пустых суток подряд перед найденными следами завершают поиск:
+// между оформлением и доставкой заказа бывают дни тишины.
+const emptyDaysAfterHits = 2
+
+// scan — поиск назад по суткам: у Loki нет индекса по словам, и любой поиск читает все логи
+// окна, поэтому — сутки за запросом (≈2 с), по одному, с остановкой, как только следы
+// найдены и перед ними пусто. Предел — срок хранения логов и бюджет времени; не уложились —
+// отдаём найденное, в start — докуда успели.
+func (u *Usecase) scan(ctx context.Context, query, level string, attach func(map[string]string, *logsModel.Line)) ([]logsModel.Line, time.Time, time.Time, string, error) {
+	budgetCtx, cancel := context.WithTimeout(ctx, u.conf.SearchBudget)
+	defer cancel()
+
+	now := time.Now().UTC()
+	oldest := now.Add(-u.conf.Retention)
+
+	var lines []logsModel.Line
+	covered, empty := now, 0
+	for {
+		start := lo.Latest(covered.Add(-24*time.Hour), oldest)
+		day, err := u.fetch(budgetCtx, query, level, start, covered, u.conf.MaxLines-len(lines), attach)
+		if err != nil {
+			// бюджет кончился посреди суток: отдаём проверенное, если оно есть
+			if ctx.Err() == nil && budgetCtx.Err() != nil && covered.Before(now) {
+				return lines, covered, now, model.SearchStopBudget, nil
+			}
+			return nil, time.Time{}, time.Time{}, "", err
+		}
+		lines = append(lines, day...)
+		covered = start
+
+		switch {
+		case len(day) > 0:
+			empty = 0
+		case len(lines) > 0:
+			empty++
+		}
+		switch {
+		case len(lines) >= u.conf.MaxLines:
+			return lines, covered, now, model.SearchStopLimit, nil
+		case empty >= emptyDaysAfterHits:
+			return lines, covered, now, model.SearchStopFound, nil
+		case !covered.After(oldest):
+			return lines, covered, now, model.SearchStopRetention, nil
+		}
+	}
 }
 
 // searchQL — LogQL поиска. Идентификатор (без метасимволов, по краям буква или цифра) ищется

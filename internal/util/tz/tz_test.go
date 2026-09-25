@@ -23,3 +23,22 @@ func TestInPtr(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "2026-09-24T15:00:00+05:00", got.Format(time.RFC3339))
 }
+
+func TestParseEnd(t *testing.T) {
+	end, day, err := ParseEnd("2026-09-20")
+	require.NoError(t, err)
+	assert.True(t, day)
+	assert.Equal(t, "2026-09-21T00:00:00+05:00", end.Format(time.RFC3339), "конец суток по Алматы")
+
+	end, day, err = ParseEnd("2026-09-20T16:00")
+	require.NoError(t, err)
+	assert.False(t, day)
+	assert.Equal(t, "2026-09-20T16:00:00+05:00", end.Format(time.RFC3339))
+
+	end, _, err = ParseEnd("2026-09-20T16:00:00Z")
+	require.NoError(t, err)
+	assert.Equal(t, 16, end.Hour())
+
+	_, _, err = ParseEnd("вчера")
+	require.Error(t, err)
+}

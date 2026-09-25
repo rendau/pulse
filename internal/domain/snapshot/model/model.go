@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
@@ -84,6 +85,14 @@ type Metric struct {
 type SourceError struct {
 	Source  string
 	Message string
+}
+
+// Hint — подсказка об ошибке источника: не успел ответить за дедлайн или недоступен.
+func (e SourceError) Hint() string {
+	if strings.Contains(e.Message, "deadline exceeded") {
+		return "источник " + e.Source + " не успел ответить: часть картины отсутствует"
+	}
+	return "источник " + e.Source + " недоступен: часть картины отсутствует"
 }
 
 // Snapshot — агрегированный срез состояния сервиса.

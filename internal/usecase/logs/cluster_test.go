@@ -53,14 +53,16 @@ func TestQuery_SearchAllServices(t *testing.T) {
 	}}
 	u := newClusterUsecase(loki)
 
-	// дефолты поиска: raw, окно — потолок логов
+	// дефолты поиска: raw, назад по суткам до пустых дней перед следами
 	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-12345"})
 	require.NoError(t, err)
+	assert.Equal(t, model.SearchStopFound, res.SearchStop)
+	assert.Len(t, loki.calls, 1+emptyDaysAfterHits)
+	assert.Equal(t, time.Duration(1+emptyDaysAfterHits)*24*time.Hour, res.End.Sub(res.Start).Round(time.Hour))
 
 	assert.Equal(t, `{kubernetes_namespace_name=~".+"} |= "ORD-12345" |~ "\\bORD-12345\\b"`, loki.query, "идентификатор — целым словом")
-	assert.Equal(t, 5000, loki.limit, "счётчики по сервисам — по всей выборке")
+	assert.Equal(t, 5000-4, loki.limit, "счётчики по сервисам — по всей выборке max_lines")
 	assert.Equal(t, model.ModeRaw, res.Mode)
-	assert.Equal(t, 24*time.Hour, res.End.Sub(res.Start))
 	assert.Empty(t, res.Service)
 	assert.Equal(t, 4, res.TotalLines)
 	require.Len(t, res.Services, 3)
@@ -92,6 +94,70 @@ func TestQuery_SearchAllServices(t *testing.T) {
 	services := lo.FlatMap(res.Patterns, func(p logsModel.Pattern, _ int) []string { return p.Services })
 	assert.ElementsMatch(t, []string{"orders", "orders", "sms-im"}, services)
 	assert.True(t, lo.EveryBy(res.Patterns, func(p logsModel.Pattern) bool { return len(p.Workloads) == 0 }))
+}
+
+func TestQuery_SearchScanDays(t *testing.T) {
+	now := time.Now()
+	day := 24 * time.Hour
+	at := func(ago time.Duration, text string) lokiModel.Entry { return lokiModel.Entry{TS: now.Add(-ago), Line: text} }
+	loki := &fakeLoki{streams: []lokiModel.Stream{{Labels: streamLabels("prod", "orders-7d9f-q2"), Entries: []lokiModel.Entry{
+		// заказ: оформлен 6 дней назад, день тишины, доставлен 4 дня назад
+		at(6*day+time.Hour, "order 234115 created"),
+		at(4*day+time.Hour, "order 234115 delivered"),
+		// тот же номер месяц назад — за пустыми днями, не должен найтись
+		at(20*day, "order 234115 archived"),
+	}}}}
+	u := newClusterUsecase(loki)
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "234115"})
+	require.NoError(t, err)
+	assert.Equal(t, model.SearchStopFound, res.SearchStop)
+	require.Len(t, res.Lines, 2, "день тишины между следами не останавливает поиск")
+	assert.Contains(t, res.Lines[0].Text, "created")
+	assert.Contains(t, res.Lines[1].Text, "delivered")
+	assert.Len(t, loki.calls, 9, "сегодня…6 дней назад и два пустых дня перед следами")
+
+	// названный день — только эти сутки, без прохода по дням
+	loki.calls = nil
+	end := now.Add(-4 * day)
+	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: "234115", End: end, EndIsDay: true})
+	require.NoError(t, err)
+	assert.Empty(t, res.SearchStop)
+	assert.Len(t, loki.calls, 1)
+	assert.Equal(t, 24*time.Hour, res.End.Sub(res.Start))
+	require.Len(t, res.Lines, 1)
+	assert.Contains(t, res.Lines[0].Text, "delivered")
+
+	// глубже срока хранения — ошибка с подсказкой
+	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "234115", End: now.Add(-40 * day)})
+	require.ErrorIs(t, err, errs.InvalidRequest)
+	assert.ErrorContains(t, err, "logs are kept for")
+}
+
+func TestQuery_SearchScanBudgetAndRetention(t *testing.T) {
+	// номера нет: проход до конца хранения логов
+	loki := &fakeLoki{}
+	u := newClusterUsecase(loki)
+	u.conf.Retention = 5 * 24 * time.Hour
+	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "234115"})
+	require.NoError(t, err)
+	assert.Equal(t, model.SearchStopRetention, res.SearchStop)
+	assert.Len(t, loki.calls, 5)
+
+	// Loki медленный: бюджет кончился — отдаём проверенное, start — докуда успели
+	loki = &fakeLoki{delay: 30 * time.Millisecond}
+	u = newClusterUsecase(loki)
+	u.conf.SearchBudget = 100 * time.Millisecond
+	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: "234115"})
+	require.NoError(t, err)
+	assert.Equal(t, model.SearchStopBudget, res.SearchStop)
+	days := int(res.End.Sub(res.Start).Round(time.Hour) / (24 * time.Hour))
+	assert.Equal(t, len(loki.calls)-1, days, "последние сутки не успели — в окно не входят")
+
+	// не успели даже первые сутки — ошибка
+	u.conf.SearchBudget = 10 * time.Millisecond
+	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "234115"})
+	require.Error(t, err)
 }
 
 func TestQuery_SearchValidation(t *testing.T) {
@@ -189,6 +255,7 @@ func TestLive_ClusterQueries(t *testing.T) {
 
 	search, err := u.Query(context.Background(), &model.QueryReq{Pattern: lo.CoalesceOrEmpty(os.Getenv("LOKI_LIVE_PATTERN"), "ORD-12345")})
 	require.NoError(t, err)
+	t.Logf("search: stop=%s start=%s total=%d", search.SearchStop, search.Start.Format(time.RFC3339), search.TotalLines)
 	for _, h := range search.Services {
 		t.Logf("  hits %s/%s: %d", h.Namespace, h.Service, h.Count)
 	}

@@ -16,7 +16,8 @@ type QueryLogsReq struct {
 	Service string `json:"service,omitempty" jsonschema:"точное имя сервиса; пусто — поиск pattern во всех логах кластера (номер заказа, id клиента)"`
 	Level   string `json:"level,omitempty" jsonschema:"error | warn | info | debug; пусто — все уровни"`
 	Pattern string `json:"pattern,omitempty" jsonschema:"регулярное выражение по строке (RE2), например acquirer.*timeout"`
-	Window  string `json:"window,omitempty" jsonschema:"Go duration: 15m, 1h (по умолчанию; без service — 24h), 24h (максимум по умолчанию)"`
+	Window  string `json:"window,omitempty" jsonschema:"Go duration назад от end: 15m, 1h (по умолчанию), 24h (максимум); без service и без end — поиск назад по суткам"`
+	End     string `json:"end,omitempty" jsonschema:"конец окна: дата 2026-09-20 (без window — эти сутки целиком) или время 2026-09-20T16:00 (Asia/Almaty); пусто — сейчас. Логи хранятся 30 дней"`
 	Mode    string `json:"mode,omitempty" jsonschema:"patterns (по умолчанию; без service — raw) — агрегированные паттерны со счётчиком; raw — последние строки"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"для raw: число строк, максимум 100"`
 	// Workload — сузить до одного workload'а сервиса
@@ -34,6 +35,7 @@ type QueryLogsRep struct {
 	Truncated  bool         `json:"truncated" jsonschema:"true — строк за окно больше лимита выборки, сузь окно или добавь pattern"`
 	Patterns   []LogPattern `json:"patterns,omitempty"`
 	Lines      []LogLine    `json:"lines,omitempty"`
+	SearchStop string       `json:"search_stop,omitempty" jsonschema:"поиск назад по суткам: found — следы найдены, перед ними пусто; budget — не успел, проверено только с start; retention — дошёл до конца хранения логов; limit — строк больше лимита"`
 	// Services — только при поиске без service
 	Services []LogServiceHits `json:"services,omitempty" jsonschema:"поиск по всем сервисам: где и сколько строк нашлось, больше всего — первым"`
 }
@@ -79,6 +81,7 @@ func EncodeQueryLogsRep(v *usecaseLogsModel.QueryResult) QueryLogsRep {
 		End:        tz.In(v.End),
 		TotalLines: v.TotalLines,
 		Truncated:  v.Truncated,
+		SearchStop: v.SearchStop,
 		Patterns:   lo.Map(v.Patterns, EncodeLogPattern),
 		Lines: lo.Map(v.Lines, func(l logsModel.Line, _ int) LogLine {
 			line := LogLine{TS: tz.In(l.TS), Level: l.Level, Workload: l.Workload, Service: l.Service, Text: lo.Ellipsis(l.Text, maxLineChars)}

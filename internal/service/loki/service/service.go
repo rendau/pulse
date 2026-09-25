@@ -36,8 +36,10 @@ type Service struct {
 
 func New(baseUrl string, auth Auth) *Service {
 	s := &Service{
-		auth:       auth,
-		httpClient: httpx.New(httpx.Config{Timeout: 15 * time.Second}),
+		auth: auth,
+		// 30s: счётчик ошибок по логам всего кластера за сутки; поиск назад по суткам —
+		// запросами по ≈2 с, его предел — бюджет поиска, а не этот таймаут
+		httpClient: httpx.New(httpx.Config{Timeout: 30 * time.Second}),
 	}
 
 	baseUrl = strings.TrimRight(baseUrl, "/")
