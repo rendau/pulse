@@ -60,7 +60,7 @@ func TestQuery_SearchAllServices(t *testing.T) {
 	assert.Len(t, loki.calls, 1+emptyDaysAfterHits)
 	assert.Equal(t, time.Duration(1+emptyDaysAfterHits)*24*time.Hour, res.End.Sub(res.Start).Round(time.Hour))
 
-	assert.Equal(t, `{kubernetes_namespace_name=~".+"} |= "ORD-12345" |~ "\\bORD-12345\\b"`, loki.query, "идентификатор — целым словом")
+	assert.Equal(t, `{kubernetes_namespace_name=~".+"} |= "ORD-12345" |~ "(?:^|[^[:alnum:]])ORD-12345(?:[^[:alnum:]]|$)"`, loki.query, "идентификатор — отдельно стоящим")
 	assert.Equal(t, 5000-4, loki.limit, "счётчики по сервисам — по всей выборке max_lines")
 	assert.Equal(t, model.ModeRaw, res.Mode)
 	assert.Empty(t, res.Service)
@@ -164,23 +164,32 @@ func TestQuery_SearchScanBudgetAndRetention(t *testing.T) {
 
 func TestSearchQL(t *testing.T) {
 	sel := `{ns=~".+"}`
-	assert.Equal(t, `{ns=~".+"} |= "234115" |~ "(?:^|[^\\w.])234115\\b"`, searchQL(sel, "234115", ""), "число — не в дробной части")
+	assert.Equal(t, `{ns=~".+"} |= "234115" |~ "(?:^|[^[:alnum:].])234115(?:[^[:alnum:]]|$)"`, searchQL(sel, "234115", ""), "число — не в дробной части")
 	assert.Equal(t, searchQL(sel, "234115", ""), searchQL(sel, `\b234115\b`, ""), "\\b от модели — тот же поиск подстрокой")
-	assert.Equal(t, `{ns=~".+"} |= "ORD-1" |~ "\\bORD-1\\b"`, searchQL(sel, "ORD-1", ""))
+	assert.Equal(t, `{ns=~".+"} |= "ORD-1" |~ "(?:^|[^[:alnum:]])ORD-1(?:[^[:alnum:]]|$)"`, searchQL(sel, "ORD-1", ""))
 	assert.Equal(t, `{ns=~".+"} |~ "ORD-\\d+"`, searchQL(sel, `ORD-\d+`, ""))
 
-	re := regexp.MustCompile(`(?:^|[^\w.])234115\b`)
+	number := regexp.MustCompile(`(?:^|[^[:alnum:].])234115(?:[^[:alnum:]]|$)`)
 	for line, want := range map[string]bool{
 		`order 234115 created`: true,
 		`{"ord_id":234115}`:    true,
 		`/orders/234115`:       true,
 		`234115`:               true,
+		`"id":"halyk__234115"`: true,
+		`ord-234115-1`:         true,
 		`I0925 06:02:28.234115       1 reflector`: false,
 		`order 12341156`: false,
 		`order 1234115`:  false,
+		`order x234115`:  false,
 	} {
-		assert.Equal(t, want, re.MatchString(line), line)
+		assert.Equal(t, want, number.MatchString(line), line)
 	}
+
+	code := regexp.MustCompile(`(?:^|[^[:alnum:]])ORD-1(?:[^[:alnum:]]|$)`)
+	assert.True(t, code.MatchString(`"ord":"ORD-1"`))
+	assert.True(t, code.MatchString(`x_ORD-1_y`))
+	assert.False(t, code.MatchString(`ORD-12`))
+	assert.False(t, code.MatchString(`XORD-1`))
 }
 
 func TestQuery_SearchValidation(t *testing.T) {

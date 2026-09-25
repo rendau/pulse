@@ -139,9 +139,10 @@ func (u *Usecase) scan(ctx context.Context, query, level string, attach func(map
 }
 
 // searchQL — LogQL поиска. Идентификатор (без метасимволов, по краям буква или цифра) ищется
-// целым словом: подстрокой в Loki (быстро) и затем регэкспом с границами — номер 234115 не
-// должен находиться внутри 12341156, а число — в дробной части (микросекунды «28.234115»
-// во временных метках klog). \b234115\b от модели — тот же идентификатор: регэксп без
+// отдельно стоящим: подстрокой в Loki (быстро) и затем регэкспом с границами — рядом не
+// буква и не цифра (номер 234115 не находится внутри 12341156, а «halyk__41314079» и
+// «ord-41314079» находятся: _ и - — разделители, \b их не пропускал), у числа ещё и не
+// точка перед ним (микросекунды «28.234115» во временных метках klog). \b234115\b от модели — тот же идентификатор: регэксп без
 // подстроки Loki проверяет на порядок медленнее.
 func searchQL(selector, pattern, level string) string {
 	if inner, ok := strings.CutPrefix(pattern, `\b`); ok {
@@ -152,17 +153,17 @@ func searchQL(selector, pattern, level string) string {
 
 	query := logQL(selector, pattern, level)
 	if regexp.QuoteMeta(pattern) == pattern && wordEdgesRe.MatchString(pattern) {
-		left := `\b`
+		left := `(?:^|[^[:alnum:]])`
 		if digitsRe.MatchString(pattern) {
-			left = `(?:^|[^\w.])`
+			left = `(?:^|[^[:alnum:].])`
 		}
-		query += " |~ " + strconv.Quote(left+pattern+`\b`)
+		query += " |~ " + strconv.Quote(left+pattern+`(?:[^[:alnum:]]|$)`)
 	}
 	return query
 }
 
 var (
-	wordEdgesRe = regexp.MustCompile(`^\w(?:.*\w)?$`)
+	wordEdgesRe = regexp.MustCompile(`^[[:alnum:]](?:.*[[:alnum:]])?$`)
 	digitsRe    = regexp.MustCompile(`^\d+$`)
 )
 
