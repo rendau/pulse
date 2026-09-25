@@ -16,6 +16,7 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
+	piiServiceP "github.com/mechta-market/pulse/internal/service/pii/service"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
 )
 
@@ -101,7 +102,7 @@ func newUsecaseWithPods(loki LokiI, selector string, pods []k8sModel.Pod) *Useca
 		{Namespace: "prod", Kind: "CronJob", Name: "payments-api-reconcile"},
 	}}
 	return New(Config{MaxLines: 5000, MaxPatterns: 20, RawLimit: 100, MaxWindow: 24 * time.Hour,
-		DefaultSelector: `{namespace="{namespace}", pod=~"{pod_regex}"}`}, svc, wl, &fakeK8s{pods: pods}, loki, logsService.New())
+		DefaultSelector: `{namespace="{namespace}", pod=~"{pod_regex}"}`}, svc, wl, &fakeK8s{pods: pods}, loki, logsService.New(), testPii)
 }
 
 func sampleStreams(now time.Time) []lokiModel.Stream {
@@ -176,7 +177,7 @@ func TestQuery_Validation(t *testing.T) {
 	assert.Equal(t, model.SourceKubernetes, res.Source)
 
 	// без привязки к сервису запрос невозможен: нет workloads и нет селектора
-	empty := New(Config{DefaultSelector: "{x}"}, &fakeSvc{service: &svcModel.Main{Name: "ghost"}}, &fakeWorkload{}, &fakeK8s{}, &fakeLoki{}, logsService.New())
+	empty := New(Config{DefaultSelector: "{x}"}, &fakeSvc{service: &svcModel.Main{Name: "ghost"}}, &fakeWorkload{}, &fakeK8s{}, &fakeLoki{}, logsService.New(), testPii)
 	_, err = empty.Query(ctx, &model.QueryReq{Service: "ghost"})
 	assert.ErrorContains(t, err, "no workloads")
 
@@ -323,3 +324,5 @@ func TestQuery_ServiceWithEnd(t *testing.T) {
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now(), res.End, time.Second)
 }
+
+var testPii = piiServiceP.New(piiServiceP.Config{Key: []byte("test")})

@@ -31,6 +31,14 @@ func TestText(t *testing.T) {
 	}
 }
 
+// Значение явного поля — целиком, даже с пробелами: раньше маскировалось только «+7», а
+// «701 123 45 67» оставалось открытым.
+func TestText_FieldWithSpaces(t *testing.T) {
+	assert.Equal(t, `{"phone":"***","msg":"ok"}`, Text(`{"phone":"+7 701 123 45 67","msg":"ok"}`))
+	assert.Equal(t, `phone=*** status=ok`, Text(`phone=+7 701 123 45 67 status=ok`))
+	assert.Equal(t, `email: *** sent`, Text(`email: ivan@mail.kz sent`))
+}
+
 func TestSecretNameAndUserinfo(t *testing.T) {
 	for _, name := range []string{"password", "db_passwd", "api_key", "apiKey", "private_key", "access_token", "sessionId", "DSN", "Authorization"} {
 		assert.True(t, SecretName(name), name)

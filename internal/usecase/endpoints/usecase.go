@@ -1,35 +1,39 @@
-// Package endpoints — прокси к диагностическим ручкам сервисов (фаза 6). Самая рискованная
-// часть: allowlist по id, только объявленные параметры, только GET, валидация до отправки,
-// маскирование PII и лимиты из декларации с жёсткими потолками из правил.
+// Package endpoints — вызов диагностических ручек сервиса из его манифеста
+// (docs/service-manifest.md). Самая рискованная часть: allowlist по id, только объявленные
+// параметры (строки — по pattern, enum или виду персональных данных), только GET прямо в под,
+// к агенту доходят только поля из схемы ответа, персональные данные — токенами.
 package endpoints
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/samber/lo"
 
+	"github.com/mechta-market/pulse/internal/constant"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
+	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	"github.com/mechta-market/pulse/internal/usecase/endpoints/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
 )
 
-// Config — жёсткие потолки (из yaml-правил).
+// maxErrorChars — текст ошибки ручки в ответе агенту.
+const maxErrorChars = 500
+
+// Config — жёсткие потолки (из yaml-правил) поверх декларации ручки.
 type Config struct {
 	MaxRows      int
 	MaxBodyBytes int64
 	MaxTimeout   time.Duration
-	DefaultPort  int
 }
 
 type Usecase struct {
@@ -37,10 +41,12 @@ type Usecase struct {
 
 	svc      svcServiceI
 	workload workloadServiceI
+	k8s      k8sClientI
 	caller   CallerI
+	pii      PiiI
 }
 
-func New(conf Config, svc svcServiceI, workload workloadServiceI, caller CallerI) *Usecase {
+func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, caller CallerI, pii PiiI) *Usecase {
 	if conf.MaxRows <= 0 {
 		conf.MaxRows = 100
 	}
@@ -50,10 +56,7 @@ func New(conf Config, svc svcServiceI, workload workloadServiceI, caller CallerI
 	if conf.MaxTimeout <= 0 {
 		conf.MaxTimeout = 10 * time.Second
 	}
-	if conf.DefaultPort <= 0 {
-		conf.DefaultPort = 80
-	}
-	return &Usecase{conf: conf, svc: svc, workload: workload, caller: caller}
+	return &Usecase{conf: conf, svc: svc, workload: workload, k8s: k8s, caller: caller, pii: pii}
 }
 
 var pathParamRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
@@ -64,36 +67,35 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		return nil, fmt.Errorf("svc.GetOrSuggest: %w", err)
 	}
 
-	// 1. allowlist по id: произвольный путь передать нельзя
+	// 1. allowlist по id: произвольный путь передать нельзя; ручки — только из манифеста
 	endpoint, ok := lo.Find(service.Metadata.Endpoints, func(e svcModel.Endpoint) bool { return e.Id == req.EndpointId })
 	if !ok {
 		ids := lo.Map(service.Metadata.Endpoints, func(e svcModel.Endpoint, _ int) string { return e.Id })
 		if len(ids) == 0 {
-			return nil, errs.ErrFull{Err: errs.ObjectNotFound, Desc: fmt.Sprintf("service %s declares no diagnostic endpoints in service.yaml", service.Name)}
+			return nil, errs.ErrFull{Err: errs.ObjectNotFound, Desc: fmt.Sprintf("service %s declares no diagnostic endpoints (they come from its manifest, see get_service_info)", service.Name)}
 		}
 		return nil, errs.ErrFull{Err: errs.ObjectNotFound, Desc: fmt.Sprintf("unknown endpoint_id %q for %s; declared: %s (see get_service_info)",
 			req.EndpointId, service.Name, strings.Join(ids, ", "))}
 	}
-	if method := strings.ToUpper(lo.CoalesceOrEmpty(endpoint.Method, http.MethodGet)); method != http.MethodGet {
-		return nil, fmt.Errorf("%w: endpoint %s declares method %s; only GET is allowed", errs.NoPermission, endpoint.Id, method)
+	if endpoint.Workload == nil || endpoint.Response == nil {
+		return nil, fmt.Errorf("%w: endpoint %s is not declared in the service manifest", errs.InvalidConfig, endpoint.Id)
 	}
 	if !strings.HasPrefix(endpoint.Path, "/") || strings.Contains(endpoint.Path, "..") {
 		return nil, fmt.Errorf("%w: endpoint %s has invalid path %q", errs.InvalidConfig, endpoint.Id, endpoint.Path)
 	}
 
-	// 2. только объявленные параметры, валидация типов и границ
-	values, err := validateParams(endpoint, req.Params)
+	// 2. только объявленные параметры: тип, границы, pattern/enum; токен — в настоящее значение
+	values, err := u.validateParams(endpoint, req.Params)
 	if err != nil {
 		return nil, err
 	}
 	path, query := bindParams(endpoint.Path, values)
 
-	// 3. адрес внутри кластера: k8s Service и namespace из топологии
-	namespace, k8sService, err := u.target(ctx, service, endpoint)
+	// 3. готовый под workload'а, объявившего ручку, на порту манифеста
+	target, err := u.target(ctx, service, endpoint)
 	if err != nil {
 		return nil, err
 	}
-	port := lo.CoalesceOrEmpty(endpoint.Port, u.conf.DefaultPort)
 
 	timeout := endpoint.Timeout
 	if timeout <= 0 || timeout > u.conf.MaxTimeout {
@@ -102,210 +104,98 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	requestId := newRequestId()
 	started := time.Now()
-	resp, err := u.caller.Get(ctx, namespace, k8sService, port, path, query, u.conf.MaxBodyBytes)
+	resp, err := u.caller.GetPod(ctx, target, path, query, map[string]string{
+		"User-Agent":         constant.ServiceName + "/" + constant.Version,
+		"X-Pulse-Request-Id": requestId,
+	}, u.conf.MaxBodyBytes)
 	if err != nil {
 		// недоступность цели — внятная ошибка, а не таймаут всего вызова
-		return nil, fmt.Errorf("%w: endpoint %s of %s (%s.%s:%d%s) is unreachable: %s", errs.ServiceNA, endpoint.Id, service.Name, k8sService, namespace, port, path, compactError(err))
+		return nil, fmt.Errorf("%w: endpoint %s of %s (pod %s/%s:%d) is unreachable: %s", errs.ServiceNA,
+			endpoint.Id, service.Name, target.Namespace, target.Pod, target.Port, compactError(err))
 	}
 
 	result := &model.CallResult{
 		Service:    service.Name,
 		EndpointId: endpoint.Id,
 		Title:      endpoint.Title,
-		Url:        fmt.Sprintf("http://%s.%s:%d%s", k8sService, namespace, port, path),
+		RequestId:  requestId,
 		StatusCode: resp.StatusCode,
 		Duration:   time.Since(started),
 		Truncated:  resp.Truncated,
 	}
 
-	// 4. лимит строк и маскирование PII — до попадания в ответ
-	maxRows := endpoint.MaxRows
-	if maxRows <= 0 || maxRows > u.conf.MaxRows {
-		maxRows = u.conf.MaxRows
+	// 4. ошибка ручки — только её текст (через токены), тело ответа не пропускается
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		result.Data = map[string]any{"error": u.errorText(resp.Body)}
+		return result, nil
 	}
-	result.Data, result.Rows, result.TotalRows, result.Truncated = decodeBody(resp.Body, resp.Truncated, maxRows)
-	if len(endpoint.PII) > 0 {
-		result.Data = redact.Fields(result.Data, endpoint.PII)
-		result.MaskedKeys = endpoint.PII
+	if resp.Truncated {
+		return nil, fmt.Errorf("%w: endpoint %s answered more than %d KB — narrow the parameters", errs.ServiceNA, endpoint.Id, u.conf.MaxBodyBytes>>10)
 	}
+
+	var data any
+	if err = json.Unmarshal(resp.Body, &data); err != nil {
+		return nil, fmt.Errorf("%w: endpoint %s answered not JSON — the service violates the manifest standard", errs.ServiceNA, endpoint.Id)
+	}
+
+	// 5. проекция на схему: только объявленные поля, персональные — токенами, строки — по длине
+	p := &projector{pii: u.pii}
+	result.Data = p.value(data, endpoint.Response, "")
+	result.DroppedFields = p.dropped
+	result.PersonalFields = lo.Uniq(p.personal)
+	sort.Strings(result.PersonalFields)
+
+	// 6. лимит строк: список по rows_path или сам ответ-массив
+	maxRows := lo.Clamp(lo.CoalesceOrEmpty(endpoint.MaxRows, u.conf.MaxRows), 1, u.conf.MaxRows)
+	result.Rows, result.TotalRows, result.Truncated = limitRows(result.Data, endpoint.RowsPath, maxRows)
 
 	return result, nil
 }
 
-// target — namespace и имя k8s Service: из декларации либо по workload'ам сервиса.
-func (u *Usecase) target(ctx context.Context, service *svcModel.Main, endpoint svcModel.Endpoint) (string, string, error) {
+// target — готовый под workload'а, объявившего ручку (детерминированно — первый по имени).
+func (u *Usecase) target(ctx context.Context, service *svcModel.Main, endpoint svcModel.Endpoint) (svcproxyModel.PodTarget, error) {
+	ref := endpoint.Workload
 	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceName: new(service.Name)})
 	if err != nil {
-		return "", "", fmt.Errorf("workload.List: %w", err)
+		return svcproxyModel.PodTarget{}, fmt.Errorf("workload.List: %w", err)
 	}
-	if len(workloads) == 0 {
-		return "", "", fmt.Errorf("%w: service %s has no workloads in cluster, nowhere to call", errs.ServiceNA, service.Name)
-	}
-
-	k8sService := lo.CoalesceOrEmpty(endpoint.K8sService, workloads[0].Name)
-	namespace := workloads[0].Namespace
-	// если k8s Service совпадает с именем одного из workload'ов — берём его namespace
-	if w, ok := lo.Find(workloads, func(w *workloadModel.Main) bool { return w.Name == k8sService }); ok {
-		namespace = w.Namespace
-	}
-
-	return namespace, k8sService, nil
-}
-
-// validateParams: неизвестный параметр — ошибка; тип и границы — по декларации;
-// обязательные без дефолта — ошибка.
-func validateParams(endpoint svcModel.Endpoint, params map[string]any) (map[string]string, error) {
-	values := make(map[string]string, len(endpoint.Params))
-
-	for name := range params {
-		if _, ok := endpoint.Params[name]; !ok {
-			declared := lo.Keys(endpoint.Params)
-			sort.Strings(declared)
-			return nil, fmt.Errorf("%w: parameter %q is not declared for endpoint %s; declared: %s", errs.InvalidRequest, name, endpoint.Id, strings.Join(declared, ", "))
-		}
-	}
-
-	names := lo.Keys(endpoint.Params)
-	sort.Strings(names)
-	for _, name := range names {
-		def := endpoint.Params[name]
-		raw, present := params[name]
-		if !present || raw == nil {
-			if def.Default != "" {
-				values[name] = def.Default
-				continue
-			}
-			if def.Required || strings.Contains(endpoint.Path, "{"+name+"}") {
-				return nil, fmt.Errorf("%w: parameter %q is required for endpoint %s", errs.InvalidRequest, name, endpoint.Id)
-			}
-			continue
-		}
-
-		value, err := coerce(name, def, raw)
-		if err != nil {
-			return nil, err
-		}
-		values[name] = value
-	}
-
-	return values, nil
-}
-
-func coerce(name string, def svcModel.EndpointParam, raw any) (string, error) {
-	switch strings.ToLower(lo.CoalesceOrEmpty(def.Type, "string")) {
-	case "int", "integer", "float", "number":
-		var num float64
-		switch v := raw.(type) {
-		case float64:
-			num = v
-		case int:
-			num = float64(v)
-		case string:
-			parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-			if err != nil {
-				return "", fmt.Errorf("%w: parameter %q must be a number", errs.InvalidRequest, name)
-			}
-			num = parsed
-		default:
-			return "", fmt.Errorf("%w: parameter %q must be a number", errs.InvalidRequest, name)
-		}
-		if strings.HasPrefix(strings.ToLower(def.Type), "int") && num != float64(int64(num)) {
-			return "", fmt.Errorf("%w: parameter %q must be an integer", errs.InvalidRequest, name)
-		}
-		if def.Min != nil && num < *def.Min {
-			return "", fmt.Errorf("%w: parameter %q must be >= %g", errs.InvalidRequest, name, *def.Min)
-		}
-		if def.Max != nil && num > *def.Max {
-			return "", fmt.Errorf("%w: parameter %q must be <= %g", errs.InvalidRequest, name, *def.Max)
-		}
-		return strconv.FormatFloat(num, 'f', -1, 64), nil
-	case "bool", "boolean":
-		switch v := raw.(type) {
-		case bool:
-			return strconv.FormatBool(v), nil
-		case string:
-			parsed, err := strconv.ParseBool(strings.TrimSpace(v))
-			if err != nil {
-				return "", fmt.Errorf("%w: parameter %q must be a boolean", errs.InvalidRequest, name)
-			}
-			return strconv.FormatBool(parsed), nil
-		default:
-			return "", fmt.Errorf("%w: parameter %q must be a boolean", errs.InvalidRequest, name)
-		}
-	default:
-		value := fmt.Sprint(raw)
-		if len(value) > 256 || strings.ContainsAny(value, "\r\n") {
-			return "", fmt.Errorf("%w: parameter %q is too long or contains line breaks", errs.InvalidRequest, name)
-		}
-		if def.Max != nil && float64(len(value)) > *def.Max {
-			return "", fmt.Errorf("%w: parameter %q must be at most %g characters", errs.InvalidRequest, name, *def.Max)
-		}
-		return value, nil
-	}
-}
-
-// bindParams подставляет {name} в путь (с экранированием), остальное — в query.
-func bindParams(path string, values map[string]string) (string, map[string]string) {
-	query := make(map[string]string, len(values))
-	used := make(map[string]struct{}, 2)
-
-	bound := pathParamRe.ReplaceAllStringFunc(path, func(m string) string {
-		name := m[1 : len(m)-1]
-		if v, ok := values[name]; ok {
-			used[name] = struct{}{}
-			return url.PathEscape(v)
-		}
-		return m
+	w, ok := lo.Find(workloads, func(w *workloadModel.Main) bool {
+		return w.Namespace == ref.Namespace && w.Kind == ref.Kind && w.Name == ref.Name
 	})
-
-	for name, v := range values {
-		if _, ok := used[name]; !ok {
-			query[name] = v
-		}
+	if !ok || w.Manifest.Port == 0 || w.Selector == "" {
+		return svcproxyModel.PodTarget{}, fmt.Errorf("%w: workload %s/%s of %s is gone or has no manifest port, nowhere to call", errs.ServiceNA, ref.Namespace, ref.Name, service.Name)
 	}
 
-	return bound, query
+	pods, err := u.k8s.ListPods(ctx, w.Namespace, w.Selector)
+	if err != nil {
+		return svcproxyModel.PodTarget{}, fmt.Errorf("k8s.ListPods: %w", err)
+	}
+	ready := lo.Filter(pods, func(p k8sModel.Pod, _ int) bool { return p.Ready && p.IP != "" })
+	if len(ready) == 0 {
+		return svcproxyModel.PodTarget{}, fmt.Errorf("%w: %s/%s has no ready pods", errs.ServiceNA, w.Namespace, w.Name)
+	}
+	sort.Slice(ready, func(i, j int) bool { return ready[i].Name < ready[j].Name })
+
+	return svcproxyModel.PodTarget{Namespace: ready[0].Namespace, Pod: ready[0].Name, IP: ready[0].IP, Port: w.Manifest.Port}, nil
 }
 
-// decodeBody разбирает JSON и режет строки: массив верхнего уровня или первый массив
-// внутри объекта считаются «строками».
-func decodeBody(body []byte, bodyTruncated bool, maxRows int) (any, int, int, bool) {
-	trimmed := strings.TrimSpace(string(body))
-	if trimmed == "" {
-		return nil, 0, 0, bodyTruncated
+// errorText — {"error": "…"} из тела ответа с ошибкой; не тот формат — только статус.
+func (u *Usecase) errorText(body []byte) string {
+	var rep struct {
+		Error string `json:"error"`
 	}
-
-	var data any
-	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
-		return trimmed, 0, 0, bodyTruncated
+	if json.Unmarshal(body, &rep) != nil || strings.TrimSpace(rep.Error) == "" {
+		return "ручка ответила ошибкой без текста по стандарту"
 	}
+	return lo.Ellipsis(u.pii.Text(strings.TrimSpace(rep.Error)), maxErrorChars)
+}
 
-	switch v := data.(type) {
-	case []any:
-		total := len(v)
-		if total > maxRows {
-			return v[:maxRows], maxRows, total, true
-		}
-		return v, total, total, bodyTruncated
-	case map[string]any:
-		keys := lo.Keys(v)
-		sort.Strings(keys)
-		for _, key := range keys {
-			rows, ok := v[key].([]any)
-			if !ok {
-				continue
-			}
-			total := len(rows)
-			if total > maxRows {
-				v[key] = rows[:maxRows]
-				return v, maxRows, total, true
-			}
-			return v, total, total, bodyTruncated
-		}
-	}
-
-	return data, 0, 0, bodyTruncated
+func newRequestId() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "pulse-" + hex.EncodeToString(b)
 }
 
 var urlRe = regexp.MustCompile(`https?://[^\s"]+`)

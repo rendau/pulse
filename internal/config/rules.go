@@ -74,12 +74,10 @@ type Rules struct {
 	} `yaml:"dependencies"`
 
 	Endpoints struct {
-		// жёсткие потолки поверх декларации в service.yaml
+		// жёсткие потолки поверх декларации ручки в манифесте
 		MaxRows      int           `yaml:"max_rows"`
 		MaxBodyBytes int64         `yaml:"max_body_bytes"`
 		MaxTimeout   time.Duration `yaml:"max_timeout"`
-		// DefaultPort — порт ручки, если в декларации не задан (HTTP-порт сервиса)
-		DefaultPort int `yaml:"default_port"`
 	} `yaml:"endpoints"`
 
 	Cluster struct {
@@ -121,6 +119,8 @@ type Rules struct {
 		SkipPorts []int `yaml:"skip_ports"`
 		// StatusCache — сколько держать ответ ручки состояния пода
 		StatusCache time.Duration `yaml:"status_cache"`
+		// PhoneCountryCode — код страны для приведения телефонов перед токеном (8… → 7…)
+		PhoneCountryCode string `yaml:"phone_country_code"`
 	} `yaml:"manifest"`
 
 	Metrics struct {
@@ -203,6 +203,9 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Manifest.RetryAfter <= 0 {
 		r.Manifest.RetryAfter = time.Hour
+	}
+	if r.Manifest.PhoneCountryCode == "" {
+		r.Manifest.PhoneCountryCode = "7"
 	}
 	if r.Manifest.StatusCache <= 0 {
 		r.Manifest.StatusCache = 15 * time.Second
@@ -301,9 +304,6 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Endpoints.MaxTimeout <= 0 {
 		r.Endpoints.MaxTimeout = 10 * time.Second
-	}
-	if r.Endpoints.DefaultPort <= 0 {
-		r.Endpoints.DefaultPort = 80
 	}
 	if r.Cluster.Deadline <= 0 {
 		r.Cluster.Deadline = time.Minute

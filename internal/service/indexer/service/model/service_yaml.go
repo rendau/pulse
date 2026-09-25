@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/samber/lo"
 	"go.yaml.in/yaml/v3"
@@ -43,25 +42,6 @@ type ServiceYaml struct {
 		Title string `yaml:"title"`
 		Url   string `yaml:"url"`
 	} `yaml:"runbooks"`
-
-	Endpoints []struct {
-		Id     string `yaml:"id"`
-		Title  string `yaml:"title"`
-		Path   string `yaml:"path"`
-		Method string `yaml:"method"`
-		Port   int    `yaml:"port"`
-		K8sSvc string `yaml:"k8s_service"`
-		Params map[string]struct {
-			Type     string   `yaml:"type"`
-			Default  any      `yaml:"default"`
-			Max      *float64 `yaml:"max"`
-			Min      *float64 `yaml:"min"`
-			Required bool     `yaml:"required"`
-		} `yaml:"params"`
-		MaxRows int      `yaml:"max_rows"`
-		PII     []string `yaml:"pii"`
-		Timeout string   `yaml:"timeout"`
-	} `yaml:"endpoints"`
 }
 
 // ParseServiceYaml разбирает содержимое файла; name обязателен.
@@ -107,30 +87,6 @@ func decodeMetadata(v *ServiceYaml) svcModel.Metadata {
 	}
 	for _, r := range v.Runbooks {
 		result.Runbooks = append(result.Runbooks, svcModel.Runbook{Title: r.Title, Url: r.Url})
-	}
-	for _, e := range v.Endpoints {
-		endpoint := svcModel.Endpoint{
-			Id:         e.Id,
-			Title:      e.Title,
-			Path:       e.Path,
-			Method:     e.Method,
-			Port:       e.Port,
-			K8sService: e.K8sSvc,
-			MaxRows:    e.MaxRows,
-			PII:        e.PII,
-			Params:     make(map[string]svcModel.EndpointParam, len(e.Params)),
-		}
-		if e.Timeout != "" {
-			endpoint.Timeout, _ = time.ParseDuration(e.Timeout)
-		}
-		for name, p := range e.Params {
-			param := svcModel.EndpointParam{Type: p.Type, Max: p.Max, Min: p.Min, Required: p.Required}
-			if p.Default != nil {
-				param.Default = fmt.Sprint(p.Default)
-			}
-			endpoint.Params[name] = param
-		}
-		result.Endpoints = append(result.Endpoints, endpoint)
 	}
 
 	return result

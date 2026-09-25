@@ -14,7 +14,6 @@ import (
 
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
 )
 
 const (
@@ -85,7 +84,7 @@ func (u *Usecase) fetchK8s(ctx context.Context, groups []podGroup, pattern, leve
 				if e.TS.After(end) || (re != nil && !re.MatchString(e.Text)) {
 					continue
 				}
-				line := logsModel.Line{TS: e.TS, Text: redact.Text(e.Text), Level: u.patterns.DetectLevel(e.Text), Workload: t.workload}
+				line := logsModel.Line{TS: e.TS, Text: u.pii.Text(e.Text), Level: u.patterns.DetectLevel(e.Text), Workload: t.workload}
 				if level != "" && line.Level != level {
 					continue
 				}

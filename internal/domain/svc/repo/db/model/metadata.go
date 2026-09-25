@@ -55,15 +55,11 @@ type endpointJSON struct {
 	Title       string                       `json:"title"`
 	Description string                       `json:"description,omitempty"`
 	Path        string                       `json:"path"`
-	Method      string                       `json:"method"`
-	Port        int                          `json:"port,omitempty"`
-	K8sSvc      string                       `json:"k8s_service,omitempty"`
 	Workload    *workloadRefJSON             `json:"workload,omitempty"`
 	Params      map[string]endpointParamJSON `json:"params,omitempty"`
 	Response    *schemaJSON                  `json:"response,omitempty"`
 	RowsPath    string                       `json:"rows_path,omitempty"`
 	MaxRows     int                          `json:"max_rows"`
-	PII         []string                     `json:"pii,omitempty"`
 	Timeout     int64                        `json:"timeout_ms"`
 }
 
@@ -137,9 +133,6 @@ func encodeEndpoint(v endpointJSON, _ int) domainModel.Endpoint {
 		Title:       v.Title,
 		Description: v.Description,
 		Path:        v.Path,
-		Method:      v.Method,
-		Port:        v.Port,
-		K8sService:  v.K8sSvc,
 		Params: lo.MapValues(v.Params, func(p endpointParamJSON, _ string) domainModel.EndpointParam {
 			return domainModel.EndpointParam{
 				Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required,
@@ -149,7 +142,6 @@ func encodeEndpoint(v endpointJSON, _ int) domainModel.Endpoint {
 		Response: encodeSchema(v.Response),
 		RowsPath: v.RowsPath,
 		MaxRows:  v.MaxRows,
-		PII:      v.PII,
 		Timeout:  time.Duration(v.Timeout) * time.Millisecond,
 	}
 	if v.Workload != nil {
@@ -211,9 +203,6 @@ func decodeEndpoint(v domainModel.Endpoint, _ int) endpointJSON {
 		Title:       v.Title,
 		Description: v.Description,
 		Path:        v.Path,
-		Method:      v.Method,
-		Port:        v.Port,
-		K8sSvc:      v.K8sService,
 		Params: lo.MapValues(v.Params, func(p domainModel.EndpointParam, _ string) endpointParamJSON {
 			return endpointParamJSON{
 				Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required,
@@ -223,7 +212,6 @@ func decodeEndpoint(v domainModel.Endpoint, _ int) endpointJSON {
 		Response: decodeSchema(v.Response),
 		RowsPath: v.RowsPath,
 		MaxRows:  v.MaxRows,
-		PII:      v.PII,
 		Timeout:  v.Timeout.Milliseconds(),
 	}
 	if v.Workload != nil {

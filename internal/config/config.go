@@ -59,10 +59,13 @@ var Conf = struct {
 	KusecUrl   string `env:"KUSEC_URL"`
 	KusecToken string `env:"KUSEC_TOKEN"`
 
-	// диагностические ручки сервисов (фаза 6): direct — на ClusterIP через DNS name.namespace.svc
-	// (в кластере); k8s-proxy — через API-сервер (локальная разработка, нужен RBAC services/proxy)
+	// вызовы в поды сервисов (манифест, ручка состояния, диагностические ручки): direct — по IP
+	// пода (в кластере); k8s-proxy — через API-сервер (локальная разработка, нужен RBAC pods/proxy)
 	EndpointCallMode string `env:"ENDPOINT_CALL_MODE" envDefault:"direct"`
-	ClusterDomain    string `env:"CLUSTER_DOMAIN" envDefault:"svc"`
+
+	// ключ токенов персональных данных (HMAC, секрет): один телефон — один токен pii:phone:…
+	// у всех инструментов и между рестартами; пусто — случайный на время жизни процесса
+	PiiTokenKey string `env:"PII_TOKEN_KEY"`
 
 	// индексер топологии
 	IndexerInterval time.Duration `env:"INDEXER_INTERVAL" envDefault:"5m"`

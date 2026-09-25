@@ -30,7 +30,7 @@ func newClusterUsecase(loki LokiI) *Usecase {
 		{Namespace: "prod", Kind: "Deployment", Name: "sms-im", ServiceName: "sms-im"},
 	}}
 	return New(Config{MaxLines: 5000, MaxPatterns: 20, RawLimit: 100, MaxWindow: 24 * time.Hour},
-		&fakeSvc{service: &svcModel.Main{}}, wl, &fakeK8s{}, loki, logsService.New())
+		&fakeSvc{service: &svcModel.Main{}}, wl, &fakeK8s{}, loki, logsService.New(), testPii)
 }
 
 func streamLabels(namespace, pod string) map[string]string {
@@ -297,4 +297,30 @@ func TestLive_ClusterQueries(t *testing.T) {
 
 	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: `ORD-\d+`, Level: "info"})
 	require.NoError(t, err)
+}
+
+// Телефон в строке логов — токеном; поиск по токену по всем сервисам — регэкспом номера в
+// любом написании; сам номер в запросе к Loki есть, в ответе — нет.
+func TestQuery_SearchByPiiToken(t *testing.T) {
+	now := time.Now()
+	loki := &fakeLoki{streams: []lokiModel.Stream{
+		{Labels: streamLabels("prod", "orders-worker-7d9f-q2"), Entries: []lokiModel.Entry{
+			{TS: now.Add(-time.Minute), Line: `{"level":"info","msg":"order ORD-1 paid","phone":"+7 701 123 45 67"}`},
+		}},
+	}}
+	u := newClusterUsecase(loki)
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-1", Window: time.Hour})
+	require.NoError(t, err)
+	require.Len(t, res.Lines, 1)
+	token := testPii.Tokenize("phone", "87011234567")
+	assert.Contains(t, res.Lines[0].Text, token, "телефон в строке — токеном")
+	assert.NotContains(t, res.Lines[0].Text, "701 123")
+
+	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: token, Window: time.Hour})
+	require.NoError(t, err)
+	assert.Contains(t, loki.query, `|~ "(?:\\+?7|8)?[\\s()-]*7[\\s()-]*0[\\s()-]*1`, "в Loki — регэксп номера")
+
+	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "pii:phone:abcdefghijkl", Window: time.Hour})
+	require.ErrorIs(t, err, errs.InvalidRequest, "неизвестный токен")
 }

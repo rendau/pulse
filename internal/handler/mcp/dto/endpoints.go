@@ -18,7 +18,7 @@ type EndpointDef struct {
 	Params      map[string]EndpointParam `json:"params,omitempty"`
 	Fields      []string                 `json:"fields,omitempty" jsonschema:"поля ответа верхнего уровня; (personal: вид) — значение придёт токеном pii:…"`
 	MaxRows     int                      `json:"max_rows,omitempty"`
-	PII         []string                 `json:"pii,omitempty" jsonschema:"поля, которые маскируются в ответе"`
+	PII         []string                 `json:"pii,omitempty" jsonschema:"поля ответа с персональными данными — придут токенами pii:…"`
 }
 
 type EndpointParam struct {
@@ -46,8 +46,32 @@ func EncodeEndpointDef(v svcModel.Endpoint, _ int) EndpointDef {
 		}),
 		Fields:  responseFields(v.Response),
 		MaxRows: v.MaxRows,
-		PII:     v.PII,
+		PII:     personalFields(v.Response, ""),
 	}
+}
+
+// personalFields — пути полей схемы с x-personal: их значения придут токенами.
+func personalFields(schema *svcModel.Schema, path string) []string {
+	if schema == nil {
+		return nil
+	}
+	if schema.Personal != "" {
+		return []string{path}
+	}
+	var result []string
+	if schema.Items != nil {
+		result = append(result, personalFields(schema.Items, path+"[]")...)
+	}
+	names := lo.Keys(schema.Properties)
+	slices.Sort(names)
+	for _, name := range names {
+		child := name
+		if path != "" {
+			child = path + "." + name
+		}
+		result = append(result, personalFields(schema.Properties[name], child)...)
+	}
+	return result
 }
 
 // responseFields — поля ответа верхнего уровня по схеме: «history[]», «phone (personal: phone)».
@@ -87,11 +111,13 @@ type CallServiceEndpointRep struct {
 	Title      string   `json:"title,omitempty"`
 	StatusCode int      `json:"status_code"`
 	DurationMs int64    `json:"duration_ms"`
-	Data       any      `json:"data" jsonschema:"ответ ручки: JSON как есть (PII маскированы) либо текст"`
+	Data       any      `json:"data" jsonschema:"ответ ручки: только поля из схемы манифеста; персональные данные — токенами pii:…; ошибка ручки — {error}"`
 	Rows       int      `json:"rows,omitempty"`
 	TotalRows  int      `json:"total_rows,omitempty"`
 	Truncated  bool     `json:"truncated" jsonschema:"строк или байт больше лимита — сузь параметры"`
-	MaskedKeys []string `json:"masked_keys,omitempty"`
+	MaskedKeys []string `json:"masked_keys,omitempty" jsonschema:"поля, чьи значения заменены токенами pii:… (передавай токен дальше как есть: query_logs pattern, персональный параметр ручки)"`
+	RequestId  string   `json:"request_id,omitempty" jsonschema:"X-Pulse-Request-Id вызова: по нему вызов находится в логах сервиса"`
+	Dropped    int      `json:"dropped_fields,omitempty" jsonschema:"сколько полей ответа вырезано — их нет в схеме манифеста"`
 }
 
 func EncodeCallServiceEndpointRep(v *usecaseEndpointsModel.CallResult) CallServiceEndpointRep {
@@ -105,6 +131,8 @@ func EncodeCallServiceEndpointRep(v *usecaseEndpointsModel.CallResult) CallServi
 		Rows:       v.Rows,
 		TotalRows:  v.TotalRows,
 		Truncated:  v.Truncated,
-		MaskedKeys: v.MaskedKeys,
+		MaskedKeys: v.PersonalFields,
+		RequestId:  v.RequestId,
+		Dropped:    v.DroppedFields,
 	}
 }

@@ -20,9 +20,6 @@ type Client interface {
 	ListServices(ctx context.Context, namespace string) ([]k8sModel.Service, error)
 	// ListNodes возвращает ноды кластера с условиями готовности и давления.
 	ListNodes(ctx context.Context) ([]k8sModel.Node, error)
-	// ProxyGet выполняет GET к k8s Service через API-сервер (services/proxy). Для локальной
-	// разработки, когда ClusterIP недоступен напрямую.
-	ProxyGet(ctx context.Context, namespace, service string, port int, path string, query map[string]string) ([]byte, error)
 	// ProxyGetPod выполняет GET к поду через API-сервер (pods/proxy): статус ответа пода и тело.
 	// Для локальной разработки, когда IP подов недоступны напрямую.
 	ProxyGetPod(ctx context.Context, namespace, pod string, port int, path string, query, headers map[string]string, maxBytes int64) (int, []byte, error)

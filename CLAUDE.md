@@ -44,13 +44,19 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение),
   `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII — с тестами; `redact.Text` — телефоны,
-  email, карты в свободном тексте: строки логов маскируются при чтении из Loki, до паттернов и ответа).
+  email, карты в свободном тексте; `redact.ReplacePII` — те же правила для токенов: строки логов при
+  чтении из Loki и Kubernetes идут через `pii.Text` — токены вместо номеров, до паттернов и ответа;
+  значение явного поля `"phone":"+7 701 …"` — целиком, с пробелами).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
   `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
   `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
   (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам),
-  `endpoints` (call_service_endpoint: allowlist по id, только GET, валидация параметров,
-  PII через redact, лимиты строк/байт/таймаута), `cluster` (get_cluster_health: ноды, поды
+  `endpoints` (call_service_endpoint: ручки только из манифеста сервиса — allowlist по id, только
+  GET прямо в готовый под workload'а на порт манифеста, параметры по pattern/enum/x-personal (токен →
+  значение через `pii.Resolve`), ответ — проекция на схему манифеста (`projection.go`: необъявленное и
+  не того типа вырезается — `dropped_fields`; x-personal и телефоны/email в тексте — токенами;
+  строки по maxLength, массивы по maxItems/max_rows), ошибка ручки — только `error`, `request_id` =
+  `X-Pulse-Request-Id`), `cluster` (get_cluster_health: ноды, поды
   по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
   `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
   метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
@@ -73,12 +79,17 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/service/` — сервисы (фоновые/инфраструктурные), для переиспользования или выделения логики:
   `k8s`, `github`, `registry`, `prometheus`, `loki`, `alertmanager`, `kusec` (клиенты источников,
   read-only; kusec — по контракту `docs/monitoring-api.md` проекта kusec, ключ scope=read_only),
+  `pii` (персональные данные токенами `pii:<вид>:<12 букв a–p>`: HMAC с `PII_TOKEN_KEY` от значения,
+  приведённого к одному виду (телефон — цифры с кодом страны); память «токен → значение» 24 ч только
+  для видов с поиском (phone, email, iin, customer_id); `Text` — телефоны/email в тексте токенами
+  (готовые токены не трогаются), карты — `***` + 4 цифры; `SearchPattern` — токен в query_logs →
+  регэксп номера в любом написании; правила поиска PII — общие с `redact.ReplacePII`),
   `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
-  `svcproxy` (GET к ручке сервиса внутри кластера по DNS `name.namespace.svc`; локально —
-  `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGet`),
+  `svcproxy` (GET прямо в под по IP, без редиректов; локально — `ENDPOINT_CALL_MODE=k8s-proxy`
+  через `k8s.ProxyGetPod`),
   `indexer` (фоновый обход кластера → каталог + история деплоев), `selfstatus` (ручка состояния
   сервиса `<manifest.path>/status` прямо с пода: проверка по стандарту, тексты через
-  `redact.Userinfo` + `redact.Text`, кэш `manifest.status_cache`).
+  `pii.Text` — учётные данные вырезаны, телефоны/email токенами, кэш `manifest.status_cache`).
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы.
 
 ---

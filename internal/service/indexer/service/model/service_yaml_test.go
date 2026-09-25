@@ -2,10 +2,11 @@ package model
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 )
 
 const sample = `
@@ -77,15 +78,8 @@ func TestParseAndDecodeServiceYaml(t *testing.T) {
 	require.Len(t, meta.Logs.ErrorPatterns, 1)
 	require.Len(t, meta.Runbooks, 1)
 
-	require.Len(t, meta.Endpoints, 2)
-	stuck := meta.Endpoints[0]
-	assert.Equal(t, "stuck_queue_items", stuck.Id)
-	assert.Equal(t, 5*time.Second, stuck.Timeout)
-	assert.Equal(t, 50, stuck.MaxRows)
-	assert.Equal(t, "30", stuck.Params["older_than_minutes"].Default)
-	require.NotNil(t, stuck.Params["older_than_minutes"].Max)
-	assert.Equal(t, 1440.0, *stuck.Params["older_than_minutes"].Max)
-	assert.Equal(t, []string{"customer_name", "phone"}, meta.Endpoints[1].PII)
+	assert.Equal(t, svcModel.MetadataSourceServiceYaml, meta.Source)
+	assert.Empty(t, meta.Endpoints, "диагностические ручки — только из манифеста сервиса")
 }
 
 func TestParseServiceYaml_Invalid(t *testing.T) {

@@ -11,21 +11,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-func (s *Service) ProxyGet(ctx context.Context, namespace, service string, port int, path string, query map[string]string) ([]byte, error) {
-	if s.initErr != nil {
-		return nil, s.initErr
-	}
-
-	body, err := s.clientset.CoreV1().Services(namespace).
-		ProxyGet("http", service, strconv.Itoa(port), path, query).
-		DoRaw(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("Services.ProxyGet(%s/%s:%d%s): %w", namespace, service, port, path, err)
-	}
-
-	return body, nil
-}
-
 // ProxyGetPod выполняет GET к поду через API-сервер (pods/proxy) и отдаёт статус ответа
 // пода вместе с телом (404 — не ошибка: так видно, что HTTP-сервер есть, а ручки нет).
 // Для локальной разработки, когда IP подов недоступны напрямую; нужен RBAC pods/proxy.
@@ -52,7 +37,11 @@ func (s *Service) ProxyGetPod(ctx context.Context, namespace, pod string, port i
 		if !ok || strings.Contains(string(body), "error trying to reach service") {
 			return 0, nil, fmt.Errorf("Pods.ProxyGet(%s/%s:%d%s): %w", namespace, pod, port, path, err)
 		}
-		return int(statusErr.ErrStatus.Code), nil, nil
+		// тело ответа пода нужно и при ошибке: {"error": "…"} по стандарту манифеста
+		if int64(len(body)) > maxBytes {
+			body = body[:maxBytes]
+		}
+		return int(statusErr.ErrStatus.Code), body, nil
 	}
 	if int64(len(body)) > maxBytes {
 		body = body[:maxBytes]

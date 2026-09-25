@@ -17,20 +17,60 @@ var (
 	// с пробелами, дефисами и скобками между группами
 	phoneRe = regexp.MustCompile(`\+\d(?:[ ()-]*\d){9,14}\b|\b[78](?:[ ()-]*\d){10}\b`)
 	// значение явного поля phone/email/card — целиком, в каком бы формате ни было
-	piiFieldRe = regexp.MustCompile(`(?i)("?(?:phone|tel|msisdn|email|e-mail|card|pan)(?:_?(?:number|num|no))?"?\s*[:=]\s*"?)([^",\s}]+)`)
+	// (значение в кавычках — целиком, без кавычек — с группами цифр через пробел: «+7 701 123 45 67»)
+	piiFieldRe = regexp.MustCompile(`(?i)("?(?:phone|tel|msisdn|email|e-mail|card|pan)(?:_?(?:number|num|no))?"?\s*[:=]\s*)("[^"]*"|[^",\s}]+(?:[ ()-]+\d+)*)`)
 )
 
-// Text маскирует PII в строке: <PHONE>, <EMAIL>, <CARD>.
+// виды персональных данных, которые находятся в свободном тексте
+const (
+	KindPhone = "phone"
+	KindEmail = "email"
+	KindCard  = "card"
+)
+
+// Text маскирует PII в строке: значение явного поля (phone=…) — ***, в тексте — <PHONE>,
+// <EMAIL>, <CARD>.
 func Text(s string) string {
-	s = piiFieldRe.ReplaceAllString(s, "${1}"+Mask)
-	s = emailRe.ReplaceAllString(s, "<EMAIL>")
+	return ReplacePII(s, func(kind, _ string, field bool) string {
+		if field {
+			return Mask
+		}
+		return "<" + strings.ToUpper(kind) + ">"
+	})
+}
+
+// ReplacePII заменяет персональные данные в тексте тем, что вернёт replace: kind — phone,
+// email или card; value — найденное значение; field — значение явного поля (phone: …),
+// а не находка в тексте. Правила поиска — одни для маскирования и для токенов.
+func ReplacePII(s string, replace func(kind, value string, field bool) string) string {
+	s = piiFieldRe.ReplaceAllStringFunc(s, func(m string) string {
+		sub := piiFieldRe.FindStringSubmatch(m)
+		name := strings.ToLower(sub[1])
+		kind := KindPhone
+		switch {
+		case strings.Contains(name, "mail"):
+			kind = KindEmail
+		case strings.Contains(name, "card"), strings.Contains(name, "pan"):
+			kind = KindCard
+		}
+		if value, ok := strings.CutPrefix(sub[2], `"`); ok {
+			return sub[1] + `"` + replace(kind, strings.TrimSuffix(value, `"`), true) + `"`
+		}
+		return sub[1] + replace(kind, sub[2], true)
+	})
+	s = emailRe.ReplaceAllStringFunc(s, func(m string) string { return replace(KindEmail, m, false) })
 	s = cardRe.ReplaceAllStringFunc(s, func(m string) string {
 		if luhn(digits(m)) {
-			return "<CARD>"
+			return replace(KindCard, m, false)
 		}
 		return m
 	})
-	return phoneRe.ReplaceAllString(s, "<PHONE>")
+	return phoneRe.ReplaceAllStringFunc(s, func(m string) string { return replace(KindPhone, m, false) })
+}
+
+// Digits — только цифры строки.
+func Digits(s string) string {
+	return digits(s)
 }
 
 func digits(s string) string {

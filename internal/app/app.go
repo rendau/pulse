@@ -38,6 +38,7 @@ import (
 	serviceK8sServiceP "github.com/mechta-market/pulse/internal/service/k8s/service"
 	serviceKusecServiceP "github.com/mechta-market/pulse/internal/service/kusec/service"
 	serviceLokiServiceP "github.com/mechta-market/pulse/internal/service/loki/service"
+	servicePiiServiceP "github.com/mechta-market/pulse/internal/service/pii/service"
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
 	serviceRutoServiceP "github.com/mechta-market/pulse/internal/service/ruto/service"
@@ -175,16 +176,22 @@ func (a *App) Init() {
 	var caller interface {
 		usecaseEndpointsP.CallerI
 		serviceIndexerServiceP.PodGetterI
-	} = serviceSvcproxyServiceP.New(config.Conf.ClusterDomain)
+	} = serviceSvcproxyServiceP.New()
 	if config.Conf.EndpointCallMode == "k8s-proxy" {
 		caller = k8sProxyCaller{k8sService}
-		slog.Info("service calls go through kubernetes API proxy (services/proxy, pods/proxy)")
+		slog.Info("service calls go through kubernetes API proxy (pods/proxy)")
 	}
+
+	// pii (персональные данные токенами)
+	piiService := servicePiiServiceP.New(servicePiiServiceP.Config{
+		Key:         []byte(config.Conf.PiiTokenKey),
+		CountryCode: rules.Manifest.PhoneCountryCode,
+	})
 
 	// self status (ручка состояния сервиса из манифеста)
 	selfStatusService := serviceSelfstatusServiceP.New(
 		serviceSelfstatusServiceP.Config{Path: rules.Manifest.Path + "/status", CacheTtl: rules.Manifest.StatusCache},
-		caller,
+		caller, piiService,
 	)
 
 	// indexer
@@ -245,7 +252,7 @@ func (a *App) Init() {
 				Retention:       rules.Logs.Retention,
 				SearchBudget:    rules.Logs.SearchBudget,
 			},
-			svcService, workloadService, k8sService, lokiClient, domainLogsServiceP.New(),
+			svcService, workloadService, k8sService, lokiClient, domainLogsServiceP.New(), piiService,
 		)
 	}
 
@@ -351,9 +358,8 @@ func (a *App) Init() {
 				MaxRows:      rules.Endpoints.MaxRows,
 				MaxBodyBytes: rules.Endpoints.MaxBodyBytes,
 				MaxTimeout:   rules.Endpoints.MaxTimeout,
-				DefaultPort:  rules.Endpoints.DefaultPort,
 			},
-			svcService, workloadService, caller,
+			svcService, workloadService, k8sService, caller, piiService,
 		)
 	}
 
@@ -493,21 +499,9 @@ func (a *App) Exit() {
 	os.Exit(a.exitCode)
 }
 
-// k8sProxyCaller адаптирует ProxyGet клиента k8s под порт вызова ручек (локальная разработка).
+// k8sProxyCaller адаптирует ProxyGetPod клиента k8s под вызов в под (локальная разработка).
 type k8sProxyCaller struct {
 	k8s *serviceK8sServiceP.Service
-}
-
-func (c k8sProxyCaller) Get(ctx context.Context, namespace, service string, port int, path string, query map[string]string, maxBytes int64) (*serviceSvcproxyModel.Response, error) {
-	body, err := c.k8s.ProxyGet(ctx, namespace, service, port, path, query)
-	if err != nil {
-		return nil, err
-	}
-	resp := &serviceSvcproxyModel.Response{StatusCode: http.StatusOK, Body: body}
-	if int64(len(body)) > maxBytes {
-		resp.Body, resp.Truncated = body[:maxBytes], true
-	}
-	return resp, nil
 }
 
 func (c k8sProxyCaller) GetPod(ctx context.Context, target serviceSvcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*serviceSvcproxyModel.Response, error) {

@@ -106,17 +106,17 @@ manifest:
   retry_after: 1h
   # сколько держать ответ ручки состояния пода (снапшоты подряд не нагружают сервис)
   status_cache: 15s
+  # код страны для телефонов перед токеном персональных данных: 8… и 10 цифр → 7…
+  phone_country_code: "7"
   # заведомо не-HTTP порты: при переборе портов пода (раз после выкатки) не трогаются;
   # без ключа — встроенный список (postgres, redis, kafka, rabbitmq, mongodb…)
   # skip_ports: [5432, 6379, 9092]
 
 endpoints:
-  # жёсткие потолки для call_service_endpoint поверх декларации в service.yaml
+  # жёсткие потолки для call_service_endpoint поверх декларации ручки в манифесте
   max_rows: 100
   max_body_bytes: 262144
   max_timeout: 10s
-  # порт ручки, если в декларации не задан (HTTP-порт сервиса в кластере)
-  default_port: 80
 
 cluster:
   # get_cluster_health: дедлайн сбора, пороги деградации (pending-поды, поды в проблемных

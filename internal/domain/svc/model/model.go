@@ -109,18 +109,13 @@ type Runbook struct {
 	Url   string
 }
 
-// Endpoint — декларация диагностической ручки (фаза 6). Вызов возможен только по id.
+// Endpoint — диагностическая ручка из манифеста сервиса. Вызов возможен только по id, только GET.
 type Endpoint struct {
 	Id          string
 	Title       string
 	Description string // для агента: когда вызывать
 	Path        string
-	Method      string
-	// Port и K8sService — куда ходить внутри кластера; пусто — дефолты из правил (порт)
-	// и имя сервиса каталога (k8s Service)
-	Port       int
-	K8sService string
-	// Workload — ручка из манифеста: вызывается прямо в под этого workload'а, на порт манифеста
+	// Workload — workload, объявивший ручку в манифесте: вызов — прямо в его под, на порт манифеста
 	Workload *WorkloadRef
 	Params   map[string]EndpointParam
 	// Response — схема ответа из манифеста: к агенту доходят только объявленные поля
@@ -128,7 +123,6 @@ type Endpoint struct {
 	// RowsPath — где в ответе список (для лимита строк); пусто — сам ответ, если это массив
 	RowsPath string
 	MaxRows  int
-	PII      []string
 	Timeout  time.Duration
 }
 

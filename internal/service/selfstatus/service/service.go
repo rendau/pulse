@@ -17,7 +17,6 @@ import (
 	"github.com/mechta-market/pulse/internal/errs"
 	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
 	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
 )
 
 const (
@@ -43,6 +42,7 @@ type Config struct {
 type Service struct {
 	conf Config
 	pods PodGetterI
+	pii  PiiI
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -53,8 +53,8 @@ type cached struct {
 	at     time.Time
 }
 
-func New(conf Config, pods PodGetterI) *Service {
-	return &Service{conf: conf, pods: pods, cache: map[string]cached{}}
+func New(conf Config, pods PodGetterI, pii PiiI) *Service {
+	return &Service{conf: conf, pods: pods, pii: pii, cache: map[string]cached{}}
 }
 
 func (s *Service) Get(ctx context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error) {
@@ -83,7 +83,7 @@ func (s *Service) Get(ctx context.Context, target svcproxyModel.PodTarget) (*sel
 	case resp.Truncated:
 		return nil, fmt.Errorf("%w: %s: ответ больше %d KB", errs.ServiceNA, key, maxBodyBytes>>10)
 	default:
-		if status, err = parse(resp.Body); err != nil {
+		if status, err = s.parse(resp.Body); err != nil {
 			return nil, fmt.Errorf("%w: %s: ответ не по стандарту: %w", errs.ServiceNA, key, err)
 		}
 	}
@@ -120,7 +120,7 @@ type statusRep struct {
 
 // parse проверяет ответ: неизвестный итоговый статус — ошибка; записи не по стандарту
 // пропускаются; тексты очищаются (учётные данные в адресах, телефоны, email, карты).
-func parse(body []byte) (*selfstatusModel.Status, error) {
+func (s *Service) parse(body []byte) (*selfstatusModel.Status, error) {
 	rep := &statusRep{}
 	if err := json.Unmarshal(body, rep); err != nil {
 		return nil, fmt.Errorf("не JSON: %w", err)
@@ -143,7 +143,7 @@ func parse(body []byte) (*selfstatusModel.Status, error) {
 			dep.LatencyMs = new(int64(*d.LatencyMs))
 		}
 		if d.Status != selfstatusModel.StatusOk {
-			dep.Message = cleanText(d.Message, maxMessage)
+			dep.Message = s.cleanText(d.Message, maxMessage)
 		}
 		result.Dependencies = append(result.Dependencies, dep)
 	}
@@ -152,7 +152,7 @@ func parse(body []byte) (*selfstatusModel.Status, error) {
 		if !idRe.MatchString(g.Id) {
 			continue
 		}
-		gauge := selfstatusModel.Gauge{Id: g.Id, Title: cleanText(g.Title, maxTitle), Unit: cleanText(g.Unit, 20)}
+		gauge := selfstatusModel.Gauge{Id: g.Id, Title: s.cleanText(g.Title, maxTitle), Unit: s.cleanText(g.Unit, 20)}
 		if slices.Contains(statuses, g.Status) {
 			gauge.Status = g.Status
 		}
@@ -176,11 +176,12 @@ func parse(body []byte) (*selfstatusModel.Status, error) {
 	return result, nil
 }
 
-// cleanText — текст от сервиса: без учётных данных в адресах и персональных данных, по длине.
-func cleanText(s string, limit int) string {
-	s = redact.Text(redact.Userinfo(strings.TrimSpace(s)))
-	if r := []rune(s); len(r) > limit {
+// cleanText — текст от сервиса: без учётных данных в адресах, персональные данные — токенами,
+// по длине.
+func (s *Service) cleanText(text string, limit int) string {
+	text = s.pii.Text(strings.TrimSpace(text))
+	if r := []rune(text); len(r) > limit {
 		return string(r[:limit]) + "…"
 	}
-	return s
+	return text
 }

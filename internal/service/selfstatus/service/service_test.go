@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	piiServiceP "github.com/mechta-market/pulse/internal/service/pii/service"
 	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 )
 
@@ -37,7 +38,8 @@ func TestGet(t *testing.T) {
 	    {"id": "note", "title": "Заметка", "value": "любой текст"}
 	  ]
 	}`)}}
-	s := New(Config{Path: "/.well-known/pulse/status", CacheTtl: time.Minute}, pods)
+	pii := piiServiceP.New(piiServiceP.Config{Key: []byte("k")})
+	s := New(Config{Path: "/.well-known/pulse/status", CacheTtl: time.Minute}, pods, pii)
 	target := svcproxyModel.PodTarget{Namespace: "prod", Pod: "ocenter-1", IP: "10.0.0.5", Port: 3003}
 
 	status, err := s.Get(context.Background(), target)
@@ -48,7 +50,8 @@ func TestGet(t *testing.T) {
 	require.Len(t, status.Dependencies, 2, "записи не по стандарту пропущены")
 	assert.Equal(t, int64(4200), *status.Dependencies[1].LatencyMs)
 	assert.NotContains(t, status.Dependencies[1].Message, "s3cr3t", "учётные данные вырезаны")
-	assert.NotContains(t, status.Dependencies[1].Message, "701 123", "телефон замаскирован")
+	assert.NotContains(t, status.Dependencies[1].Message, "701 123", "телефон скрыт")
+	assert.Contains(t, status.Dependencies[1].Message, pii.Tokenize("phone", "87011234567"), "телефон — токеном")
 	require.Len(t, status.Gauges, 2, "значение-текст не принимается")
 	assert.InDelta(t, 1840, *status.Gauges[0].Value, 0)
 	assert.NotNil(t, status.Gauges[1].Time)
@@ -59,12 +62,12 @@ func TestGet(t *testing.T) {
 
 	// ручки состояния нет
 	pods.resp = &svcproxyModel.Response{StatusCode: 404}
-	status, err = New(Config{Path: "/s"}, pods).Get(context.Background(), target)
+	status, err = New(Config{Path: "/s"}, pods, pii).Get(context.Background(), target)
 	require.NoError(t, err)
 	assert.Nil(t, status)
 
 	// не по стандарту
 	pods.resp = &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{"status":"fine"}`)}
-	_, err = New(Config{Path: "/s"}, pods).Get(context.Background(), target)
+	_, err = New(Config{Path: "/s"}, pods, pii).Get(context.Background(), target)
 	assert.Error(t, err)
 }

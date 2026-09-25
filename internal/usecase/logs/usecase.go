@@ -19,7 +19,6 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -46,9 +45,10 @@ type Usecase struct {
 	k8s      k8sClientI
 	loki     LokiI
 	patterns patternsServiceI
+	pii      PiiI
 }
 
-func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, loki LokiI, patterns patternsServiceI) *Usecase {
+func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, loki LokiI, patterns patternsServiceI, pii PiiI) *Usecase {
 	if conf.MaxWindow <= 0 {
 		conf.MaxWindow = 24 * time.Hour
 	}
@@ -61,7 +61,7 @@ func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI
 	if conf.ClusterSelector == "" {
 		conf.ClusterSelector = `{kubernetes_namespace_name=~".+"}`
 	}
-	return &Usecase{conf: conf, svc: svc, workload: workload, k8s: k8s, loki: loki, patterns: patterns}
+	return &Usecase{conf: conf, svc: svc, workload: workload, k8s: k8s, loki: loki, patterns: patterns, pii: pii}
 }
 
 var allowedLevels = []string{logsModel.LevelError, logsModel.LevelWarn, logsModel.LevelInfo, logsModel.LevelDebug}
@@ -80,6 +80,12 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	}
 
 	if req.Pattern != "" {
+		// токен персональных данных (pii:phone:…) — поиск настоящего значения в любом написании
+		pattern, err := u.pii.SearchPattern(strings.TrimSpace(req.Pattern))
+		if err != nil {
+			return nil, err
+		}
+		req.Pattern = pattern
 		if _, err := regexp.Compile(req.Pattern); err != nil {
 			return nil, fmt.Errorf("%w: pattern is not a valid regexp: %s", errs.InvalidRequest, err)
 		}
@@ -255,7 +261,7 @@ func logQL(selector, pattern, level string) string {
 
 // fetch забирает строки по LogQL, размечает уровень и владельца (attach — по лейблам потока:
 // workload сервиса или сервис при поиске по всему кластеру). Строки с другим уровнем
-// отбрасываются. PII в тексте строк маскируется сразу (redact.Text): дальше — в паттерны,
+// отбрасываются. PII в тексте строк заменяется токенами сразу (pii.Text): дальше — в паттерны,
 // примеры и ответ — уходит маскированное.
 func (u *Usecase) fetch(ctx context.Context, query, level string, start, end time.Time, limit int, attach func(labels map[string]string, line *logsModel.Line)) ([]logsModel.Line, error) {
 	streams, err := u.loki.QueryRange(ctx, query, start, end, limit)
@@ -270,7 +276,7 @@ func (u *Usecase) fetch(ctx context.Context, query, level string, start, end tim
 		attach(stream.Labels, &owner)
 		for _, e := range stream.Entries {
 			line := owner
-			line.TS, line.Text, line.Level = e.TS, redact.Text(e.Line), u.patterns.DetectLevel(e.Line)
+			line.TS, line.Text, line.Level = e.TS, u.pii.Text(e.Line), u.patterns.DetectLevel(e.Line)
 			if line.Level == "" {
 				line.Level = streamLevel
 			}
