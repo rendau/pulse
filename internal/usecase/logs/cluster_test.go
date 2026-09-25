@@ -3,8 +3,8 @@ package logs
 import (
 	"context"
 	"os"
-	"strings"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 

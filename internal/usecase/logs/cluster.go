@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/samber/lo"
+	"github.com/samber/lo/mutable"
 	"golang.org/x/sync/errgroup"
 
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
@@ -70,7 +71,8 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string)
 		// последние строки, но по порядку событий — след заказа читается сверху вниз
 		shown := lines[:min(len(lines), u.rawLimit(req.Limit))]
 		result.Truncated = result.Truncated || len(shown) < len(lines)
-		result.Lines = lo.Reverse(append([]logsModel.Line{}, shown...))
+		result.Lines = append([]logsModel.Line{}, shown...)
+		mutable.Reverse(result.Lines)
 		return result, nil
 	}
 
