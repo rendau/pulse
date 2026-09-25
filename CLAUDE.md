@@ -2,10 +2,9 @@
 
 Руководство для Claude Code по работе с этим репозиторием. Go-сервис на Clean Architecture + DDD:
 MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Postgres (pgx/mobone),
-клиенты Kubernetes/GitHub/registry/Prometheus/Loki/Alertmanager. ТЗ — `docs/infra-mcp-spec.md`
-(читать целиком перед работой над любой фазой; в ТЗ сервис назван `infra-mcp`).
+клиенты Kubernetes/GitHub/registry/Prometheus/Loki/Alertmanager.
 
-Согласованные с заказчиком отклонения от ТЗ и шаблона:
+Принятые решения (отклонения от первоначальной постановки и шаблона):
 - gRPC/grpc-gateway/proto из шаблона убраны — транспорт только MCP поверх HTTP.
 - Теги образов в кластере — `latest` (keel), поэтому `deployed_commit` берётся не из тега,
   а из digest запущенного пода → OCI-label `org.opencontainers.image.revision` (registry API),
@@ -25,7 +24,6 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `cmd/main.go` — entrypoint, поднимает `internal/app.App`.
 - `internal/` — бизнес-логика и инфраструктура (закрытые пакеты).
 - `migrations/` — SQL миграции Postgres (единый `000001_init` до первого деплоя).
-- `docs/` — ТЗ и статические доки, выдаются через `/docs/*`.
 - `conf.example.yml` — пример yaml-правил (`RULES_PATH`, по умолчанию `./conf.yml`).
 - `Dockerfile`, `Makefile` — сборка (`make build` подставляет версию через ldflags).
 - `.env.example` — пример окружения.
@@ -35,7 +33,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `app.go` — граф зависимостей и запуск компонентов.
   - `mcp_server.go` — MCP-сервер, HTTP-транспорт на `MCP_PATH`, bearer-auth middleware.
   - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
-    /healthcheck, /readiness, /docs/*, /metrics.
+    /healthcheck, /readiness, /metrics.
   - `migration.go` — запуск миграций из `migrations/`.
 - `internal/config/` — `config.go` (env: адреса, токены, порты — **все адреса и токены источников
   только через env**) и `rules.go` (yaml-правила: `image_mapping`, `indexer.*`, `snapshot.*`,
@@ -45,7 +43,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение),
-  `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII, ТЗ 4.2 — с тестами; `redact.Text` — телефоны,
+  `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII — с тестами; `redact.Text` — телефоны,
   email, карты в свободном тексте: строки логов маскируются при чтении из Loki, до паттернов и ответа).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
   `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
@@ -63,7 +61,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/domain/` — доменная модель, сервисы и репозитории.
   - `svc`, `workload` — каталог (Postgres); `snapshot` — детерминированные правила снапшота
     (health, summary_hints, базовая линия) без обращения к источникам; `event` — нормализованное
-    событие (ТЗ 1.2) и его нормализация из фактов кластера/деплоев (`event/service`);
+    событие и его нормализация из фактов кластера/деплоев (`event/service`);
     `logs` — нормализация строк и агрегация в паттерны (чистые функции); `deploy` — история
     деплоев (Postgres), пишется индексером при смене образа/digest; `dependency` — сконфигурированные
     связи «сервис → хост» (Postgres) и разбор адресов из значений конфигурации (`ParseEndpoints`,
@@ -89,8 +87,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Работает только с DTO инструментов и usecase-интерфейсами.
   - Не обращается напрямую к репозиториям и сервисам.
   - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
-  - Общее число инструментов — не более 12–13 (см. раздел 8 ТЗ); новые — объединять с существующими.
-  `list_service_endpoints` из ТЗ влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 13
+  - Общее число инструментов — не более 12–13; новые — объединять с существующими.
+  `list_service_endpoints` из первоначальной постановки влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 13
   инструментов — лимит исчерпан, новые только объединением с существующими.
 - RBAC индексера и инструментов: get на pods/log (логи без Loki); get/list на nodes, deployments, statefulsets, daemonsets, cronjobs, jobs,
   replicasets, pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy.
@@ -172,7 +170,7 @@ domain service → repo
 
 ### Хранилища
 - Postgres: только топология и метаданные (`service`, `workload`). Значений метрик, логов и
-  счётчиков в БД быть не должно (Р4 ТЗ) — всё состояние запрашивается живьём.
+  счётчиков в БД быть не должно — всё состояние запрашивается живьём.
 - Домен сущности «сервис каталога» лежит в `internal/domain/svc` (таблица `service`).
 - **Имена таблиц всегда в единственном числе**, без plural: `usr`, `app`, `secret`, `item`
   (не `usrs`, `apps`, `secrets`, `items`). То же значение указывается в `TableName` репозитория.
@@ -186,7 +184,7 @@ domain service → repo
 ### API (MCP)
 - Инструменты регистрируются в `internal/handler/mcp/handler.go` через `addTool` с типизированными
   In/Out DTO (`internal/handler/mcp/dto`); схема выводится из json/jsonschema-тегов.
-- Все инструменты read-only (Р5 ТЗ): `ToolAnnotations{ReadOnlyHint: true}`.
+- Все инструменты read-only: `ToolAnnotations{ReadOnlyHint: true}`.
 - Регистрация — через `addTool` (`handler/mcp/schema.go`), не `mcp.AddTool`: схема ответа допускает
   новые поля (без `additionalProperties: false`), иначе клиенты с запомненной схемой ломаются после
   деплоя. Поля ответа можно добавлять; удалять и переименовывать нельзя. Схема входа — строгая.
@@ -207,7 +205,7 @@ domain service → repo
 
 ### Правила изменения кода
 - DTO инструментов не должны протекать в usecase и доменные сервисы.
-- Секреты не покидают сервис (Р7 ТЗ): значения секретов никогда не попадают в ответ. Любое значение
+- Секреты не покидают сервис: значения секретов никогда не попадают в ответ. Любое значение
   конфигурации перед выдачей проходит `redact.Value(key, value)` (deny-список имени → allowlist
   значения → маска), значения secret — только `redact.Secret()`.
 - История алертов: Alertmanager её не хранит, берётся из Prometheus (`ALERTS{alertstate="firing"}`).
@@ -320,7 +318,7 @@ domain service → repo
 
 ### Системный HTTP-сервер
 - Отдельный сервер на `SYSTEM_HTTP_PORT` (дефолт `3003`).
-- Обслуживает служебные ручки: `/healthcheck`, `/readiness` (Postgres доступен), `/docs/*`, `/metrics`.
+- Обслуживает служебные ручки: `/healthcheck`, `/readiness` (Postgres доступен), `/metrics`.
 
 ### Метрики
 - Prometheus метрики на `/metrics` (системный сервер) при `WITH_METRICS=true`.
@@ -328,7 +326,7 @@ domain service → repo
 
 ### Сборка
 - `make build` создаёт бинарник `cmd/build/svc` (версия — `-X internal/constant.Version`).
-- Dockerfile копирует бинарник, `docs/`, `migrations/` и `conf.example.yml` (как `conf.yml`) в `/app`.
+- Dockerfile копирует бинарник, `migrations/` и `conf.example.yml` (как `conf.yml`) в `/app`.
 
 ### Flow проверки изменений
 ```

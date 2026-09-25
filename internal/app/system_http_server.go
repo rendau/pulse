@@ -11,7 +11,7 @@ import (
 )
 
 // SystemHttpServerCreate builds the system HTTP server that exposes
-// service endpoints: /healthcheck, /readiness, /docs/*, /metrics.
+// service endpoints: /healthcheck, /readiness, /metrics.
 func SystemHttpServerCreate(port string, ready func(ctx context.Context) error) *http.Server {
 	mux := http.NewServeMux()
 
@@ -31,10 +31,6 @@ func SystemHttpServerCreate(port string, ready func(ctx context.Context) error) 
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-
-	// docs
-	docFS := http.StripPrefix("/docs/", http.FileServer(http.Dir("./docs")))
-	mux.Handle("/docs/", docFS)
 
 	// metrics (uses metrics.Registry instead of the default promhttp registry)
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}))

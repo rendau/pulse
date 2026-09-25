@@ -10,7 +10,7 @@ import (
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 )
 
-// ServiceYaml — транспортная модель файла service.yaml (см. ТЗ, 1.2).
+// ServiceYaml — транспортная модель файла service.yaml.
 // Содержит только то, что не выводится из кластера.
 type ServiceYaml struct {
 	Name    string   `yaml:"name"`

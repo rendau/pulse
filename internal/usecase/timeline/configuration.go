@@ -235,7 +235,7 @@ func (u *Usecase) kusecApps(ctx context.Context, workloads []*workloadModel.Main
 	return lo.Values(byId), nil
 }
 
-// decodeAuditEntry — запись аудита как правка конфигурации сервиса с маскированием (ТЗ 4.2):
+// decodeAuditEntry — запись аудита как правка конфигурации сервиса с маскированием:
 // значение секрета — только факт изменения, обычный конфиг — через redact.Value.
 func decodeAuditEntry(e kusecModel.AuditEntry, app *kusecApp) (eventModel.ConfigEdit, bool) {
 	switch e.EntityType {

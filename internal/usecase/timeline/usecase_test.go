@@ -224,7 +224,7 @@ func TestTimeline_DeployBeforeErrors(t *testing.T) {
 	assert.Equal(t, 4*time.Minute, firstError.TS.Sub(deploy.TS).Round(time.Minute))
 	assert.Contains(t, deploy.Summary, "0000000 → a3f9c21")
 
-	// секреты не протекают в события конфигурации (ТЗ 4.2)
+	// секреты не протекают в события конфигурации
 	for _, e := range res.Events {
 		if e.Type != constant.EventTypeConfigChange {
 			continue

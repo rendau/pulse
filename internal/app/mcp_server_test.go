@@ -85,7 +85,7 @@ func TestMCPServer_Ping(t *testing.T) {
 		}
 		assert.Contains(t, names, "ping")
 		assert.Contains(t, names, "get_public_api")
-		assert.LessOrEqual(t, len(names), 13, "не более 13 инструментов (ТЗ, раздел 8)")
+		assert.LessOrEqual(t, len(names), 13, "не более 13 инструментов")
 
 		// схемы ответов допускают новые поля: клиенты с запомненной схемой не ломаются
 		// после деплоя, добавившего поле

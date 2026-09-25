@@ -16,7 +16,7 @@ import (
 const clusterNameExact = 0.93
 
 // GetOrSuggest ищет сервис по точному имени (или однозначному имени в кластере); неизвестное имя — ошибка со списком
-// похожих (1.3 ТЗ), а не пустой результат.
+// похожих, а не пустой результат.
 func (s *Service) GetOrSuggest(ctx context.Context, name string) (*model.Main, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
