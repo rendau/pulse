@@ -45,7 +45,7 @@ type LokiI interface {
 // токен в шаблоне поиска — поиск настоящего значения.
 type PiiI interface {
 	Text(s string) string
-	SearchPattern(pattern string) (string, error)
+	SearchPattern(pattern string) (literal, regex string, err error)
 }
 
 type patternsServiceI interface {

@@ -141,25 +141,32 @@ func (s *Service) Resolve(kind, value string) (string, error) {
 	return normalized, nil
 }
 
-func (s *Service) SearchPattern(pattern string) (string, error) {
+// SearchPattern — поиск по токену в логах: literal — подстрока, которую Loki проверяет быстро
+// (предфильтр; пусто — без него), regex — точная проверка отобранных строк. Без токенов —
+// ("", pattern): шаблон как есть.
+func (s *Service) SearchPattern(pattern string) (string, string, error) {
 	tokens := TokenRe.FindAllString(pattern, -1)
 	if len(tokens) == 0 {
-		return pattern, nil
+		return "", pattern, nil
 	}
 	if TokenRe.FindString(pattern) != pattern {
-		return "", fmt.Errorf("%w: pass a pii token alone as pattern, without other text", errs.InvalidRequest)
+		return "", "", fmt.Errorf("%w: pass a pii token alone as pattern, without other text", errs.InvalidRequest)
 	}
 	e, err := s.lookup(pattern)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	switch e.kind {
 	case "phone":
-		return phoneSearch(e.value, s.conf.CountryCode), nil
+		// национальная часть слитно: в машинных логах номер почти всегда без пробелов
+		// (+77011234567, 87011234567, 7011234567); с пробелами внутри предфильтр не найдёт
+		national := strings.TrimPrefix(e.value, s.conf.CountryCode)
+		return national, `(?:^|[^0-9])(?:\+?` + regexp.QuoteMeta(s.conf.CountryCode) + `|8)?` + national + `(?:[^0-9]|$)`, nil
 	case "email":
-		return "(?i)" + regexp.QuoteMeta(e.value), nil
+		// регистр в логах любой: подстрочного предфильтра нет
+		return "", "(?i)" + regexp.QuoteMeta(e.value), nil
 	default:
-		return regexp.QuoteMeta(e.value), nil
+		return e.value, `(?:^|[^[:alnum:]])` + regexp.QuoteMeta(e.value) + `(?:[^[:alnum:]]|$)`, nil
 	}
 }
 
@@ -224,17 +231,6 @@ func (s *Service) normalize(kind, value string) (string, bool) {
 	default:
 		return strings.TrimSpace(value), strings.TrimSpace(value) != ""
 	}
-}
-
-// phoneSearch — регэксп номера в любом написании: +7 (701) 123-45-67, 87011234567, 7011234567.
-func phoneSearch(normalized, country string) string {
-	national := strings.TrimPrefix(normalized, country)
-	sep := `[\s()-]*`
-	parts := make([]string, len(national))
-	for i, c := range national {
-		parts[i] = string(c)
-	}
-	return `(?:\+?` + regexp.QuoteMeta(country) + `|8)?` + sep + strings.Join(parts, sep)
 }
 
 func maskCard(value string) string {

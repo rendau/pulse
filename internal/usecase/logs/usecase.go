@@ -5,6 +5,7 @@ package logs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -79,13 +80,17 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		return nil, fmt.Errorf("%w: mode %q; expected patterns or raw", errs.InvalidRequest, req.Mode)
 	}
 
+	// токен персональных данных (pii:phone:…) — поиск настоящего значения: подстрока-предфильтр
+	// для Loki и точный регэксп
+	var prefilter string
+	tokenSearch := false
 	if req.Pattern != "" {
-		// токен персональных данных (pii:phone:…) — поиск настоящего значения в любом написании
-		pattern, err := u.pii.SearchPattern(strings.TrimSpace(req.Pattern))
+		literal, pattern, err := u.pii.SearchPattern(strings.TrimSpace(req.Pattern))
 		if err != nil {
 			return nil, err
 		}
-		req.Pattern = pattern
+		tokenSearch = pattern != strings.TrimSpace(req.Pattern)
+		prefilter, req.Pattern = literal, pattern
 		if _, err := regexp.Compile(req.Pattern); err != nil {
 			return nil, fmt.Errorf("%w: pattern is not a valid regexp: %s", errs.InvalidRequest, err)
 		}
@@ -95,8 +100,29 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		return nil, fmt.Errorf("%w: window %s exceeds maximum %s for logs; narrow the window", errs.InvalidRequest, req.Window, u.conf.MaxWindow)
 	}
 
+	result, err := u.query(ctx, req, level, prefilter)
+	if err != nil && tokenSearch {
+		// в тексте ошибки источника бывает запрос — с настоящим значением вместо токена
+		return nil, tokenSearchError(err)
+	}
+	return result, err
+}
+
+// tokenSearchError — ошибка поиска по токену без подробностей источника.
+func tokenSearchError(err error) error {
+	switch {
+	case errors.Is(err, errs.InvalidRequest):
+		return fmt.Errorf("%w: search by pii token failed: invalid request", errs.InvalidRequest)
+	case strings.Contains(err.Error(), "timeout") || errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("%w: search by pii token: log source did not answer in time — narrow window or pass service", errs.ServiceNA)
+	default:
+		return fmt.Errorf("%w: search by pii token: log source is unavailable", errs.ServiceNA)
+	}
+}
+
+func (u *Usecase) query(ctx context.Context, req *model.QueryReq, level, prefilter string) (*model.QueryResult, error) {
 	if strings.TrimSpace(req.Service) == "" {
-		return u.search(ctx, req, level)
+		return u.search(ctx, req, level, prefilter)
 	}
 
 	mode := lo.CoalesceOrEmpty(req.Mode, model.ModePatterns)
@@ -130,7 +156,7 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		return nil, err
 	}
 
-	lines, selector, source, err := u.collect(ctx, service, groups, req.Pattern, level, start, end, limit)
+	lines, selector, source, err := u.collect(ctx, service, groups, prefilter, req.Pattern, level, start, end, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +212,7 @@ func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloa
 	groups := u.podGroups(ctx, service, workloads)
 
 	end := time.Now().UTC()
-	lines, _, _, err := u.collect(ctx, service, groups, "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines)
+	lines, _, _, err := u.collect(ctx, service, groups, "", "", logsModel.LevelError, end.Add(-win), end, u.conf.MaxLines)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +222,7 @@ func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloa
 
 // collect — строки из Loki, а если он не подключён или не ответил — из Kubernetes API
 // (живые поды сервиса). Возвращает и то, откуда и по какому селектору строки взяты.
-func (u *Usecase) collect(ctx context.Context, service *svcModel.Main, groups []podGroup, pattern, level string, start, end time.Time, limit int) ([]logsModel.Line, string, string, error) {
+func (u *Usecase) collect(ctx context.Context, service *svcModel.Main, groups []podGroup, prefilter, pattern, level string, start, end time.Time, limit int) ([]logsModel.Line, string, string, error) {
 	selector, err := u.selector(service, groups)
 	if err != nil {
 		return nil, "", "", err
@@ -204,7 +230,7 @@ func (u *Usecase) collect(ctx context.Context, service *svcModel.Main, groups []
 
 	var lokiErr error
 	if u.loki != nil {
-		lines, err := u.fetch(ctx, logQL(selector, pattern, level), level, start, end, limit, func(labels map[string]string, line *logsModel.Line) {
+		lines, err := u.fetch(ctx, logQL(selector, prefilter, pattern, level), level, start, end, limit, func(labels map[string]string, line *logsModel.Line) {
 			line.Workload = groupOfPod(podOf(labels), groups)
 		})
 		if err == nil {
@@ -246,11 +272,15 @@ func (u *Usecase) selector(service *svcModel.Main, groups []podGroup) (string, e
 
 // logQL — селектор с фильтрами. Фильтр по уровню — грубое регулярное выражение (сужает
 // выдачу на стороне Loki), точно уровень определяется по строке в fetch. Паттерн без
-// метасимволов ищется как подстрока (|=): Loki проверяет её быстрее регэкспа.
-func logQL(selector, pattern, level string) string {
+// метасимволов ищется как подстрока (|=): Loki проверяет её быстрее регэкспа; prefilter —
+// подстрока перед регэкспом (поиск по токену: регэксп проверяется только на отобранных строках).
+func logQL(selector, prefilter, pattern, level string) string {
 	query := selector
 	if level != "" {
 		query += ` |~ "(?i)` + levelRegexp(level) + `"`
+	}
+	if prefilter != "" {
+		query += " |= " + strconv.Quote(prefilter)
 	}
 	if pattern != "" {
 		op := lo.Ternary(regexp.QuoteMeta(pattern) == pattern, "|=", "|~")

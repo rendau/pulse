@@ -64,21 +64,24 @@ func TestResolveAndSearch(t *testing.T) {
 	_, err = s.Resolve("phone", "pii:phone:abcdefghijkl")
 	require.ErrorIs(t, err, errs.InvalidRequest, "неизвестный токен")
 
-	pattern, err := s.SearchPattern(phone)
+	literal, pattern, err := s.SearchPattern(phone)
 	require.NoError(t, err)
+	assert.Equal(t, "7011234567", literal, "предфильтр — национальная часть слитно")
 	re := regexp.MustCompile(pattern)
-	for _, line := range []string{"to +7 (701) 123-45-67", "to 87011234567", "to 7011234567", "phone=77011234567"} {
-		assert.True(t, re.MatchString(line), line)
+	for _, line := range []string{"to +77011234567", "to 87011234567", "to 7011234567", `phone=77011234567`, `"phone":"77011234567"`} {
+		assert.True(t, re.MatchString(line) && strings.Contains(line, literal), line)
 	}
 	assert.False(t, re.MatchString("to 87011234568"))
+	assert.False(t, re.MatchString("id 177011234567"), "не внутри другого числа")
 
-	pattern, err = s.SearchPattern("заказ 234115")
+	literal, pattern, err = s.SearchPattern("заказ 234115")
 	require.NoError(t, err)
+	assert.Empty(t, literal)
 	assert.Equal(t, "заказ 234115", pattern, "без токенов — как есть")
 
-	_, err = s.SearchPattern(name)
+	_, _, err = s.SearchPattern(name)
 	require.ErrorIs(t, err, errs.InvalidRequest, "по имени искать нельзя")
-	_, err = s.SearchPattern("ошибка " + phone)
+	_, _, err = s.SearchPattern("ошибка " + phone)
 	require.ErrorIs(t, err, errs.InvalidRequest, "токен — только целиком")
 }
 

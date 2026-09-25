@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,9 +83,16 @@ func (s *Service) sendRequest(ctx context.Context, method, path string, query ur
 		req.Header.Set("X-Scope-OrgID", s.auth.OrgId)
 	}
 
+	// в текстах ошибок — только путь: в query бывают данные поиска (номер, подставленный вместо
+	// токена персональных данных), а текст ошибки уходит агенту
+	target := s.baseUrl + path
+
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", errs.ServiceNA, uri, err)
+		if urlErr, ok := errors.AsType[*url.Error](err); ok {
+			err = urlErr.Err // url.Error печатает адрес целиком, с query
+		}
+		return nil, fmt.Errorf("%w: %s: %w", errs.ServiceNA, target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -94,12 +102,12 @@ func (s *Service) sendRequest(ctx context.Context, method, path string, query ur
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("%w: %s: status %d: %s", errs.ServiceNA, uri, resp.StatusCode, truncate(body, 200))
+		return nil, fmt.Errorf("%w: %s: status %d: %s", errs.ServiceNA, target, resp.StatusCode, truncate(body, 200))
 	}
 
 	if repObj != nil {
 		if err = json.Unmarshal(body, repObj); err != nil {
-			return nil, fmt.Errorf("decode %s: %w", uri, err)
+			return nil, fmt.Errorf("decode %s: %w", target, err)
 		}
 	}
 

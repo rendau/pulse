@@ -11,6 +11,7 @@ type Tokenizer interface {
 	// Resolve — значение для исходящего запроса: токен → значение (вид должен совпасть), иначе
 	// само значение, если оно похоже на вид kind.
 	Resolve(kind, value string) (string, error)
-	// SearchPattern — регэксп поиска в логах вместо токенов в шаблоне; без токенов — как есть.
-	SearchPattern(pattern string) (string, error)
+	// SearchPattern — поиск по токену в логах: literal — быстрый предфильтр (подстрока, может
+	// быть пустым), regex — точная проверка; без токенов — ("", pattern).
+	SearchPattern(pattern string) (literal, regex string, err error)
 }

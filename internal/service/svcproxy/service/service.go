@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -53,7 +54,12 @@ func (s *Service) sendRequest(ctx context.Context, uri string, headers map[strin
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", errs.ServiceNA, uri, err)
+		// без query: в параметрах бывает значение, подставленное вместо токена персональных
+		// данных, а текст ошибки уходит агенту (url.Error печатает адрес целиком)
+		if urlErr, ok := errors.AsType[*url.Error](err); ok {
+			err = urlErr.Err
+		}
+		return nil, fmt.Errorf("%w: %s: %w", errs.ServiceNA, req.URL.Host+req.URL.Path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

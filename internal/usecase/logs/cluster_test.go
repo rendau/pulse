@@ -2,6 +2,7 @@ package logs
 
 import (
 	"context"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -164,10 +165,10 @@ func TestQuery_SearchScanBudgetAndRetention(t *testing.T) {
 
 func TestSearchQL(t *testing.T) {
 	sel := `{ns=~".+"}`
-	assert.Equal(t, `{ns=~".+"} |= "234115" |~ "(?:^|[^[:alnum:].])234115(?:[^[:alnum:]]|$)"`, searchQL(sel, "234115", ""), "число — не в дробной части")
-	assert.Equal(t, searchQL(sel, "234115", ""), searchQL(sel, `\b234115\b`, ""), "\\b от модели — тот же поиск подстрокой")
-	assert.Equal(t, `{ns=~".+"} |= "ORD-1" |~ "(?:^|[^[:alnum:]])ORD-1(?:[^[:alnum:]]|$)"`, searchQL(sel, "ORD-1", ""))
-	assert.Equal(t, `{ns=~".+"} |~ "ORD-\\d+"`, searchQL(sel, `ORD-\d+`, ""))
+	assert.Equal(t, `{ns=~".+"} |= "234115" |~ "(?:^|[^[:alnum:].])234115(?:[^[:alnum:]]|$)"`, searchQL(sel, "", "234115", ""), "число — не в дробной части")
+	assert.Equal(t, searchQL(sel, "", "234115", ""), searchQL(sel, "", `\b234115\b`, ""), "\\b от модели — тот же поиск подстрокой")
+	assert.Equal(t, `{ns=~".+"} |= "ORD-1" |~ "(?:^|[^[:alnum:]])ORD-1(?:[^[:alnum:]]|$)"`, searchQL(sel, "", "ORD-1", ""))
+	assert.Equal(t, `{ns=~".+"} |~ "ORD-\\d+"`, searchQL(sel, "", `ORD-\d+`, ""))
 
 	number := regexp.MustCompile(`(?:^|[^[:alnum:].])234115(?:[^[:alnum:]]|$)`)
 	for line, want := range map[string]bool{
@@ -319,7 +320,15 @@ func TestQuery_SearchByPiiToken(t *testing.T) {
 
 	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: token, Window: time.Hour})
 	require.NoError(t, err)
-	assert.Contains(t, loki.query, `|~ "(?:\\+?7|8)?[\\s()-]*7[\\s()-]*0[\\s()-]*1`, "в Loki — регэксп номера")
+	assert.Contains(t, loki.query, `|= "7011234567" |~ "(?:^|[^0-9])(?:\\+?7|8)?7011234567(?:[^0-9]|$)"`,
+		"в Loki — подстрока-предфильтр и точный регэксп номера")
+
+	// ошибка источника при поиске по токену — без запроса (в нём настоящий номер)
+	loki.err = errors.New("query_range: http://loki/query?query=%7C%3D+%227011234567%22: timeout awaiting response headers")
+	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: token, Window: time.Hour})
+	require.ErrorIs(t, err, errs.ServiceNA)
+	assert.NotContains(t, err.Error(), "7011234567")
+	loki.err = nil
 
 	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "pii:phone:abcdefghijkl", Window: time.Hour})
 	require.ErrorIs(t, err, errs.InvalidRequest, "неизвестный токен")

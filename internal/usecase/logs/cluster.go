@@ -28,7 +28,7 @@ const minSearchLen = 3
 // в ответе — где и сколько нашлось. Без окна и конца — назад по дням (scan); режим по
 // умолчанию raw (в паттернах номер замаскирован), строки — по времени.
 // Только Loki: обойти логи всех подов через Kubernetes API за разумное время нельзя.
-func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string) (*model.QueryResult, error) {
+func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level, prefilter string) (*model.QueryResult, error) {
 	pattern := strings.TrimSpace(req.Pattern)
 	if len([]rune(pattern)) < minSearchLen {
 		return nil, fmt.Errorf("%w: service is required; to search all services pass pattern of %d+ characters (order number, customer id…)", errs.InvalidRequest, minSearchLen)
@@ -45,7 +45,7 @@ func (u *Usecase) search(ctx context.Context, req *model.QueryReq, level string)
 	if err != nil {
 		return nil, err
 	}
-	query := searchQL(u.conf.ClusterSelector, pattern, level)
+	query := searchQL(u.conf.ClusterSelector, prefilter, pattern, level)
 
 	// выборка — max_lines: счётчики по сервисам точнее, чем по показанным строкам
 	var lines []logsModel.Line
@@ -144,15 +144,15 @@ func (u *Usecase) scan(ctx context.Context, query, level string, attach func(map
 // «ord-41314079» находятся: _ и - — разделители, \b их не пропускал), у числа ещё и не
 // точка перед ним (микросекунды «28.234115» во временных метках klog). \b234115\b от модели — тот же идентификатор: регэксп без
 // подстроки Loki проверяет на порядок медленнее.
-func searchQL(selector, pattern, level string) string {
+func searchQL(selector, prefilter, pattern, level string) string {
 	if inner, ok := strings.CutPrefix(pattern, `\b`); ok {
 		if inner, ok = strings.CutSuffix(inner, `\b`); ok && regexp.QuoteMeta(inner) == inner {
 			pattern = inner
 		}
 	}
 
-	query := logQL(selector, pattern, level)
-	if regexp.QuoteMeta(pattern) == pattern && wordEdgesRe.MatchString(pattern) {
+	query := logQL(selector, prefilter, pattern, level)
+	if prefilter == "" && regexp.QuoteMeta(pattern) == pattern && wordEdgesRe.MatchString(pattern) {
 		left := `(?:^|[^[:alnum:]])`
 		if digitsRe.MatchString(pattern) {
 			left = `(?:^|[^[:alnum:].])`
