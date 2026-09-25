@@ -230,7 +230,7 @@ func (r *Rules) applyDefaults() {
 		r.Logs.Retention = 720 * time.Hour
 	}
 	if r.Logs.SearchBudget <= 0 {
-		r.Logs.SearchBudget = 30 * time.Second
+		r.Logs.SearchBudget = time.Minute
 	}
 	if r.Logs.ClusterSelector == "" {
 		r.Logs.ClusterSelector = `{kubernetes_namespace_name=~".+"}`
@@ -266,7 +266,7 @@ func (r *Rules) applyDefaults() {
 		r.Endpoints.DefaultPort = 80
 	}
 	if r.Cluster.Deadline <= 0 {
-		r.Cluster.Deadline = 30 * time.Second
+		r.Cluster.Deadline = time.Minute
 	}
 	if r.Cluster.PendingPodsThreshold <= 0 {
 		r.Cluster.PendingPodsThreshold = 5

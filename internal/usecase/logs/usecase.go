@@ -56,7 +56,7 @@ func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI
 		conf.Retention = 30 * 24 * time.Hour
 	}
 	if conf.SearchBudget <= 0 {
-		conf.SearchBudget = 30 * time.Second
+		conf.SearchBudget = time.Minute
 	}
 	if conf.ClusterSelector == "" {
 		conf.ClusterSelector = `{kubernetes_namespace_name=~".+"}`

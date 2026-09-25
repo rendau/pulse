@@ -68,7 +68,7 @@ logs:
   retention: 720h
   # поиск по всем сервисам без окна идёт назад по суткам (≈2 с на сутки), пока не найдёт следы
   # и перед ними не будет пусто; бюджет времени на весь поиск
-  search_budget: 30s
+  search_budget: 1m
 
 timeline:
   # общий дедлайн сбора изменений; потолок событий в ответе; коммитов на репозиторий за окно
@@ -105,8 +105,8 @@ endpoints:
 cluster:
   # get_cluster_health: дедлайн сбора, пороги деградации (pending-поды, поды в проблемных
   # состояниях: CrashLoopBackOff, ImagePullBackOff, OOMKilled, Restarting), усечение списков.
-  # Дедлайн 30s: счётчик ошибок по логам всего кластера за сутки — ~15 с в Loki
-  deadline: 30s
+  # Дедлайн 1m: счётчик ошибок по логам всего кластера за сутки — ~15 с в Loki, с запасом
+  deadline: 1m
   pending_pods_threshold: 5
   problem_pods_threshold: 3
   max_problem_pods: 50
