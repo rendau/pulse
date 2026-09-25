@@ -139,17 +139,32 @@ func (u *Usecase) scan(ctx context.Context, query, level string, attach func(map
 }
 
 // searchQL — LogQL поиска. Идентификатор (без метасимволов, по краям буква или цифра) ищется
-// целым словом: подстрокой в Loki (быстро) и затем регэкспом с \b — номер 234115 не
-// должен находиться внутри 12341156.
+// целым словом: подстрокой в Loki (быстро) и затем регэкспом с границами — номер 234115 не
+// должен находиться внутри 12341156, а число — в дробной части (микросекунды «28.234115»
+// во временных метках klog). \b234115\b от модели — тот же идентификатор: регэксп без
+// подстроки Loki проверяет на порядок медленнее.
 func searchQL(selector, pattern, level string) string {
+	if inner, ok := strings.CutPrefix(pattern, `\b`); ok {
+		if inner, ok = strings.CutSuffix(inner, `\b`); ok && regexp.QuoteMeta(inner) == inner {
+			pattern = inner
+		}
+	}
+
 	query := logQL(selector, pattern, level)
 	if regexp.QuoteMeta(pattern) == pattern && wordEdgesRe.MatchString(pattern) {
-		query += " |~ " + strconv.Quote(`\b`+pattern+`\b`)
+		left := `\b`
+		if digitsRe.MatchString(pattern) {
+			left = `(?:^|[^\w.])`
+		}
+		query += " |~ " + strconv.Quote(left+pattern+`\b`)
 	}
 	return query
 }
 
-var wordEdgesRe = regexp.MustCompile(`^\w(?:.*\w)?$`)
+var (
+	wordEdgesRe = regexp.MustCompile(`^\w(?:.*\w)?$`)
+	digitsRe    = regexp.MustCompile(`^\d+$`)
+)
 
 // serviceHits — сколько строк нашлось у каждого сервиса (под не из каталога — по namespace'у),
 // больше всего — первым.

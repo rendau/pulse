@@ -99,7 +99,9 @@ func TestQuery_SearchAllServices(t *testing.T) {
 func TestQuery_SearchScanDays(t *testing.T) {
 	now := time.Now()
 	day := 24 * time.Hour
-	at := func(ago time.Duration, text string) lokiModel.Entry { return lokiModel.Entry{TS: now.Add(-ago), Line: text} }
+	at := func(ago time.Duration, text string) lokiModel.Entry {
+		return lokiModel.Entry{TS: now.Add(-ago), Line: text}
+	}
 	loki := &fakeLoki{streams: []lokiModel.Stream{{Labels: streamLabels("prod", "orders-7d9f-q2"), Entries: []lokiModel.Entry{
 		// заказ: оформлен 6 дней назад, день тишины, доставлен 4 дня назад
 		at(6*day+time.Hour, "order 234115 created"),
@@ -158,6 +160,27 @@ func TestQuery_SearchScanBudgetAndRetention(t *testing.T) {
 	u.conf.SearchBudget = 10 * time.Millisecond
 	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "234115"})
 	require.Error(t, err)
+}
+
+func TestSearchQL(t *testing.T) {
+	sel := `{ns=~".+"}`
+	assert.Equal(t, `{ns=~".+"} |= "234115" |~ "(?:^|[^\\w.])234115\\b"`, searchQL(sel, "234115", ""), "число — не в дробной части")
+	assert.Equal(t, searchQL(sel, "234115", ""), searchQL(sel, `\b234115\b`, ""), "\\b от модели — тот же поиск подстрокой")
+	assert.Equal(t, `{ns=~".+"} |= "ORD-1" |~ "\\bORD-1\\b"`, searchQL(sel, "ORD-1", ""))
+	assert.Equal(t, `{ns=~".+"} |~ "ORD-\\d+"`, searchQL(sel, `ORD-\d+`, ""))
+
+	re := regexp.MustCompile(`(?:^|[^\w.])234115\b`)
+	for line, want := range map[string]bool{
+		`order 234115 created`: true,
+		`{"ord_id":234115}`:    true,
+		`/orders/234115`:       true,
+		`234115`:               true,
+		`I0925 06:02:28.234115       1 reflector`: false,
+		`order 12341156`: false,
+		`order 1234115`:  false,
+	} {
+		assert.Equal(t, want, re.MatchString(line), line)
+	}
 }
 
 func TestQuery_SearchValidation(t *testing.T) {

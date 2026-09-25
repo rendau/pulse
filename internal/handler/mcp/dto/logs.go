@@ -15,7 +15,7 @@ import (
 type QueryLogsReq struct {
 	Service string `json:"service,omitempty" jsonschema:"точное имя сервиса; пусто — поиск pattern во всех логах кластера (номер заказа, id клиента)"`
 	Level   string `json:"level,omitempty" jsonschema:"error | warn | info | debug; пусто — все уровни"`
-	Pattern string `json:"pattern,omitempty" jsonschema:"регулярное выражение по строке (RE2), например acquirer.*timeout"`
+	Pattern string `json:"pattern,omitempty" jsonschema:"регулярное выражение по строке (RE2), например acquirer.*timeout; номер заказа, id — как есть, без \\b: целым словом ищет сам pulse"`
 	Window  string `json:"window,omitempty" jsonschema:"Go duration назад от end: 15m, 1h (по умолчанию), 24h (максимум); без service и без end — поиск назад по суткам"`
 	End     string `json:"end,omitempty" jsonschema:"конец окна: дата 2026-09-20 (без window — эти сутки целиком) или время 2026-09-20T16:00 (Asia/Almaty); пусто — сейчас. Логи хранятся 30 дней"`
 	Mode    string `json:"mode,omitempty" jsonschema:"patterns (по умолчанию; без service — raw) — агрегированные паттерны со счётчиком; raw — последние строки"`
