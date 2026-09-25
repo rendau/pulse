@@ -187,6 +187,13 @@ func IsManifest(raw []byte) bool {
 	return len(raw) > 0 && raw[0] == '{' && json.Unmarshal(raw, &probe) == nil && len(probe.PulseManifest) > 0
 }
 
+// LooksLikeManifest — начало ответа (обрезанного по лимиту) похоже на манифест: JSON-объект,
+// где встречается pulse_manifest. Большая страница на любой путь — не манифест.
+func LooksLikeManifest(prefix []byte) bool {
+	prefix = bytes.TrimSpace(prefix)
+	return len(prefix) > 0 && prefix[0] == '{' && bytes.Contains(prefix, []byte(`"pulse_manifest"`))
+}
+
 // ParseManifest разбирает и проверяет манифест. Ошибка — манифест не принят целиком
 // (invalid); Problems — принят, но часть отклонена (partial).
 func ParseManifest(raw []byte) (*ParsedManifest, error) {

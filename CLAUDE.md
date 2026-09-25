@@ -76,7 +76,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
   `svcproxy` (GET к ручке сервиса внутри кластера по DNS `name.namespace.svc`; локально —
   `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGet`),
-  `indexer` (фоновый обход кластера → каталог + история деплоев).
+  `indexer` (фоновый обход кластера → каталог + история деплоев), `selfstatus` (ручка состояния
+  сервиса `<manifest.path>/status` прямо с пода: проверка по стандарту, тексты через
+  `redact.Userinfo` + `redact.Text`, кэш `manifest.status_cache`).
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы.
 
 ---
@@ -144,7 +146,12 @@ domain service → repo
   ошибка, partial — `Problems`); `200` без `pulse_manifest` — не манифест (`IsManifest`). Манифест
   важнее `service.yaml` (`metadata.source`), коммит сборки из манифеста — первым. Вызов пода —
   `svcproxy.GetPod` (IP пода; `ENDPOINT_CALL_MODE=k8s-proxy` — через pods/proxy, 503 прокси
-  «error trying to reach service» — «нет ответа», а не HTTP-ответ).
+  «error trying to reach service» — «нет ответа», а не HTTP-ответ). `200` на любой путь (SPA,
+  большая страница, обрезанная по лимиту) — тоже не манифест (`LooksLikeManifest`).
+  Снапшот (`snapshot/self.go`) опрашивает ручку состояния до 3 готовых подов workload'ов с
+  манифестом и показывает худший (`self_reported`): зависимости — только объявленные в манифесте;
+  не-ok → health degraded и подсказки «сервис сообщает: …»; отчёт старше 5 мин — `stale`.
+  Метрики манифеста — добавка к golden signals (service.yaml — замена).
 - Логи: селектор из `service.yaml` (`logs.selector`), иначе `logs.default_selector` из правил
   с плейсхолдерами `{namespace}`, `{pod_regex}`; запрос без привязки к сервису невозможен.
   Строка привязывается к workload'у сервиса по лейблу пода (`pod`, `kubernetes_pod_name`, …),

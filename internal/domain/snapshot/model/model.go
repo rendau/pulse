@@ -106,9 +106,44 @@ type Snapshot struct {
 	Workloads    []WorkloadState
 	Metrics      []Metric
 	// TopErrors — верхние error-паттерны логов за окно (фаза 3)
-	TopErrors    []logsModel.Pattern
+	TopErrors []logsModel.Pattern
+	// Self — что сервис сообщает о себе сам (ручка состояния манифеста); nil — ручки нет
+	Self         *SelfReport
 	RecentEvents []eventModel.Event
 	Errors       []SourceError
+}
+
+// SelfReport — состояние, которое сервис сообщает сам: зависимости и показатели. Худший из
+// опрошенных подов.
+type SelfReport struct {
+	Status    string // ok | degraded | down
+	Pod       string // под, чей отчёт показан
+	Pods      int    // сколько подов ответило
+	CheckedAt time.Time
+	// Stale — проверки давно не выполнялись (фоновая проверка в сервисе остановилась)
+	Stale        bool
+	Dependencies []SelfDependency
+	Gauges       []SelfGauge
+}
+
+// SelfDependency — зависимость из манифеста и её состояние по словам сервиса.
+type SelfDependency struct {
+	Id        string
+	Kind      string
+	Target    string
+	Critical  bool
+	Status    string
+	LatencyMs *int64
+	Message   string
+}
+
+type SelfGauge struct {
+	Id     string
+	Title  string
+	Value  *float64
+	Time   *time.Time
+	Unit   string
+	Status string
 }
 
 // Series — ряд значений для query_metrics.

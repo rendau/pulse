@@ -57,6 +57,10 @@ func (s *Service) ComputeHealth(snap *model.Snapshot, podsUnavailable bool) stri
 			return model.HealthDegraded
 		}
 	}
+	// сервис сам сообщает о проблеме (зависимость down или деградировала)
+	if snap.Self != nil && snap.Self.Status != "" && snap.Self.Status != "ok" {
+		return model.HealthDegraded
+	}
 	for _, w := range runnable {
 		if w.Pods.Ready < int(w.ReplicasDesired) || len(w.Pods.Problems) > 0 {
 			return model.HealthDegraded
@@ -85,6 +89,8 @@ func (s *Service) SummaryHints(snap *model.Snapshot, now time.Time) []string {
 		}
 		hints = append(hints, hint)
 	}
+
+	hints = append(hints, selfHints(snap.Self, now)...)
 
 	for _, w := range snap.Workloads {
 		if w.Kind == constant.WorkloadKindCronJob {
@@ -136,6 +142,45 @@ func (s *Service) SummaryHints(snap *model.Snapshot, now time.Time) []string {
 		hints = append(hints, e.Hint())
 	}
 
+	return hints
+}
+
+// selfHints — что сервис сообщает о себе: не-ok зависимости (сначала критичные) и показатели.
+func selfHints(self *model.SelfReport, now time.Time) []string {
+	if self == nil {
+		return nil
+	}
+	hints := make([]string, 0, 4)
+	if self.Stale {
+		hints = append(hints, fmt.Sprintf("отчёт сервиса о состоянии устарел: проверки выполнялись %s — фоновая проверка в сервисе, похоже, остановилась",
+			humanSince(now, self.CheckedAt)))
+	}
+	deps := lo.Filter(self.Dependencies, func(d model.SelfDependency, _ int) bool { return d.Status != "" && d.Status != "ok" })
+	sort.SliceStable(deps, func(i, j int) bool { return deps[i].Critical && !deps[j].Critical })
+	for _, d := range deps {
+		hint := fmt.Sprintf("сервис сообщает: зависимость %s (%s → %s%s) — %s", d.Id, d.Kind, d.Target,
+			lo.Ternary(d.Critical, ", критичная", ""), d.Status)
+		if d.LatencyMs != nil {
+			hint += fmt.Sprintf(", %d мс", *d.LatencyMs)
+		}
+		if d.Message != "" {
+			hint += ": " + d.Message
+		}
+		hints = append(hints, hint)
+	}
+	for _, g := range self.Gauges {
+		if g.Status == "" || g.Status == "ok" {
+			continue
+		}
+		value := ""
+		switch {
+		case g.Value != nil:
+			value = formatValue(g.Value) + " " + g.Unit
+		case g.Time != nil:
+			value = humanSince(now, *g.Time)
+		}
+		hints = append(hints, fmt.Sprintf("сервис сообщает: «%s» = %s (%s)", g.Title, strings.TrimSpace(value), g.Status))
+	}
 	return hints
 }
 

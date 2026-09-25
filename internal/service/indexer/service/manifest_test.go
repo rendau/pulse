@@ -128,6 +128,15 @@ func TestProbe(t *testing.T) {
 	assert.Equal(t, workloadModel.ManifestAbsent, result.Status)
 	assert.Contains(t, result.Tried, "8080: 200, не манифест")
 
+	// большая страница на любой путь (обрезана по лимиту) — тоже не манифест
+	pods.answers["10.0.0.5:9090"] = &svcproxyModel.Response{StatusCode: 200, Body: []byte("<html>…"), Truncated: true}
+	result, _ = s.probe(context.Background(), pod, map[string][]int{"prod/ocenter-1": {9090}}, false)
+	assert.Equal(t, workloadModel.ManifestAbsent, result.Status)
+	// а обрезанный манифест — invalid
+	pods.answers["10.0.0.5:9090"] = &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{"pulse_manifest": 1, "service": {`), Truncated: true}
+	result, _ = s.probe(context.Background(), pod, map[string][]int{"prod/ocenter-1": {9090}}, false)
+	assert.Equal(t, workloadModel.ManifestInvalid, result.Status)
+
 	// невалидный манифест
 	pods.answers["10.0.0.5:9090"] = &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{"pulse_manifest":1}`)}
 	result, parsed = s.probe(context.Background(), pod, map[string][]int{"prod/ocenter-1": {9090}}, false)

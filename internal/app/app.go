@@ -41,6 +41,7 @@ import (
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
 	serviceRutoServiceP "github.com/mechta-market/pulse/internal/service/ruto/service"
+	serviceSelfstatusServiceP "github.com/mechta-market/pulse/internal/service/selfstatus/service"
 	serviceSvcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	serviceSvcproxyServiceP "github.com/mechta-market/pulse/internal/service/svcproxy/service"
 	usecaseCatalogP "github.com/mechta-market/pulse/internal/usecase/catalog"
@@ -180,6 +181,12 @@ func (a *App) Init() {
 		slog.Info("service calls go through kubernetes API proxy (services/proxy, pods/proxy)")
 	}
 
+	// self status (ручка состояния сервиса из манифеста)
+	selfStatusService := serviceSelfstatusServiceP.New(
+		serviceSelfstatusServiceP.Config{Path: rules.Manifest.Path + "/status", CacheTtl: rules.Manifest.StatusCache},
+		caller,
+	)
+
 	// indexer
 	if config.Conf.IndexerEnabled {
 		// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
@@ -278,6 +285,7 @@ func (a *App) Init() {
 				TopErrors: rules.Logs.TopErrors,
 			},
 			svcService, workloadService, dependencyService, k8sService, prometheusClient, alertmanagerClient, logsClient, eventService, rulesService,
+			selfStatusService,
 		)
 	}
 

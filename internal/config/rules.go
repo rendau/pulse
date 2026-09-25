@@ -119,6 +119,8 @@ type Rules struct {
 		RetryAfter   time.Duration `yaml:"retry_after"`
 		// SkipPorts — заведомо не-HTTP порты: при переборе портов пода не трогаются
 		SkipPorts []int `yaml:"skip_ports"`
+		// StatusCache — сколько держать ответ ручки состояния пода
+		StatusCache time.Duration `yaml:"status_cache"`
 	} `yaml:"manifest"`
 
 	Metrics struct {
@@ -201,6 +203,9 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Manifest.RetryAfter <= 0 {
 		r.Manifest.RetryAfter = time.Hour
+	}
+	if r.Manifest.StatusCache <= 0 {
+		r.Manifest.StatusCache = 15 * time.Second
 	}
 	if r.Manifest.SkipPorts == nil {
 		// Postgres, MySQL, Redis, Kafka, ZooKeeper, RabbitMQ (AMQP и кластер), MongoDB,

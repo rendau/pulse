@@ -59,6 +59,7 @@ type Usecase struct {
 	logs         LogsI
 	events       eventServiceI
 	rules        rulesServiceI
+	self         SelfStatusI
 }
 
 func New(
@@ -72,6 +73,7 @@ func New(
 	logs LogsI,
 	events eventServiceI,
 	rules rulesServiceI,
+	self SelfStatusI,
 ) *Usecase {
 	if conf.Deadline <= 0 {
 		conf.Deadline = 5 * time.Second
@@ -93,6 +95,7 @@ func New(
 		logs:         logs,
 		events:       events,
 		rules:        rules,
+		self:         self,
 	}
 }
 
@@ -138,6 +141,7 @@ func (u *Usecase) Snapshot(ctx context.Context, serviceName string, win time.Dur
 	eg.Go(func() error { collector.alerts(egCtx); return nil })
 	eg.Go(func() error { collector.metrics(egCtx); return nil })
 	eg.Go(func() error { collector.topErrors(egCtx); return nil })
+	eg.Go(func() error { collector.selfReport(egCtx); return nil })
 	_ = eg.Wait()
 
 	collector.finish()
@@ -407,11 +411,15 @@ func (c *collector) finish() {
 // {namespace}, {pod_regex}, {service}; плюс внешние метрики gateway, если сервис опубликован в ruto.
 func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.Main, rutoApps []string) []snapshotModel.MetricDef {
 	var defs []snapshotModel.MetricDef
+	declared := lo.Map(service.Metadata.Metrics, func(m svcModel.Metric, _ int) snapshotModel.MetricDef {
+		return snapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
+	})
+	// service.yaml заменяет golden signals; метрики манифеста — добавка к ним (стандарт:
+	// «свои метрики, если стандартных недостаточно»), свои с тем же id — вместо стандартной
+	manifest := service.Metadata.Source == svcModel.MetadataSourceManifest
 	switch {
-	case len(service.Metadata.Metrics) > 0:
-		defs = lo.Map(service.Metadata.Metrics, func(m svcModel.Metric, _ int) snapshotModel.MetricDef {
-			return snapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
-		})
+	case len(declared) > 0 && !manifest:
+		defs = declared
 	case len(workloads) > 0:
 		names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
 		replacer := strings.NewReplacer(
@@ -423,6 +431,14 @@ func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.
 			m.PromQL = replacer.Replace(m.PromQL)
 			return m
 		})
+		if manifest {
+			ids := lo.SliceToMap(declared, func(m snapshotModel.MetricDef) (string, bool) { return m.Id, true })
+			defs = append(lo.Reject(defs, func(m snapshotModel.MetricDef, _ int) bool { return ids[m.Id] }),
+				lo.Map(declared, func(m snapshotModel.MetricDef, _ int) snapshotModel.MetricDef {
+					m.PromQL = replacer.Replace(m.PromQL)
+					return m
+				})...)
+		}
 	}
 
 	if len(rutoApps) == 0 {

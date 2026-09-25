@@ -19,7 +19,9 @@ const (
 	SourceLoki         = "loki"
 	SourceAlertmanager = "alertmanager"
 	SourceKusec        = "kusec"
-	SourceRuto         = "ruto"
+	// SourceServiceStatus — ручка состояния самого сервиса (манифест)
+	SourceServiceStatus = "service_status"
+	SourceRuto          = "ruto"
 )
 
 // статусы подключения к источнику (ping)

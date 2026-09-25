@@ -30,6 +30,7 @@ type SnapshotRep struct {
 	Pods         PodsSummary     `json:"pods"`
 	Metrics      []Metric        `json:"metrics"`
 	TopErrors    []LogPattern    `json:"top_errors" jsonschema:"верхние error-паттерны логов за окно; подробнее — query_logs"`
+	Self         *SelfReport     `json:"self_reported,omitempty" jsonschema:"что сервис сообщает о себе сам (ручка состояния манифеста): зависимости и показатели; причина часто здесь"`
 	RecentEvents []Event         `json:"recent_events"`
 	Errors       []SourceError   `json:"errors" jsonschema:"источники, которые не ответили: часть картины отсутствует"`
 }
@@ -106,6 +107,7 @@ func EncodeSnapshotRep(v *snapshotModel.Snapshot) SnapshotRep {
 		TopErrors:    lo.Map(v.TopErrors, EncodeLogPattern),
 		RecentEvents: lo.Map(v.RecentEvents, EncodeEvent),
 		Errors:       lo.Map(v.Errors, encodeSnapshotSourceError),
+		Self:         encodeSelfReport(v.Self),
 	}
 
 	for _, w := range v.Workloads {
@@ -208,4 +210,56 @@ func EncodeQueryMetricsRep(v *usecaseSnapshotModel.QueryMetricsResult) QueryMetr
 			}
 		}),
 	}
+}
+
+type SelfReport struct {
+	Status       string           `json:"status" jsonschema:"ok | degraded | down — по словам сервиса"`
+	Pod          string           `json:"pod" jsonschema:"под, чей отчёт показан (худший из опрошенных)"`
+	Pods         int              `json:"pods" jsonschema:"сколько подов ответило"`
+	CheckedAt    *time.Time       `json:"checked_at,omitempty" jsonschema:"когда сервис выполнял проверки"`
+	Stale        bool             `json:"stale,omitempty" jsonschema:"проверки давно не выполнялись — отчёту верить с осторожностью"`
+	Dependencies []SelfDependency `json:"dependencies,omitempty"`
+	Gauges       []SelfGauge      `json:"gauges,omitempty"`
+}
+
+type SelfDependency struct {
+	Id        string `json:"id"`
+	Kind      string `json:"kind"`
+	Target    string `json:"target"`
+	Critical  bool   `json:"critical,omitempty"`
+	Status    string `json:"status,omitempty" jsonschema:"пусто — сервис не прислал состояние этой зависимости"`
+	LatencyMs *int64 `json:"latency_ms,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+type SelfGauge struct {
+	Id     string     `json:"id"`
+	Title  string     `json:"title"`
+	Value  *float64   `json:"value,omitempty"`
+	Time   *time.Time `json:"time,omitempty"`
+	Unit   string     `json:"unit,omitempty"`
+	Status string     `json:"status,omitempty"`
+}
+
+func encodeSelfReport(v *snapshotModel.SelfReport) *SelfReport {
+	if v == nil {
+		return nil
+	}
+	rep := &SelfReport{
+		Status: v.Status, Pod: v.Pod, Pods: v.Pods, Stale: v.Stale,
+		Dependencies: lo.Map(v.Dependencies, func(d snapshotModel.SelfDependency, _ int) SelfDependency {
+			return SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Status: d.Status, LatencyMs: d.LatencyMs, Message: d.Message}
+		}),
+		Gauges: lo.Map(v.Gauges, func(g snapshotModel.SelfGauge, _ int) SelfGauge {
+			gauge := SelfGauge{Id: g.Id, Title: g.Title, Value: g.Value, Unit: g.Unit, Status: g.Status}
+			if g.Time != nil {
+				gauge.Time = new(tz.In(*g.Time))
+			}
+			return gauge
+		}),
+	}
+	if !v.CheckedAt.IsZero() {
+		rep.CheckedAt = new(tz.In(v.CheckedAt))
+	}
+	return rep
 }

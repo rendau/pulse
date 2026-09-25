@@ -130,7 +130,7 @@ func (s *Service) probe(ctx context.Context, pod k8sModel.Pod, scrapePorts map[s
 			result.Tried = append(result.Tried, fmt.Sprintf("%d: %d", port, resp.StatusCode))
 			result.Status = workloadModel.ManifestAbsent // HTTP-сервер есть, манифеста нет
 			continue
-		case !resp.Truncated && !localModel.IsManifest(resp.Body):
+		case resp.Truncated && !localModel.LooksLikeManifest(resp.Body), !resp.Truncated && !localModel.IsManifest(resp.Body):
 			// 200 на любой путь (SPA, catch-all) — манифеста здесь нет
 			result.Tried = append(result.Tried, fmt.Sprintf("%d: 200, не манифест", port))
 			result.Status = workloadModel.ManifestAbsent

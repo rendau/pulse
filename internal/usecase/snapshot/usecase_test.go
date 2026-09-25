@@ -20,6 +20,8 @@ import (
 	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
+	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot/model"
 )
 
@@ -118,7 +120,7 @@ func newUsecase(k8s *fakeK8s, prom PrometheusI, am AlertmanagerI) *Usecase {
 		Deadline: 2 * time.Second, MaxEvents: 50, MaxAlerts: 50,
 		DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: `sum(rate(request_total{namespace="{namespace}", pod=~"{pod_regex}"}[5m]))`}},
 		MaxWindow:      7 * 24 * time.Hour, MaxSeries: 20, MaxPoints: 200,
-	}, svc, wl, &fakeDepend{}, k8s, prom, am, nil, eventService.New(), snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
+	}, svc, wl, &fakeDepend{}, k8s, prom, am, nil, eventService.New(), snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}), nil)
 }
 
 func TestSnapshot_Degraded(t *testing.T) {
@@ -262,7 +264,7 @@ func TestMetricDefs_PublicMetrics(t *testing.T) {
 	u := New(Config{
 		DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: `x{pod=~"{pod_regex}"}`}},
 		PublicMetrics:  []snapshotModel.MetricDef{{Id: "public_rps", PromQL: `gw{app=~"{ruto_apps}"}`}},
-	}, svc, wl, depend, &fakeK8s{}, nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}))
+	}, svc, wl, depend, &fakeK8s{}, nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}), nil)
 
 	defs := u.metricDefs(svc.service, wl.items, u.rutoApps(context.Background(), "payments-api"))
 	require.Len(t, defs, 2)
@@ -271,4 +273,72 @@ func TestMetricDefs_PublicMetrics(t *testing.T) {
 
 	depend.items = nil
 	assert.Len(t, u.metricDefs(svc.service, wl.items, u.rutoApps(context.Background(), "payments-api")), 1, "не опубликован в ruto — только свои метрики")
+}
+
+type fakeSelf struct {
+	statuses map[string]*selfstatusModel.Status // под → отчёт
+	targets  []svcproxyModel.PodTarget
+}
+
+func (f *fakeSelf) Get(_ context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error) {
+	f.targets = append(f.targets, target)
+	return f.statuses[target.Pod], nil
+}
+
+// Сервис сам сообщает о деградации зависимости: худший под, зависимости — из манифеста.
+func TestSnapshot_SelfReport(t *testing.T) {
+	now := time.Now()
+	svc, wl := fixtures()
+	svc.service.Metadata = svcModel.Metadata{Source: svcModel.MetadataSourceManifest, Dependencies: []svcModel.Dependency{
+		{Id: "pg", Kind: "postgres", Target: "payments-pg", Critical: true},
+		{Id: "bank", Kind: "http", Target: "api.bank.kz"},
+	}}
+	wl.items[0].Manifest = workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003}
+
+	k8s := &fakeK8s{pods: []k8sModel.Pod{
+		{Namespace: "prod", Name: "payments-api-1", IP: "10.0.0.1", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-2", IP: "10.0.0.2", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-3", IP: "10.0.0.3", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-4", IP: "10.0.0.4", Ready: true, Phase: "Running"},
+	}}
+	self := &fakeSelf{statuses: map[string]*selfstatusModel.Status{
+		"payments-api-1": {Status: "ok", CheckedAt: now},
+		"payments-api-2": {Status: "degraded", CheckedAt: now, Dependencies: []selfstatusModel.Dependency{
+			{Id: "pg", Status: "ok"},
+			{Id: "bank", Status: "degraded", LatencyMs: new(int64(4200)), Message: "ответ дольше 2 с"},
+			{Id: "undeclared", Status: "down"},
+		}},
+	}}
+
+	u := New(Config{Deadline: 2 * time.Second, DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: "x"}}}, svc, wl, &fakeDepend{}, k8s,
+		nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}), self)
+	snap, err := u.Snapshot(context.Background(), "payments-api", time.Hour)
+	require.NoError(t, err)
+
+	assert.Len(t, self.targets, 3, "опрошено не больше трёх подов")
+	assert.Equal(t, 3003, self.targets[0].Port, "порт манифеста")
+	require.NotNil(t, snap.Self)
+	assert.Equal(t, "degraded", snap.Self.Status)
+	assert.Equal(t, "payments-api-2", snap.Self.Pod, "показан худший под")
+	assert.Equal(t, 2, snap.Self.Pods, "у третьего пода ручки состояния нет")
+	require.Len(t, snap.Self.Dependencies, 2, "только объявленные в манифесте")
+	assert.Equal(t, "api.bank.kz", snap.Self.Dependencies[1].Target)
+	assert.Equal(t, snapshotModel.HealthDegraded, snap.Health)
+	assert.Contains(t, snap.SummaryHints, "сервис сообщает: зависимость bank (http → api.bank.kz) — degraded, 4200 мс: ответ дольше 2 с")
+}
+
+// Метрики манифеста — добавка к golden signals (своя с тем же id — вместо стандартной);
+// метрики service.yaml — замена.
+func TestMetricDefs_Manifest(t *testing.T) {
+	u := &Usecase{conf: Config{DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: "rps{ns=\"{namespace}\"}"}, {Id: "error_rate", PromQL: "err"}}}}
+	workloads := []*workloadModel.Main{{Namespace: "prod", Name: "caravan"}}
+	metrics := []svcModel.Metric{{Id: "error_rate", PromQL: "my_err"}, {Id: "orders_created", PromQL: "orders{ns=\"{namespace}\"}"}}
+
+	defs := u.metricDefs(&svcModel.Main{Metadata: svcModel.Metadata{Source: svcModel.MetadataSourceManifest, Metrics: metrics}}, workloads, nil)
+	assert.Equal(t, []string{"rps", "error_rate", "orders_created"}, lo.Map(defs, func(d snapshotModel.MetricDef, _ int) string { return d.Id }))
+	assert.Equal(t, "my_err", defs[1].PromQL)
+	assert.Equal(t, `orders{ns="prod"}`, defs[2].PromQL)
+
+	defs = u.metricDefs(&svcModel.Main{Metadata: svcModel.Metadata{Source: svcModel.MetadataSourceServiceYaml, Metrics: metrics}}, workloads, nil)
+	assert.Equal(t, []string{"error_rate", "orders_created"}, lo.Map(defs, func(d snapshotModel.MetricDef, _ int) string { return d.Id }))
 }

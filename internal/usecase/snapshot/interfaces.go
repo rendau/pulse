@@ -2,6 +2,9 @@ package snapshot
 
 import (
 	"context"
+
+	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
+	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	"time"
 
 	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
@@ -52,6 +55,11 @@ type AlertmanagerI interface {
 }
 
 // LogsI — usecase логов (top_errors); nil, когда Loki не сконфигурирован.
+// SelfStatusI экспортирован: ручка состояния сервиса (манифест); nil — поиск манифестов выключен.
+type SelfStatusI interface {
+	Get(ctx context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error)
+}
+
 type LogsI interface {
 	TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, window time.Duration, top int) ([]logsModel.Pattern, error)
 }
