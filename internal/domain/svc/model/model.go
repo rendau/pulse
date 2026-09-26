@@ -75,6 +75,47 @@ type Metadata struct {
 	Endpoints    []Endpoint
 	Dependencies []Dependency
 	DocsUrl      string
+	// Domain — бизнес-смысл сервиса со слов владельца (только из манифеста); nil — не описан
+	Domain *Domain
+}
+
+// Domain — за что сервис отвечает, чего не делает, с какими объектами работает и какие вопросы
+// к нему типичны: агенту — понять, тот ли это сервис и как читать его данные.
+type Domain struct {
+	Responsibilities []string
+	NotResponsible   []Boundary
+	Entities         []Entity
+	Questions        []Question
+}
+
+// Boundary — чем сервис не занимается и кто занимается (имя сервиса каталога, если известно).
+type Boundary struct {
+	What    string
+	Service string
+}
+
+// Entity — бизнес-объект сервиса: как выглядит его номер (IdPattern — RE2 на всё значение),
+// что значат статусы и когда объект считается застрявшим.
+type Entity struct {
+	Name        string
+	IdPattern   string
+	IdExample   string
+	Description string
+	Statuses    []EntityStatus
+}
+
+type EntityStatus struct {
+	Name    string
+	Meaning string
+	// StuckAfter — дольше в этом статусе — застрял; 0 — не задано
+	StuckAfter time.Duration
+}
+
+// Question — типичный вопрос к сервису и куда за ответом (Endpoint — id ручки манифеста).
+type Question struct {
+	Question string
+	How      string
+	Endpoint string
 }
 
 // Dependency — зависимость, которую сервис объявил сам: основа ручки состояния.

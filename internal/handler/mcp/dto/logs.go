@@ -38,6 +38,13 @@ type QueryLogsRep struct {
 	SearchStop string       `json:"search_stop,omitempty" jsonschema:"поиск назад по суткам: found — следы найдены, перед ними пусто; budget — не успел, проверено только с start; retention — дошёл до конца хранения логов; limit — строк больше лимита"`
 	// Services — только при поиске без service
 	Services []LogServiceHits `json:"services,omitempty" jsonschema:"поиск по всем сервисам: где и сколько строк нашлось, больше всего — первым"`
+	// IdMatches — только при поиске без service
+	IdMatches []LogIdMatch `json:"id_matches,omitempty" jsonschema:"чьим объектом может быть искомый номер — по формату номера из манифестов сервисов (подсказка, а не факт)"`
+}
+
+type LogIdMatch struct {
+	Service string `json:"service"`
+	Entity  string `json:"entity" jsonschema:"бизнес-объект сервиса (доставка, заказ…)"`
 }
 
 type LogServiceHits struct {
@@ -92,6 +99,9 @@ func EncodeQueryLogsRep(v *usecaseLogsModel.QueryResult) QueryLogsRep {
 		}),
 		Services: lo.Map(v.Services, func(h logsModel.ServiceHits, _ int) LogServiceHits {
 			return LogServiceHits{Service: h.Service, Namespace: h.Namespace, Count: h.Count, FirstSeen: tz.In(h.FirstSeen), LastSeen: tz.In(h.LastSeen)}
+		}),
+		IdMatches: lo.Map(v.IdMatches, func(m usecaseLogsModel.IdMatch, _ int) LogIdMatch {
+			return LogIdMatch{Service: m.Service, Entity: m.Entity}
 		}),
 	}
 }

@@ -178,6 +178,9 @@ domain service → repo
   манифестом и показывает худший (`self_reported`): зависимости — только объявленные в манифесте;
   не-ok → health degraded и подсказки «сервис сообщает: …»; отчёт старше 5 мин — `stale`.
   Метрики манифеста — добавка к golden signals (service.yaml — замена).
+  Раздел `domain` манифеста (бизнес-смысл: ответственность и границы, объекты с форматом номера,
+  статусами и `stuck_after`, типичные вопросы) — `Metadata.Domain`, отдаётся в `get_service_info`;
+  `query_logs` без service по формату номера (`id_pattern`) подсказывает, чей это объект (`id_matches`).
 - Логи: селектор из `service.yaml` (`logs.selector`), иначе `logs.default_selector` из правил
   с плейсхолдерами `{namespace}`, `{pod_regex}`; запрос без привязки к сервису невозможен.
   Строка привязывается к workload'у сервиса по лейблу пода (`pod`, `kubernetes_pod_name`, …),

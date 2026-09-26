@@ -39,7 +39,18 @@ func TestParseManifest_DocExample(t *testing.T) {
 	assert.Equal(t, 3*time.Second, e.Timeout)
 	assert.Equal(t, 50, e.MaxRows)
 	assert.True(t, e.Params["number"].Required, "параметр пути — обязательный")
-	assert.Equal(t, "^[0-9]{5,12}$", e.Params["number"].Pattern)
+	assert.Equal(t, "[0-9]{5,12}", e.Params["number"].Pattern)
+	assert.Equal(t, "приём и выдача заказов", m.Metadata.Dependencies[0].Affects)
+
+	d := m.Metadata.Domain
+	require.NotNil(t, d)
+	assert.Len(t, d.Responsibilities, 3)
+	assert.Equal(t, "payments", d.NotResponsible[0].Service)
+	require.Len(t, d.Entities, 1)
+	assert.Equal(t, "[0-9]{5,12}", d.Entities[0].IdPattern)
+	assert.Equal(t, 30*time.Minute, d.Entities[0].Statuses[0].StuckAfter)
+	assert.Zero(t, d.Entities[0].Statuses[3].StuckAfter, "не застревает")
+	assert.Equal(t, "order_status", d.Questions[0].Endpoint)
 	require.NotNil(t, e.Response)
 	assert.Equal(t, "phone", e.Response.Properties["customer_phone"].Personal)
 	assert.Equal(t, "array", e.Response.Properties["history"].Type)
@@ -185,4 +196,38 @@ func anyValues(m map[string]map[string]any) []any {
 		result = append(result, v)
 	}
 	return result
+}
+
+// Раздел domain: лишнее сверх лимитов — отброшено с причиной, неправильный формат номера,
+// пример не по формату, ссылка на необъявленную ручку и кривой stuck_after — тоже.
+func TestParseManifest_Domain(t *testing.T) {
+	raw := manifest(t, func(m map[string]any) {
+		m["endpoints"] = []any{endpoint(func(map[string]any) {})}
+		m["domain"] = map[string]any{
+			"responsibilities": []any{"1", "2", "3", "4", "5", "6"},
+			"entities": []any{
+				map[string]any{"name": "доставка", "id_pattern": "D-[0-9]{6}", "id_example": "D-123456",
+					"statuses": []any{map[string]any{"name": "assigned", "meaning": "курьер назначен", "stuck_after": "полчаса"}}},
+				map[string]any{"name": "рейс", "id_pattern": "(?=x)"},
+				map[string]any{"name": "курьер", "id_pattern": "[0-9]{4}", "id_example": "12345"},
+			},
+			"questions": []any{
+				map[string]any{"question": "где заказ", "endpoint": "order_status"},
+				map[string]any{"question": "где курьер", "endpoint": "courier_status"},
+			},
+		}
+	})
+	m, err := ParseManifest(raw)
+	require.NoError(t, err, "ошибки в domain не отменяют манифест")
+	d := m.Metadata.Domain
+	require.NotNil(t, d)
+	assert.Len(t, d.Responsibilities, 5)
+	require.Len(t, d.Entities, 3)
+	assert.Equal(t, "D-[0-9]{6}", d.Entities[0].IdPattern)
+	assert.Zero(t, d.Entities[0].Statuses[0].StuckAfter)
+	assert.Empty(t, d.Entities[1].IdPattern, "не RE2")
+	assert.Empty(t, d.Entities[2].IdPattern, "пример не по формату")
+	assert.Equal(t, "order_status", d.Questions[0].Endpoint)
+	assert.Empty(t, d.Questions[1].Endpoint, "ручки нет в манифесте")
+	assert.Len(t, m.Problems, 5, m.Problems)
 }

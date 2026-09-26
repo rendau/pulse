@@ -3,6 +3,7 @@ package pulsekit
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,6 +39,9 @@ func TestManifest_PassesPulseValidation(t *testing.T) {
 	assert.Len(t, parsed.Metadata.Logs.ErrorPatterns, 1)
 	assert.Len(t, parsed.Metadata.Runbooks, 1)
 	assert.Equal(t, "9f597a7c1e2d4b8a0f3c6e5d7b9a1c2e4f6a8b0c", parsed.Commit)
+	require.NotNil(t, parsed.Metadata.Domain)
+	assert.Equal(t, 2*time.Hour, parsed.Metadata.Domain.Entities[0].Statuses[0].StuckAfter)
+	assert.Equal(t, "order_status", parsed.Metadata.Domain.Questions[0].Endpoint)
 
 	assert.Contains(t, string(raw), `"default":20`, "default числового параметра — числом")
 }

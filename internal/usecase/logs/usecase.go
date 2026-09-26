@@ -6,6 +6,7 @@ package logs
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/samber/lo"
 
+	commonModel "github.com/mechta-market/pulse/internal/domain/common/model"
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
@@ -82,6 +84,7 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 	// телефон (+…) — в любом написании, email — без регистра: подстрока-предфильтр для Loki и
 	// точный регэксп
 	var prefilter string
+	searched := strings.TrimSpace(req.Pattern)
 	if req.Pattern != "" {
 		prefilter, req.Pattern = u.pii.SearchPattern(strings.TrimSpace(req.Pattern))
 		if _, err := regexp.Compile(req.Pattern); err != nil {
@@ -93,7 +96,39 @@ func (u *Usecase) Query(ctx context.Context, req *model.QueryReq) (*model.QueryR
 		return nil, fmt.Errorf("%w: window %s exceeds maximum %s for logs; narrow the window", errs.InvalidRequest, req.Window, u.conf.MaxWindow)
 	}
 
-	return u.query(ctx, req, level, prefilter)
+	result, err := u.query(ctx, req, level, prefilter)
+	if err == nil && strings.TrimSpace(req.Service) == "" {
+		result.IdMatches = u.idMatches(ctx, searched)
+	}
+	return result, err
+}
+
+// idMatches — чьим объектом может быть искомый номер: формат номера из раздела domain
+// манифестов (id_pattern). Подсказка: ошибка каталога её просто убирает.
+func (u *Usecase) idMatches(ctx context.Context, id string) []model.IdMatch {
+	if id == "" || regexp.QuoteMeta(id) != id {
+		return nil
+	}
+	services, _, err := u.svc.List(ctx, &svcModel.ListReq{ListParams: commonModel.ListParams{PageSize: 1000}, HasMetadata: new(true)})
+	if err != nil {
+		slog.Debug("logs: catalog is unavailable for id hints", "error", err)
+		return nil
+	}
+	var result []model.IdMatch
+	for _, s := range services {
+		if s.Metadata.Domain == nil {
+			continue
+		}
+		for _, e := range s.Metadata.Domain.Entities {
+			if e.IdPattern == "" {
+				continue
+			}
+			if re, err := regexp.Compile(`^(?:` + e.IdPattern + `)$`); err == nil && re.MatchString(id) {
+				result = append(result, model.IdMatch{Service: s.Name, Entity: e.Name})
+			}
+		}
+	}
+	return result
 }
 
 func (u *Usecase) query(ctx context.Context, req *model.QueryReq, level, prefilter string) (*model.QueryResult, error) {

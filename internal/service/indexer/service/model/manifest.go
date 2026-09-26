@@ -39,6 +39,14 @@ const (
 	maxTimeoutMs         = 10000
 	defaultMaxRows       = 50
 	maxMaxRows           = 100
+
+	// раздел domain: уходит модели в get_service_info — короткий
+	maxResponsibilities = 5
+	maxBoundaries       = 10
+	maxEntities         = 10
+	maxStatuses         = 20
+	maxQuestions        = 10
+	maxDomainChars      = 200
 )
 
 var (
@@ -69,6 +77,32 @@ type Manifest struct {
 	Metrics       []ManifestMetric     `json:"metrics"`
 	Logs          ManifestLogs         `json:"logs"`
 	Endpoints     []ManifestEndpoint   `json:"endpoints"`
+	Domain        *ManifestDomain      `json:"domain"`
+}
+
+// ManifestDomain — бизнес-смысл сервиса (docs/service-manifest.md, «domain»).
+type ManifestDomain struct {
+	Responsibilities []string `json:"responsibilities"`
+	NotResponsible   []struct {
+		What    string `json:"what"`
+		Service string `json:"service"`
+	} `json:"not_responsible"`
+	Entities []struct {
+		Name        string `json:"name"`
+		IdPattern   string `json:"id_pattern"`
+		IdExample   string `json:"id_example"`
+		Description string `json:"description"`
+		Statuses    []struct {
+			Name       string `json:"name"`
+			Meaning    string `json:"meaning"`
+			StuckAfter string `json:"stuck_after"`
+		} `json:"statuses"`
+	} `json:"entities"`
+	Questions []struct {
+		Question string `json:"question"`
+		How      string `json:"how"`
+		Endpoint string `json:"endpoint"`
+	} `json:"questions"`
 }
 
 type ManifestService struct {
@@ -335,7 +369,96 @@ func ParseManifest(raw []byte) (*ParsedManifest, error) {
 		}
 	}
 
+	result.Metadata.Domain = parseDomain(m.Domain, seenEndpoints, problem)
+
 	return result, nil
+}
+
+// parseDomain — бизнес-смысл сервиса: сверх лимитов — отбрасывается с причиной; номер объекта —
+// RE2, пример должен ему соответствовать; ссылка на ручку — только объявленную в манифесте.
+func parseDomain(d *ManifestDomain, endpoints map[string]bool, problem func(string, ...any)) *svcModel.Domain {
+	if d == nil {
+		return nil
+	}
+	limit := func(what string, n, max int) int {
+		if n > max {
+			problem("domain.%s: %d, максимум %d — лишние отброшены", what, n, max)
+			return max
+		}
+		return n
+	}
+	text := func(what, s string) string {
+		if n := len([]rune(strings.TrimSpace(s))); n > maxDomainChars {
+			problem("domain.%s: %d символов, лимит %d — обрезано", what, n, maxDomainChars)
+		}
+		return clip(s, maxDomainChars)
+	}
+
+	result := &svcModel.Domain{}
+	for _, r := range d.Responsibilities[:limit("responsibilities", len(d.Responsibilities), maxResponsibilities)] {
+		if r = text("responsibilities", r); r != "" {
+			result.Responsibilities = append(result.Responsibilities, r)
+		}
+	}
+	for _, b := range d.NotResponsible[:limit("not_responsible", len(d.NotResponsible), maxBoundaries)] {
+		if what := text("not_responsible.what", b.What); what != "" {
+			result.NotResponsible = append(result.NotResponsible, svcModel.Boundary{What: what, Service: clip(b.Service, maxTitleChars)})
+		}
+	}
+	for _, e := range d.Entities[:limit("entities", len(d.Entities), maxEntities)] {
+		name := clip(e.Name, maxTitleChars)
+		if name == "" {
+			problem("domain.entities: нет name — объект отброшен")
+			continue
+		}
+		entity := svcModel.Entity{Name: name, IdExample: clip(e.IdExample, maxTitleChars), Description: text("entities."+name+".description", e.Description)}
+		if e.IdPattern != "" {
+			re, err := regexp.Compile(`^(?:` + e.IdPattern + `)$`)
+			switch {
+			case err != nil:
+				problem("domain.entities.%s.id_pattern: не регэксп RE2: %s", name, err)
+			case e.IdExample != "" && !re.MatchString(e.IdExample):
+				problem("domain.entities.%s: id_example %q не подходит под id_pattern — шаблон отброшен", name, e.IdExample)
+			default:
+				entity.IdPattern = e.IdPattern
+			}
+		}
+		for _, st := range e.Statuses[:limit("entities."+name+".statuses", len(e.Statuses), maxStatuses)] {
+			if st.Name == "" {
+				continue
+			}
+			status := svcModel.EntityStatus{Name: clip(st.Name, maxTitleChars), Meaning: text("entities."+name+".statuses."+st.Name, st.Meaning)}
+			if st.StuckAfter != "" {
+				if dur, err := time.ParseDuration(st.StuckAfter); err == nil && dur > 0 {
+					status.StuckAfter = dur
+				} else {
+					problem("domain.entities.%s.statuses.%s.stuck_after %q: ожидается длительность (30m, 2h)", name, st.Name, st.StuckAfter)
+				}
+			}
+			entity.Statuses = append(entity.Statuses, status)
+		}
+		result.Entities = append(result.Entities, entity)
+	}
+	for _, q := range d.Questions[:limit("questions", len(d.Questions), maxQuestions)] {
+		question := text("questions", q.Question)
+		if question == "" {
+			continue
+		}
+		item := svcModel.Question{Question: question, How: text("questions.how", q.How)}
+		if q.Endpoint != "" {
+			if endpoints[q.Endpoint] {
+				item.Endpoint = q.Endpoint
+			} else {
+				problem("domain.questions: ручки %q нет в манифесте — ссылка отброшена", q.Endpoint)
+			}
+		}
+		result.Questions = append(result.Questions, item)
+	}
+
+	if len(result.Responsibilities)+len(result.NotResponsible)+len(result.Entities)+len(result.Questions) == 0 {
+		return nil
+	}
+	return result
 }
 
 func parseEndpoint(e ManifestEndpoint) (*svcModel.Endpoint, error) {

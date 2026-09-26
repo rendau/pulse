@@ -26,6 +26,13 @@ func (f *fakeSvc) GetOrSuggest(context.Context, string) (*svcModel.Main, error) 
 	return f.service, nil
 }
 
+func (f *fakeSvc) List(context.Context, *svcModel.ListReq) ([]*svcModel.Main, int64, error) {
+	if f.service == nil {
+		return nil, 0, nil
+	}
+	return []*svcModel.Main{f.service}, 1, nil
+}
+
 type fakeWorkload struct{ items []*workloadModel.Main }
 
 func (f *fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloadModel.Main, int64, error) {

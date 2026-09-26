@@ -4,8 +4,18 @@
     "name": "orders-center",
     "title": "Центр заказов",
     "description": "Принимает заказы с сайта и из приложения, ведёт их по статусам до выдачи. Главный источник правды о заказе.",
-    "aliases": ["ocenter", "оцентр", "заказы"],
-    "owner": { "team": "orders", "contacts": ["@orders_duty", "orders@company.kz"] },
+    "aliases": [
+      "ocenter",
+      "оцентр",
+      "заказы"
+    ],
+    "owner": {
+      "team": "orders",
+      "contacts": [
+        "@orders_duty",
+        "orders@company.kz"
+      ]
+    },
     "criticality": "high",
     "repo_url": "https://github.com/mechta-market/ocenter",
     "docs_url": "https://wiki.company.kz/orders-center"
@@ -16,12 +26,32 @@
     "built_at": "2026-09-25T12:00:00+05:00"
   },
   "runbooks": [
-    { "title": "Заказы не уходят в 1С", "url": "https://wiki.company.kz/orders/1c-sync" }
+    {
+      "title": "Заказы не уходят в 1С",
+      "url": "https://wiki.company.kz/orders/1c-sync"
+    }
   ],
   "dependencies": [
-    { "id": "pg", "kind": "postgres", "target": "ocenter-pg", "critical": true },
-    { "id": "kafka", "kind": "kafka", "target": "kafka", "critical": true },
-    { "id": "onec", "kind": "http", "target": "onec-proxy", "critical": false }
+    {
+      "id": "pg",
+      "kind": "postgres",
+      "target": "ocenter-pg",
+      "critical": true,
+      "affects": "приём и выдача заказов"
+    },
+    {
+      "id": "kafka",
+      "kind": "kafka",
+      "target": "kafka",
+      "critical": true
+    },
+    {
+      "id": "onec",
+      "kind": "http",
+      "target": "onec-proxy",
+      "critical": false,
+      "affects": "выгрузка заказов в 1С"
+    }
   ],
   "metrics": [
     {
@@ -34,7 +64,66 @@
   ],
   "logs": {
     "error_patterns": [
-      { "name": "1С недоступна", "pattern": "onec: .*(timeout|connection refused)" }
+      {
+        "name": "1С недоступна",
+        "pattern": "onec: .*(timeout|connection refused)"
+      }
+    ]
+  },
+  "domain": {
+    "responsibilities": [
+      "Принимает заказы с сайта и из магазинов",
+      "Ведёт заказ до выдачи: оплата, сборка, отгрузка",
+      "Выгружает заказы в 1С"
+    ],
+    "not_responsible": [
+      {
+        "what": "оплата и возвраты",
+        "service": "payments"
+      },
+      {
+        "what": "доставка курьером",
+        "service": "caravan"
+      }
+    ],
+    "entities": [
+      {
+        "name": "заказ",
+        "id_pattern": "[0-9]{5,12}",
+        "id_example": "234115",
+        "description": "заказ клиента: от создания до выдачи",
+        "statuses": [
+          {
+            "name": "new",
+            "meaning": "создан, ждёт оплаты",
+            "stuck_after": "30m"
+          },
+          {
+            "name": "paid",
+            "meaning": "оплачен, ждёт сборки",
+            "stuck_after": "2h"
+          },
+          {
+            "name": "assembling",
+            "meaning": "собирается на складе",
+            "stuck_after": "4h"
+          },
+          {
+            "name": "shipped",
+            "meaning": "отгружен в доставку"
+          }
+        ]
+      }
+    ],
+    "questions": [
+      {
+        "question": "где заказ и почему застрял",
+        "endpoint": "order_status"
+      },
+      {
+        "question": "почему заказ не попал в 1С",
+        "how": "логи сервиса по номеру заказа, ошибка «1С недоступна»"
+      }
     ]
   },
   "endpoints": [
@@ -44,25 +133,54 @@
       "description": "Вызывай, когда спрашивают о конкретном заказе по номеру: текущий статус, история смены статусов, на каком шаге застрял и почему. Не для поиска заказов клиента.",
       "path": "/diag/order/{number}",
       "params": {
-        "number": { "type": "string", "pattern": "^[0-9]{5,12}$", "description": "номер заказа" }
+        "number": {
+          "type": "string",
+          "pattern": "[0-9]{5,12}",
+          "description": "номер заказа"
+        }
       },
       "timeout_ms": 3000,
       "response": {
         "type": "object",
         "properties": {
-          "number": { "type": "string" },
-          "status": { "type": "string", "enum": ["new", "paid", "assembling", "shipped", "delivered", "canceled"] },
-          "stuck_reason": { "type": "string", "maxLength": 300 },
-          "customer_phone": { "type": "string", "x-personal": "phone" },
+          "number": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "paid",
+              "assembling",
+              "shipped",
+              "delivered",
+              "canceled"
+            ]
+          },
+          "stuck_reason": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "customer_phone": {
+            "type": "string",
+            "x-personal": "phone"
+          },
           "history": {
             "type": "array",
             "maxItems": 50,
             "items": {
               "type": "object",
               "properties": {
-                "status": { "type": "string" },
-                "at": { "type": "string", "format": "date-time" },
-                "by_system": { "type": "string" }
+                "status": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "by_system": {
+                  "type": "string"
+                }
               }
             }
           }

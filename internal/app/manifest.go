@@ -22,6 +22,22 @@ func newPulsekit() *pulsekit.Kit {
 		OwnerTeam:   "platform",
 		Criticality: "low",
 		RepoUrl:     "https://github.com/mechta-market/pulse",
+		Domain: &pulsekit.Domain{
+			Responsibilities: []string{
+				"Каталог сервисов: находит сервисы и их манифесты в кластере, коммит в проде, граф зависимостей",
+				"Живое состояние сервиса: поды, алерты, метрики, логи, изменения и деплои — только чтение",
+				"Вызывает диагностические ручки сервисов из их манифестов",
+			},
+			NotResponsible: []pulsekit.Boundary{
+				{What: "ответы людям и LLM (агентный цикл, токены персональных данных)", Service: "pulse_agent"},
+				{What: "Telegram-бот", Service: "pulse_bot"},
+				{What: "хранение метрик и логов", Service: "prometheus, loki"},
+			},
+			Questions: []pulsekit.Question{
+				{Question: "почему каталог устарел или сервиса нет в каталоге", Endpoint: "indexer_last_cycle"},
+				{Question: "почему не видно манифест сервиса", How: "get_service_info сервиса: workloads[].manifest — статус, причины, опробованные порты"},
+			},
+		},
 	}, pulsekit.Build{Version: constant.Version, Commit: constant.Commit, BuiltAt: constant.BuiltAt})
 }
 

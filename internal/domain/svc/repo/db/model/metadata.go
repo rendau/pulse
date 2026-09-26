@@ -18,6 +18,39 @@ type metadataJSON struct {
 	Endpoints    []endpointJSON   `json:"endpoints,omitempty"`
 	Dependencies []dependencyJSON `json:"dependencies,omitempty"`
 	DocsUrl      string           `json:"docs_url,omitempty"`
+	Domain       *domainJSON      `json:"domain,omitempty"`
+}
+
+type domainJSON struct {
+	Responsibilities []string       `json:"responsibilities,omitempty"`
+	NotResponsible   []boundaryJSON `json:"not_responsible,omitempty"`
+	Entities         []entityJSON   `json:"entities,omitempty"`
+	Questions        []questionJSON `json:"questions,omitempty"`
+}
+
+type boundaryJSON struct {
+	What    string `json:"what"`
+	Service string `json:"service,omitempty"`
+}
+
+type entityJSON struct {
+	Name        string             `json:"name"`
+	IdPattern   string             `json:"id_pattern,omitempty"`
+	IdExample   string             `json:"id_example,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Statuses    []entityStatusJSON `json:"statuses,omitempty"`
+}
+
+type entityStatusJSON struct {
+	Name       string `json:"name"`
+	Meaning    string `json:"meaning,omitempty"`
+	StuckAfter int64  `json:"stuck_after_s,omitempty"`
+}
+
+type questionJSON struct {
+	Question string `json:"question"`
+	How      string `json:"how,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type dependencyJSON struct {
@@ -109,6 +142,30 @@ func encodeMetadata(v metadataJSON) domainModel.Metadata {
 		Endpoints:    lo.Map(v.Endpoints, encodeEndpoint),
 		Dependencies: lo.Map(v.Dependencies, encodeDependency),
 		DocsUrl:      v.DocsUrl,
+		Domain:       encodeDomain(v.Domain),
+	}
+}
+
+func encodeDomain(v *domainJSON) *domainModel.Domain {
+	if v == nil {
+		return nil
+	}
+	return &domainModel.Domain{
+		Responsibilities: v.Responsibilities,
+		NotResponsible: lo.Map(v.NotResponsible, func(b boundaryJSON, _ int) domainModel.Boundary {
+			return domainModel.Boundary{What: b.What, Service: b.Service}
+		}),
+		Entities: lo.Map(v.Entities, func(e entityJSON, _ int) domainModel.Entity {
+			return domainModel.Entity{
+				Name: e.Name, IdPattern: e.IdPattern, IdExample: e.IdExample, Description: e.Description,
+				Statuses: lo.Map(e.Statuses, func(s entityStatusJSON, _ int) domainModel.EntityStatus {
+					return domainModel.EntityStatus{Name: s.Name, Meaning: s.Meaning, StuckAfter: time.Duration(s.StuckAfter) * time.Second}
+				}),
+			}
+		}),
+		Questions: lo.Map(v.Questions, func(q questionJSON, _ int) domainModel.Question {
+			return domainModel.Question{Question: q.Question, How: q.How, Endpoint: q.Endpoint}
+		}),
 	}
 }
 
@@ -179,6 +236,30 @@ func decodeMetadata(v *domainModel.Metadata) metadataJSON {
 		Endpoints:    lo.Map(v.Endpoints, decodeEndpoint),
 		Dependencies: lo.Map(v.Dependencies, decodeDependency),
 		DocsUrl:      v.DocsUrl,
+		Domain:       decodeDomain(v.Domain),
+	}
+}
+
+func decodeDomain(v *domainModel.Domain) *domainJSON {
+	if v == nil {
+		return nil
+	}
+	return &domainJSON{
+		Responsibilities: v.Responsibilities,
+		NotResponsible: lo.Map(v.NotResponsible, func(b domainModel.Boundary, _ int) boundaryJSON {
+			return boundaryJSON{What: b.What, Service: b.Service}
+		}),
+		Entities: lo.Map(v.Entities, func(e domainModel.Entity, _ int) entityJSON {
+			return entityJSON{
+				Name: e.Name, IdPattern: e.IdPattern, IdExample: e.IdExample, Description: e.Description,
+				Statuses: lo.Map(e.Statuses, func(s domainModel.EntityStatus, _ int) entityStatusJSON {
+					return entityStatusJSON{Name: s.Name, Meaning: s.Meaning, StuckAfter: int64(s.StuckAfter / time.Second)}
+				}),
+			}
+		}),
+		Questions: lo.Map(v.Questions, func(q domainModel.Question, _ int) questionJSON {
+			return questionJSON{Question: q.Question, How: q.How, Endpoint: q.Endpoint}
+		}),
 	}
 }
 

@@ -343,6 +343,10 @@ func mergeManifest(edit *svcModel.Edit, m *localModel.ParsedManifest, d *workloa
 			edit.Metadata.Dependencies = append(edit.Metadata.Dependencies, dep)
 		}
 	}
+	// бизнес-смысл у сервиса один: берётся первый описанный
+	if edit.Metadata.Domain == nil {
+		edit.Metadata.Domain = other.Metadata.Domain
+	}
 	return errors.Join(errs...)
 }
 

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -137,6 +138,7 @@ type ServiceInfoRep struct {
 	LogsSelector  string         `json:"logs_selector,omitempty"`
 	Runbooks      []Runbook      `json:"runbooks,omitempty"`
 	Endpoints     []EndpointDef  `json:"diagnostic_endpoints,omitempty" jsonschema:"диагностические ручки сервиса; вызов — call_service_endpoint"`
+	Domain        *Domain        `json:"domain,omitempty" jsonschema:"бизнес-смысл со слов владельца: за что отвечает и что нет, объекты (формат номера, статусы, когда застрял), типичные вопросы"`
 	Workloads     []WorkloadInfo `json:"workloads"`
 	FirstSeen     time.Time      `json:"first_seen"`
 	LastSeen      time.Time      `json:"last_seen"`
@@ -215,6 +217,7 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 		LogsSelector:  v.Service.Metadata.Logs.Selector,
 		Runbooks:      lo.Map(v.Service.Metadata.Runbooks, encodeRunbook),
 		Endpoints:     lo.Map(v.Service.Metadata.Endpoints, EncodeEndpointDef),
+		Domain:        encodeDomain(v.Service.Metadata.Domain),
 		Workloads:     lo.Map(v.Workloads, encodeWorkloadInfo),
 		FirstSeen:     tz.In(v.Service.FirstSeen),
 		LastSeen:      tz.In(v.Service.LastSeen),
@@ -265,4 +268,77 @@ func encodePodsState(v *catalogModel.PodsState) *PodsState {
 
 func encodeSourceError(v catalogModel.SourceError, _ int) SourceError {
 	return SourceError{Source: v.Source, Message: v.Message}
+}
+
+// бизнес-смысл сервиса (раздел domain манифеста)
+
+type Domain struct {
+	Responsibilities []string   `json:"responsibilities,omitempty" jsonschema:"за что сервис отвечает"`
+	NotResponsible   []Boundary `json:"not_responsible,omitempty" jsonschema:"чем не занимается и кто занимается — искать причину там"`
+	Entities         []Entity   `json:"entities,omitempty" jsonschema:"бизнес-объекты: по id_pattern узнаётся номер в вопросе и в логах"`
+	Questions        []Question `json:"questions,omitempty" jsonschema:"типичные вопросы к сервису и куда за ответом"`
+}
+
+type Boundary struct {
+	What    string `json:"what"`
+	Service string `json:"service,omitempty"`
+}
+
+type Entity struct {
+	Name        string         `json:"name"`
+	IdPattern   string         `json:"id_pattern,omitempty" jsonschema:"формат номера (RE2, на всё значение)"`
+	IdExample   string         `json:"id_example,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Statuses    []EntityStatus `json:"statuses,omitempty"`
+}
+
+type EntityStatus struct {
+	Name       string `json:"name"`
+	Meaning    string `json:"meaning,omitempty"`
+	StuckAfter string `json:"stuck_after,omitempty" jsonschema:"дольше в этом статусе — застрял (со слов владельца)"`
+}
+
+type Question struct {
+	Question string `json:"question"`
+	How      string `json:"how,omitempty"`
+	Endpoint string `json:"endpoint,omitempty" jsonschema:"id ручки из diagnostic_endpoints"`
+}
+
+func encodeDomain(v *svcModel.Domain) *Domain {
+	if v == nil {
+		return nil
+	}
+	return &Domain{
+		Responsibilities: v.Responsibilities,
+		NotResponsible: lo.Map(v.NotResponsible, func(b svcModel.Boundary, _ int) Boundary {
+			return Boundary{What: b.What, Service: b.Service}
+		}),
+		Entities: lo.Map(v.Entities, func(e svcModel.Entity, _ int) Entity {
+			return Entity{
+				Name: e.Name, IdPattern: e.IdPattern, IdExample: e.IdExample, Description: e.Description,
+				Statuses: lo.Map(e.Statuses, func(s svcModel.EntityStatus, _ int) EntityStatus {
+					status := EntityStatus{Name: s.Name, Meaning: s.Meaning}
+					if s.StuckAfter > 0 {
+						status.StuckAfter = shortDuration(s.StuckAfter)
+					}
+					return status
+				}),
+			}
+		}),
+		Questions: lo.Map(v.Questions, func(q svcModel.Question, _ int) Question {
+			return Question{Question: q.Question, How: q.How, Endpoint: q.Endpoint}
+		}),
+	}
+}
+
+// shortDuration — 30m, 2h, 1h30m вместо 30m0s.
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }

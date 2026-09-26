@@ -321,3 +321,20 @@ func TestQuery_SearchByPhone(t *testing.T) {
 	assert.Contains(t, loki.query, `|= "7011234567" |~ "(?:^|[^0-9])(?:\\+?7|8)?7011234567(?:[^0-9]|$)"`,
 		"в Loki — подстрока-предфильтр и точный регэксп номера")
 }
+
+// Номер, похожий на объект сервиса по формату из манифеста (domain), — подсказка id_matches.
+func TestQuery_IdMatches(t *testing.T) {
+	loki := &fakeLoki{}
+	u := newClusterUsecase(loki)
+	u.svc = &fakeSvc{service: &svcModel.Main{Name: "caravan", Metadata: svcModel.Metadata{Domain: &svcModel.Domain{
+		Entities: []svcModel.Entity{{Name: "доставка", IdPattern: "[0-9]{7}"}, {Name: "рейс", IdPattern: "R-[0-9]+"}},
+	}}}}
+
+	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "7784512", Window: time.Hour})
+	require.NoError(t, err)
+	assert.Equal(t, []model.IdMatch{{Service: "caravan", Entity: "доставка"}}, res.IdMatches)
+
+	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: "timeout.*1c", Window: time.Hour})
+	require.NoError(t, err)
+	assert.Empty(t, res.IdMatches, "регэксп — не номер")
+}

@@ -59,4 +59,13 @@ type QueryResult struct {
 	Services []logsModel.ServiceHits
 	// SearchStop — поиск назад по дням (SearchStop*); пусто — искали в одном окне
 	SearchStop string
+	// IdMatches — поиск по всем сервисам: чьим объектом может быть искомый номер (формат номера
+	// из манифестов, раздел domain)
+	IdMatches []IdMatch
+}
+
+// IdMatch — искомый номер подходит под формат номера объекта сервиса.
+type IdMatch struct {
+	Service string
+	Entity  string
 }

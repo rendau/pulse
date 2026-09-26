@@ -24,6 +24,7 @@ type LogsI interface {
 
 type svcServiceI interface {
 	GetOrSuggest(ctx context.Context, name string) (*svcModel.Main, error)
+	List(ctx context.Context, pars *svcModel.ListReq) ([]*svcModel.Main, int64, error)
 }
 
 type workloadServiceI interface {
