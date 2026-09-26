@@ -142,9 +142,8 @@ func (s *Service) parse(body []byte) (*selfstatusModel.Status, error) {
 		if d.LatencyMs != nil && *d.LatencyMs >= 0 {
 			dep.LatencyMs = new(int64(*d.LatencyMs))
 		}
-		if d.Status != selfstatusModel.StatusOk {
-			dep.Message = s.cleanText(d.Message, maxMessage)
-		}
+		// у ok — пометка («вызовов не было, сеть до хоста есть»), у остальных — причина
+		dep.Message = s.cleanText(d.Message, maxMessage)
 		result.Dependencies = append(result.Dependencies, dep)
 	}
 
