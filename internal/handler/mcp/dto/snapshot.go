@@ -220,6 +220,24 @@ type SelfReport struct {
 	Stale        bool             `json:"stale,omitempty" jsonschema:"проверки давно не выполнялись — отчёту верить с осторожностью"`
 	Dependencies []SelfDependency `json:"dependencies,omitempty"`
 	Gauges       []SelfGauge      `json:"gauges,omitempty"`
+	Entities     []SelfEntity     `json:"entities,omitempty" jsonschema:"бизнес-объекты (domain манифеста): сколько в каждом статусе, сколько застряло, поток за час"`
+}
+
+type SelfEntity struct {
+	Name       string             `json:"name"`
+	Status     string             `json:"status,omitempty"`
+	Statuses   []SelfEntityStatus `json:"statuses,omitempty"`
+	Created1h  *int64             `json:"created_1h,omitempty" jsonschema:"создано за последний час"`
+	Finished1h *int64             `json:"finished_1h,omitempty" jsonschema:"завершено за последний час"`
+}
+
+type SelfEntityStatus struct {
+	Name       string `json:"name"`
+	Meaning    string `json:"meaning,omitempty" jsonschema:"что значит статус (domain манифеста)"`
+	StuckAfter string `json:"stuck_after,omitempty" jsonschema:"дольше — застрял (domain манифеста)"`
+	Count      int64  `json:"count"`
+	Stuck      int64  `json:"stuck,omitempty" jsonschema:"сколько из них дольше stuck_after"`
+	OldestS    int64  `json:"oldest_s,omitempty" jsonschema:"сколько секунд в статусе самый старый"`
 }
 
 type SelfDependency struct {
@@ -257,6 +275,18 @@ func encodeSelfReport(v *snapshotModel.SelfReport) *SelfReport {
 				gauge.Time = new(tz.In(*g.Time))
 			}
 			return gauge
+		}),
+		Entities: lo.Map(v.Entities, func(e snapshotModel.SelfEntity, _ int) SelfEntity {
+			return SelfEntity{
+				Name: e.Name, Status: e.Status, Created1h: e.Created1h, Finished1h: e.Finished1h,
+				Statuses: lo.Map(e.Statuses, func(s snapshotModel.SelfEntityStatus, _ int) SelfEntityStatus {
+					status := SelfEntityStatus{Name: s.Name, Meaning: s.Meaning, Count: s.Count, Stuck: s.Stuck, OldestS: int64(s.Oldest / time.Second)}
+					if s.StuckAfter > 0 {
+						status.StuckAfter = shortDuration(s.StuckAfter)
+					}
+					return status
+				}),
+			}
 		}),
 	}
 	if !v.CheckedAt.IsZero() {

@@ -124,6 +124,26 @@ type SelfReport struct {
 	Stale        bool
 	Dependencies []SelfDependency
 	Gauges       []SelfGauge
+	// Entities — бизнес-объекты из domain манифеста со счётчиками от сервиса
+	Entities []SelfEntity
+}
+
+// SelfEntity — объект: сколько в каждом статусе и сколько застряло (порог — из domain).
+type SelfEntity struct {
+	Name       string
+	Status     string
+	Statuses   []SelfEntityStatus
+	Created1h  *int64
+	Finished1h *int64
+}
+
+type SelfEntityStatus struct {
+	Name       string
+	Meaning    string        // из domain манифеста
+	StuckAfter time.Duration // из domain манифеста; 0 — не задано
+	Count      int64
+	Stuck      int64
+	Oldest     time.Duration
 }
 
 // SelfDependency — зависимость из манифеста и её состояние по словам сервиса.

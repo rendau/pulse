@@ -100,6 +100,7 @@ func (c *collector) selfReport(ctx context.Context) {
 		Gauges: lo.Map(worst.status.Gauges, func(g selfstatusModel.Gauge, _ int) snapshotModel.SelfGauge {
 			return snapshotModel.SelfGauge{Id: g.Id, Title: g.Title, Value: g.Value, Time: g.Time, Unit: g.Unit, Status: g.Status}
 		}),
+		Entities: selfEntities(c.service.Metadata.Domain, worst.status.Entities),
 	}
 
 	c.mu.Lock()
@@ -118,4 +119,29 @@ func selfDependencies(declared []svcModel.Dependency, reported []selfstatusModel
 		}
 		return dep
 	})
+}
+
+// selfEntities — объекты из domain манифеста со счётчиками из отчёта: смысл статуса и порог
+// застревания — из domain; объекты, которых нет в domain, не показываются.
+func selfEntities(domain *svcModel.Domain, reported []selfstatusModel.Entity) []snapshotModel.SelfEntity {
+	if domain == nil {
+		return nil
+	}
+	var result []snapshotModel.SelfEntity
+	for _, r := range reported {
+		declared, ok := lo.Find(domain.Entities, func(e svcModel.Entity) bool { return e.Name == r.Name })
+		if !ok {
+			continue
+		}
+		entity := snapshotModel.SelfEntity{Name: r.Name, Status: r.Status, Created1h: r.Created1h, Finished1h: r.Finished1h}
+		for _, st := range r.Statuses {
+			status := snapshotModel.SelfEntityStatus{Name: st.Name, Count: st.Count, Stuck: st.Stuck, Oldest: st.Oldest}
+			if d, ok := lo.Find(declared.Statuses, func(s svcModel.EntityStatus) bool { return s.Name == st.Name }); ok {
+				status.Meaning, status.StuckAfter = d.Meaning, d.StuckAfter
+			}
+			entity.Statuses = append(entity.Statuses, status)
+		}
+		result = append(result, entity)
+	}
+	return result
 }

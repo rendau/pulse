@@ -16,6 +16,7 @@ type Status struct {
 	CheckedAt    time.Time
 	Dependencies []Dependency
 	Gauges       []Gauge
+	Entities     []Entity
 }
 
 type Dependency struct {
@@ -33,4 +34,21 @@ type Gauge struct {
 	Time   *time.Time
 	Unit   string
 	Status string
+}
+
+// Entity — бизнес-объекты по словам сервиса: сколько в каждом статусе и сколько застряло,
+// поток за час (nil — сервис не считает).
+type Entity struct {
+	Name       string
+	Status     string
+	Statuses   []EntityStatus
+	Created1h  *int64
+	Finished1h *int64
+}
+
+type EntityStatus struct {
+	Name   string
+	Count  int64
+	Stuck  int64
+	Oldest time.Duration
 }

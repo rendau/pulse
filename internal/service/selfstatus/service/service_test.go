@@ -36,6 +36,12 @@ func TestGet(t *testing.T) {
 	    {"id": "outbox_backlog", "title": "Неотправленные события", "value": 1840, "unit": "count", "status": "degraded"},
 	    {"id": "last_sync", "title": "Последняя выгрузка", "value": "2026-09-25T18:52:00+05:00", "unit": "time", "status": "ok"},
 	    {"id": "note", "title": "Заметка", "value": "любой текст"}
+	  ],
+	  "entities": [
+	    {"name": "доставка", "status": "degraded", "created_1h": 120, "finished_1h": -1, "statuses": [
+	      {"name": "assigned", "count": 42, "stuck": 50, "oldest_s": 5400},
+	      {"name": "broken", "count": -3}
+	    ]}
 	  ]
 	}`)}}
 	pii := piiServiceP.New(piiServiceP.Config{})
@@ -53,6 +59,13 @@ func TestGet(t *testing.T) {
 	require.Len(t, status.Gauges, 2, "значение-текст не принимается")
 	assert.InDelta(t, 1840, *status.Gauges[0].Value, 0)
 	assert.NotNil(t, status.Gauges[1].Time)
+	require.Len(t, status.Entities, 1)
+	e := status.Entities[0]
+	assert.Equal(t, int64(120), *e.Created1h)
+	assert.Nil(t, e.Finished1h, "отрицательное — не принимается")
+	require.Len(t, e.Statuses, 1, "отрицательный счётчик — не принимается")
+	assert.Equal(t, int64(42), e.Statuses[0].Stuck, "застрявших не больше, чем всего")
+	assert.Equal(t, 90*time.Minute, e.Statuses[0].Oldest)
 
 	_, err = s.Get(context.Background(), target)
 	require.NoError(t, err)

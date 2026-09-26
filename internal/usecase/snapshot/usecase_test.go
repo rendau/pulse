@@ -292,7 +292,9 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	svc.service.Metadata = svcModel.Metadata{Source: svcModel.MetadataSourceManifest, Dependencies: []svcModel.Dependency{
 		{Id: "pg", Kind: "postgres", Target: "payments-pg", Critical: true},
 		{Id: "bank", Kind: "http", Target: "api.bank.kz", Affects: "онлайн-оплата"},
-	}}
+	}, Domain: &svcModel.Domain{Entities: []svcModel.Entity{{Name: "платёж", Statuses: []svcModel.EntityStatus{
+		{Name: "pending", Meaning: "ждёт ответа банка", StuckAfter: 30 * time.Minute},
+	}}}}}
 	wl.items[0].Manifest = workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003}
 
 	k8s := &fakeK8s{pods: []k8sModel.Pod{
@@ -307,6 +309,9 @@ func TestSnapshot_SelfReport(t *testing.T) {
 			{Id: "pg", Status: "ok"},
 			{Id: "bank", Status: "degraded", LatencyMs: new(int64(4200)), Message: "ответ дольше 2 с"},
 			{Id: "undeclared", Status: "down"},
+		}, Entities: []selfstatusModel.Entity{
+			{Name: "платёж", Status: "degraded", Statuses: []selfstatusModel.EntityStatus{{Name: "pending", Count: 42, Stuck: 12, Oldest: 90 * time.Minute}}},
+			{Name: "рейс", Statuses: []selfstatusModel.EntityStatus{{Name: "x", Count: 1, Stuck: 1}}},
 		}},
 	}}
 
@@ -325,6 +330,9 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	assert.Equal(t, "api.bank.kz", snap.Self.Dependencies[1].Target)
 	assert.Equal(t, snapshotModel.HealthDegraded, snap.Health)
 	assert.Contains(t, snap.SummaryHints, "сервис сообщает: зависимость bank (http → api.bank.kz) — degraded, 4200 мс: ответ дольше 2 с; ломает: онлайн-оплата")
+	require.Len(t, snap.Self.Entities, 1, "только объекты из domain манифеста")
+	assert.Equal(t, 30*time.Minute, snap.Self.Entities[0].Statuses[0].StuckAfter)
+	assert.Contains(t, snap.SummaryHints, "сервис сообщает: застряло 12 из 42 «платёж» в статусе pending (ждёт ответа банка) — дольше 30 мин, самый старый — 90 мин")
 }
 
 // Метрики манифеста — добавка к golden signals (своя с тем же id — вместо стандартной);

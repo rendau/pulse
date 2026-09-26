@@ -25,6 +25,8 @@ const (
 	maxTitle      = 100
 	maxGauges     = 20
 	maxDependency = 30
+	maxEntities   = 10
+	maxStatuses   = 20
 )
 
 var (
@@ -116,6 +118,18 @@ type statusRep struct {
 		Unit   string          `json:"unit"`
 		Status string          `json:"status"`
 	} `json:"gauges"`
+	Entities []struct {
+		Name     string `json:"name"`
+		Status   string `json:"status"`
+		Statuses []struct {
+			Name    string `json:"name"`
+			Count   int64  `json:"count"`
+			Stuck   int64  `json:"stuck"`
+			OldestS int64  `json:"oldest_s"`
+		} `json:"statuses"`
+		Created1h  *int64 `json:"created_1h"`
+		Finished1h *int64 `json:"finished_1h"`
+	} `json:"entities"`
 }
 
 // parse проверяет ответ: неизвестный итоговый статус — ошибка; записи не по стандарту
@@ -172,7 +186,36 @@ func (s *Service) parse(body []byte) (*selfstatusModel.Status, error) {
 		result.Gauges = append(result.Gauges, gauge)
 	}
 
+	// объекты: только счётчики (неотрицательные числа), имена — как тексты
+	for _, e := range lo.Slice(rep.Entities, 0, maxEntities) {
+		name := s.cleanText(e.Name, maxTitle)
+		if name == "" {
+			continue
+		}
+		entity := selfstatusModel.Entity{Name: name, Created1h: nonNegative(e.Created1h), Finished1h: nonNegative(e.Finished1h)}
+		if slices.Contains(statuses, e.Status) {
+			entity.Status = e.Status
+		}
+		for _, st := range lo.Slice(e.Statuses, 0, maxStatuses) {
+			if st.Name == "" || st.Count < 0 || st.Stuck < 0 {
+				continue
+			}
+			entity.Statuses = append(entity.Statuses, selfstatusModel.EntityStatus{
+				Name: s.cleanText(st.Name, maxTitle), Count: st.Count, Stuck: min(st.Stuck, st.Count),
+				Oldest: time.Duration(max(st.OldestS, 0)) * time.Second,
+			})
+		}
+		result.Entities = append(result.Entities, entity)
+	}
+
 	return result, nil
+}
+
+func nonNegative(v *int64) *int64 {
+	if v == nil || *v < 0 {
+		return nil
+	}
+	return v
 }
 
 // cleanText — текст от сервиса: без учётных данных в адресах, персональные данные — токенами,

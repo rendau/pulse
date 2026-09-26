@@ -184,6 +184,24 @@ func selfHints(self *model.SelfReport, now time.Time) []string {
 		}
 		hints = append(hints, fmt.Sprintf("сервис сообщает: «%s» = %s (%s)", g.Title, strings.TrimSpace(value), g.Status))
 	}
+	for _, e := range self.Entities {
+		for _, st := range e.Statuses {
+			if st.Stuck <= 0 {
+				continue
+			}
+			hint := fmt.Sprintf("сервис сообщает: застряло %d из %d «%s» в статусе %s", st.Stuck, st.Count, e.Name, st.Name)
+			if st.Meaning != "" {
+				hint += " (" + st.Meaning + ")"
+			}
+			if st.StuckAfter > 0 {
+				hint += fmt.Sprintf(" — дольше %s", humanDuration(st.StuckAfter))
+			}
+			if st.Oldest > 0 {
+				hint += fmt.Sprintf(", самый старый — %s", humanDuration(st.Oldest))
+			}
+			hints = append(hints, hint)
+		}
+	}
 	return hints
 }
 
@@ -238,5 +256,20 @@ func humanSince(now, t time.Time) string {
 		return fmt.Sprintf("%.1f ч назад", d.Hours())
 	default:
 		return fmt.Sprintf("%d дн назад", int(d.Hours()/24))
+	}
+}
+
+// humanDuration — длительность для подсказки: «30 мин», «2 ч», «1.5 ч», «3 дн».
+func humanDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	switch {
+	case d < time.Minute:
+		return "меньше минуты"
+	case d < 2*time.Hour && d%time.Hour != 0:
+		return fmt.Sprintf("%d мин", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", d.Hours()), ".0") + " ч"
+	default:
+		return fmt.Sprintf("%d дн", int(d.Hours()/24))
 	}
 }
