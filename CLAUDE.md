@@ -43,8 +43,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/infra/pulsekit/` — манифест сервиса по стандарту (`docs/service-manifest.md`) для самого pulse:
-  `Depend(id, kind, target, critical, check)` — зависимость и её фоновая проверка (ручка состояния,
-  своё сообщение вместо текста ошибки — `Describe`), `Host` — хост из URL/DSN/gRPC-адреса (небезопасный
+  `Depend(id, kind, target, critical, check).Affects("…")` — зависимость, что она ломает, и её фоновая
+  проверка (ручка состояния, своё сообщение вместо текста ошибки — `Describe`; `Problem` — свой статус;
+  `NewPassive` — проверка по исходам настоящих вызовов для платных API), `Host` — хост из URL/DSN/gRPC-адреса (небезопасный
   target → `unknown`, без паники), `Gauge`/`GaugeTime` — показатели состояния, `Metric`, `ErrorPattern`,
   `Service.Runbooks`, `Handle[T]` — диагностическая ручка, схема ответа из Go-типа (json-теги,
   `pulse:"personal=…,maxLength=…,maxItems=…,enum=a|b,description=…"` — description последним), лог
@@ -161,7 +162,7 @@ domain service → repo
 - Манифест сервиса (`docs/service-manifest.md` — стандарт для команд): сервис на служебном порту
   отдаёт `/.well-known/pulse`. Индексер ищет его на готовом поде workload'а (`indexer/service/manifest.go`):
   порты по порядку — аннотация `pulse/port`, порт `/metrics` из целей Prometheus (`up{pod!=""}`),
-  имена `system`/`http*`, `manifest.default_ports`, остальные TCP-порты кроме `skip_ports` (только
+  имена `system`/`http*` у контейнера или у k8s Service, выбирающего под (номер — из `targetPort`), `manifest.default_ports`, остальные TCP-порты кроме `skip_ports` (только
   после выкатки). Искать заново — при смене digest, принятый — раз в `refresh_after`, неудача — раз
   в `retry_after`. Результат — в колонках `workload.manifest_*` (статус ok/partial/invalid/absent/
   unreachable, причины, опробованные порты, сам манифест как получен — разбирается каждый цикл).
