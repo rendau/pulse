@@ -166,6 +166,9 @@ func selfHints(self *model.SelfReport, now time.Time) []string {
 		if d.Message != "" {
 			hint += ": " + d.Message
 		}
+		if d.Affects != "" {
+			hint += "; ломает: " + d.Affects
+		}
 		hints = append(hints, hint)
 	}
 	for _, g := range self.Gauges {

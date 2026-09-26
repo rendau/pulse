@@ -25,6 +25,7 @@ type dependencyJSON struct {
 	Kind     string `json:"kind"`
 	Target   string `json:"target"`
 	Critical bool   `json:"critical,omitempty"`
+	Affects  string `json:"affects,omitempty"`
 }
 
 type metricJSON struct {
@@ -124,7 +125,7 @@ func encodeRunbook(v runbookJSON, _ int) domainModel.Runbook {
 }
 
 func encodeDependency(v dependencyJSON, _ int) domainModel.Dependency {
-	return domainModel.Dependency{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical}
+	return domainModel.Dependency{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical, Affects: v.Affects}
 }
 
 func encodeEndpoint(v endpointJSON, _ int) domainModel.Endpoint {
@@ -194,7 +195,7 @@ func decodeRunbook(v domainModel.Runbook, _ int) runbookJSON {
 }
 
 func decodeDependency(v domainModel.Dependency, _ int) dependencyJSON {
-	return dependencyJSON{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical}
+	return dependencyJSON{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical, Affects: v.Affects}
 }
 
 func decodeEndpoint(v domainModel.Endpoint, _ int) endpointJSON {

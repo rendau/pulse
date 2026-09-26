@@ -227,6 +227,7 @@ type SelfDependency struct {
 	Kind      string `json:"kind"`
 	Target    string `json:"target"`
 	Critical  bool   `json:"critical,omitempty"`
+	Affects   string `json:"affects,omitempty" jsonschema:"что ломается, когда она недоступна (со слов владельца)"`
 	Status    string `json:"status,omitempty" jsonschema:"пусто — сервис не прислал состояние этой зависимости"`
 	LatencyMs *int64 `json:"latency_ms,omitempty"`
 	Message   string `json:"message,omitempty"`
@@ -248,7 +249,7 @@ func encodeSelfReport(v *snapshotModel.SelfReport) *SelfReport {
 	rep := &SelfReport{
 		Status: v.Status, Pod: v.Pod, Pods: v.Pods, Stale: v.Stale,
 		Dependencies: lo.Map(v.Dependencies, func(d snapshotModel.SelfDependency, _ int) SelfDependency {
-			return SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Status: d.Status, LatencyMs: d.LatencyMs, Message: d.Message}
+			return SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Affects: d.Affects, Status: d.Status, LatencyMs: d.LatencyMs, Message: d.Message}
 		}),
 		Gauges: lo.Map(v.Gauges, func(g snapshotModel.SelfGauge, _ int) SelfGauge {
 			gauge := SelfGauge{Id: g.Id, Title: g.Title, Value: g.Value, Unit: g.Unit, Status: g.Status}

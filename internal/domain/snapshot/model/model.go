@@ -132,6 +132,7 @@ type SelfDependency struct {
 	Kind      string
 	Target    string
 	Critical  bool
+	Affects   string // что ломается, когда она недоступна (со слов владельца)
 	Status    string
 	LatencyMs *int64
 	Message   string

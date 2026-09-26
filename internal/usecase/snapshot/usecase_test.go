@@ -291,7 +291,7 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	svc, wl := fixtures()
 	svc.service.Metadata = svcModel.Metadata{Source: svcModel.MetadataSourceManifest, Dependencies: []svcModel.Dependency{
 		{Id: "pg", Kind: "postgres", Target: "payments-pg", Critical: true},
-		{Id: "bank", Kind: "http", Target: "api.bank.kz"},
+		{Id: "bank", Kind: "http", Target: "api.bank.kz", Affects: "онлайн-оплата"},
 	}}
 	wl.items[0].Manifest = workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003}
 
@@ -324,7 +324,7 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	require.Len(t, snap.Self.Dependencies, 2, "только объявленные в манифесте")
 	assert.Equal(t, "api.bank.kz", snap.Self.Dependencies[1].Target)
 	assert.Equal(t, snapshotModel.HealthDegraded, snap.Health)
-	assert.Contains(t, snap.SummaryHints, "сервис сообщает: зависимость bank (http → api.bank.kz) — degraded, 4200 мс: ответ дольше 2 с")
+	assert.Contains(t, snap.SummaryHints, "сервис сообщает: зависимость bank (http → api.bank.kz) — degraded, 4200 мс: ответ дольше 2 с; ломает: онлайн-оплата")
 }
 
 // Метрики манифеста — добавка к golden signals (своя с тем же id — вместо стандартной);

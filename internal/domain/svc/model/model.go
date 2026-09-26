@@ -84,6 +84,8 @@ type Dependency struct {
 	Target string // имя сервиса в кластере или внешний хост, без учётных данных
 	// Critical — без неё сервис не работает (её down — сервис down)
 	Critical bool
+	// Affects — что ломается, когда она недоступна («выдача заказов»), со слов владельца
+	Affects string
 }
 
 type Metric struct {

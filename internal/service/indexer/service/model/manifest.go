@@ -99,6 +99,7 @@ type ManifestDependency struct {
 	Kind     string `json:"kind"`
 	Target   string `json:"target"`
 	Critical bool   `json:"critical"`
+	Affects  string `json:"affects"`
 }
 
 type ManifestMetric struct {
@@ -292,6 +293,7 @@ func ParseManifest(raw []byte) (*ParsedManifest, error) {
 			seenDeps[d.Id] = true
 			result.Metadata.Dependencies = append(result.Metadata.Dependencies, svcModel.Dependency{
 				Id: d.Id, Kind: d.Kind, Target: strings.TrimSpace(d.Target), Critical: d.Critical,
+				Affects: clip(d.Affects, maxTitleChars),
 			})
 		}
 	}
@@ -556,6 +558,9 @@ func longTexts(m *Manifest) []string {
 	}
 	for _, mt := range m.Metrics {
 		check("metrics."+mt.Id+".title", mt.Title, maxTitleChars)
+	}
+	for _, d := range m.Dependencies {
+		check("dependencies."+d.Id+".affects", d.Affects, maxTitleChars)
 	}
 	var walk func(s *ManifestSchema, path string, depth int)
 	walk = func(s *ManifestSchema, path string, depth int) {

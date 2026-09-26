@@ -49,6 +49,13 @@ func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, p
 	byKey := lo.SliceToMap(previous, func(w *workloadModel.Main) (workloadModel.Key, *workloadModel.Main) { return w.Key(), w })
 
 	scrapePorts := s.scrapePorts(ctx)
+	// именованные порты k8s Service: system/http* бывает только у Service, а не у контейнера
+	var services []k8sModel.Service
+	if s.k8s != nil {
+		if services, err = s.k8s.ListServices(ctx, ""); err != nil {
+			slog.Warn("indexer: k8s services are unavailable for manifest discovery", "error", err)
+		}
+	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(manifestConcurrency)
@@ -75,7 +82,7 @@ func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, p
 		// перебор остальных портов пода — только раз после выкатки (или при первом поиске)
 		deployed := prevManifest == nil || prevManifest.Digest != d.digest
 		eg.Go(func() error {
-			probe, parsed := s.probe(egCtx, ready[0], scrapePorts, deployed)
+			probe, parsed := s.probe(egCtx, ready[0], scrapePorts[ready[0].Namespace+"/"+ready[0].Name], servicePorts(ready[0], services), deployed)
 			probe.Digest, probe.CheckedAt = d.digest, now
 			d.manifestProbe, d.manifest = probe, parsed
 			return nil
@@ -99,13 +106,13 @@ func (s *Service) probeDue(prev *workloadModel.Manifest, digest string, now time
 }
 
 // probe стучится в порты-кандидаты пода, пока не найдёт манифест.
-func (s *Service) probe(ctx context.Context, pod k8sModel.Pod, scrapePorts map[string][]int, deployed bool) (*workloadModel.Manifest, *localModel.ParsedManifest) {
+func (s *Service) probe(ctx context.Context, pod k8sModel.Pod, scrape []int, named []k8sModel.PodPort, deployed bool) (*workloadModel.Manifest, *localModel.ParsedManifest) {
 	path := s.conf.Manifest.Path
 	if p := strings.TrimSpace(pod.Annotations[s.conf.Manifest.AnnotationPrefix+"path"]); strings.HasPrefix(p, "/") {
 		path = p
 	}
 
-	known, rest := s.candidatePorts(pod, scrapePorts[pod.Namespace+"/"+pod.Name])
+	known, rest := s.candidatePorts(pod, scrape, named)
 	candidates := known
 	if deployed {
 		candidates = append(candidates, rest...)
@@ -165,7 +172,7 @@ func (s *Service) probe(ctx context.Context, pod k8sModel.Pod, scrapePorts map[s
 // candidatePorts — порты по порядку стандарта: аннотация, порт /metrics (цели Prometheus),
 // порты с именами system и http*, порты по умолчанию; rest — остальные TCP-порты пода, кроме
 // заведомо не-HTTP (перебираются только после выкатки).
-func (s *Service) candidatePorts(pod k8sModel.Pod, scrape []int) (known, rest []int) {
+func (s *Service) candidatePorts(pod k8sModel.Pod, scrape []int, servicePorts []k8sModel.PodPort) (known, rest []int) {
 	add := func(list *[]int, port int) {
 		if port > 0 && port < 65536 && !slices.Contains(known, port) && !slices.Contains(rest, port) {
 			*list = append(*list, port)
@@ -179,12 +186,14 @@ func (s *Service) candidatePorts(pod k8sModel.Pod, scrape []int) (known, rest []
 		add(&known, port)
 	}
 	tcp := lo.Filter(pod.Ports, func(p k8sModel.PodPort, _ int) bool { return p.Protocol == "" || p.Protocol == "TCP" })
-	for _, p := range tcp {
+	// имена — у порта контейнера или у порта k8s Service, который ведёт на под
+	named := append(append([]k8sModel.PodPort{}, tcp...), servicePorts...)
+	for _, p := range named {
 		if p.Name == "system" {
 			add(&known, int(p.Port))
 		}
 	}
-	for _, p := range tcp {
+	for _, p := range named {
 		if p.Name == "http" || strings.HasPrefix(p.Name, "http-") {
 			add(&known, int(p.Port))
 		}
@@ -198,6 +207,36 @@ func (s *Service) candidatePorts(pod k8sModel.Pod, scrape []int) (known, rest []
 		}
 	}
 	return known, rest
+}
+
+// servicePorts — порты k8s Service, выбирающих под (селектор совпал с лейблами), с именами
+// system и http*: имя — как у порта Service, номер — порт контейнера (targetPort числом, по
+// имени порта контейнера или, если не задан, — порт самого Service).
+func servicePorts(pod k8sModel.Pod, services []k8sModel.Service) []k8sModel.PodPort {
+	var result []k8sModel.PodPort
+	for _, svc := range services {
+		if svc.Namespace != pod.Namespace || len(svc.Selector) == 0 || !labels.SelectorFromSet(svc.Selector).Matches(labels.Set(pod.Labels)) {
+			continue
+		}
+		for _, sp := range svc.Ports {
+			if sp.Name != "system" && sp.Name != "http" && !strings.HasPrefix(sp.Name, "http-") {
+				continue
+			}
+			port := sp.Port
+			switch n, err := strconv.Atoi(sp.TargetPort); {
+			case err == nil:
+				port = int32(n)
+			case sp.TargetPort != "":
+				p, ok := lo.Find(pod.Ports, func(p k8sModel.PodPort) bool { return p.Name == sp.TargetPort })
+				if !ok {
+					continue
+				}
+				port = p.Port
+			}
+			result = append(result, k8sModel.PodPort{Container: "service/" + svc.Name, Name: sp.Name, Port: port, Protocol: "TCP"})
+		}
+	}
+	return result
 }
 
 // scrapePorts — порты, с которых Prometheus собирает /metrics, по подам («ns/pod»): манифест

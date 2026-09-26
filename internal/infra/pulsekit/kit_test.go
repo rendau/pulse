@@ -47,7 +47,7 @@ var order = map[string]orderRep{}
 
 func newKit() *Kit {
 	k := New(Config{SlowAfter: 50 * time.Millisecond}, testService, Build{Version: "v1", Commit: "9f597a7c1e2d4b8a0f3c6e5d7b9a1c2e4f6a8b0c"})
-	k.Depend("pg", "postgres", "ocenter-pg", true, func(context.Context) error { return nil })
+	k.Depend("pg", "postgres", "ocenter-pg", true, func(context.Context) error { return nil }).Affects("приём и выдача заказов")
 	k.Depend("onec", "http", "onec-proxy", false, func(context.Context) error {
 		return errors.New("dial tcp postgres://app:s3cr3t@onec: connection refused")
 	})
@@ -98,7 +98,8 @@ func TestManifest_PassesPulseValidation(t *testing.T) {
 	assert.NotContains(t, response.Properties, "internal")
 	assert.Equal(t, 20, endpoint.MaxRows)
 	assert.Equal(t, "20", endpoint.Params["limit"].Default)
-	assert.Len(t, parsed.Metadata.Dependencies, 2)
+	require.Len(t, parsed.Metadata.Dependencies, 2)
+	assert.Equal(t, "приём и выдача заказов", parsed.Metadata.Dependencies[0].Affects)
 	assert.Len(t, parsed.Metadata.Metrics, 1)
 	assert.Len(t, parsed.Metadata.Logs.ErrorPatterns, 1)
 	assert.Len(t, parsed.Metadata.Runbooks, 1)
@@ -129,6 +130,33 @@ func TestStatus(t *testing.T) {
 	assert.Equal(t, "down", status.Status, "критичная зависимость down")
 	assert.Equal(t, "degraded", status.Dependencies[2].Status, "медленная")
 	assert.Equal(t, "таймаут", status.Dependencies[3].Message)
+}
+
+func TestPassive(t *testing.T) {
+	bank := NewPassive(time.Minute)
+	k := New(Config{}, testService, Build{})
+	k.Depend("bank", "http", "api.bank.kz", false, bank.Check).Affects("онлайн-оплата")
+	status := func() DependencyStatusRep {
+		k.checkAll(context.Background())
+		return k.Status().Dependencies[0]
+	}
+
+	assert.Equal(t, "ok", status().Status, "вызовов не было — не с чем сравнить")
+
+	bank.Observe(nil)
+	bank.Observe(errors.New("POST https://api.bank.kz?key=s3cr3t: timeout"))
+	bank.Observe(errors.New("timeout"))
+	got := status()
+	assert.Equal(t, "degraded", got.Status, "неудачных больше половины")
+	assert.Equal(t, "неудачных вызовов 2 из 3 за 1m0s: таймаут", got.Message, "своими словами, без адреса с ключом")
+
+	bank.Observe(errors.New("connection refused"))
+	got = status()
+	assert.Equal(t, "down", got.Status, "три неудачи подряд")
+	assert.Equal(t, "последние 3 вызовов неудачны: в соединении отказано", got.Message)
+
+	bank.Observe(nil)
+	assert.Equal(t, "degraded", status().Status, "серия прервана успехом")
 }
 
 func TestGauges(t *testing.T) {
@@ -255,10 +283,16 @@ func TestRegistrationRules(t *testing.T) {
 	assert.Panics(t, func() { New(Config{}, Service{}, Build{}) }, "сведения о сервисе обязательны")
 	assert.Panics(t, func() { k.Metric(Metric{Id: "m", Title: "m", PromQL: "up", Unit: "percent"}) }, "unit не из стандарта")
 	assert.Panics(t, func() { k.ErrorPattern("x", "(?=lookahead)") }, "не RE2")
+	assert.Panics(t, func() {
+		k.Depend("s3", "s3", "minio", false, func(context.Context) error { return nil }).Affects(strings.Repeat("д", 101))
+	}, "affects длиннее 100")
 
 	k.Depend("pg", "postgres", "user:pass@pg", true, func(context.Context) error { return nil })
 	k.Depend("pg2", "postgres", "host=pg password=x", true, func(context.Context) error { return nil })
-	deps := k.Manifest().Dependencies
-	assert.Equal(t, "unknown", deps[0].Target, "учётные данные в target — не в манифест, сервис не падает")
-	assert.Equal(t, "unknown", deps[1].Target)
+	targets := map[string]string{}
+	for _, d := range k.Manifest().Dependencies {
+		targets[d.Id] = d.Target
+	}
+	assert.Equal(t, "unknown", targets["pg"], "учётные данные в target — не в манифест, сервис не падает")
+	assert.Equal(t, "unknown", targets["pg2"])
 }

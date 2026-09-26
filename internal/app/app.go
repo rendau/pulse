@@ -160,9 +160,9 @@ func (a *App) Init() {
 	// pulsekit (манифест pulse: сведения о себе и фоновые проверки источников — ручка состояния)
 	a.pulsekit = newPulsekit()
 	{
-		a.pulsekit.Depend("postgres", "postgres", pulsekit.Host(config.Conf.PgDsn), true, a.pgpool.Ping)
-		a.pulsekit.Depend("kubernetes", "http", "kubernetes API", true, k8sService.Ping)
-		a.pulsekit.Depend("github", "http", "api.github.com", false, githubService.Ping)
+		a.pulsekit.Depend("postgres", "postgres", pulsekit.Host(config.Conf.PgDsn), true, a.pgpool.Ping).Affects("каталог сервисов и история деплоев")
+		a.pulsekit.Depend("kubernetes", "http", "kubernetes API", true, k8sService.Ping).Affects("состояние сервисов и индексер")
+		a.pulsekit.Depend("github", "http", "api.github.com", false, githubService.Ping).Affects("коммиты и что не выкачено")
 		for _, m := range lo.UniqBy(rules.ImageMapping, func(m config.ImageMapping) string { return m.Registry }) {
 			a.pulsekit.Depend("registry_"+strings.NewReplacer(".", "_", "-", "_").Replace(m.Registry), "http", m.Registry, false,
 				func(ctx context.Context) error { return registryService.Ping(ctx, m.Registry) })

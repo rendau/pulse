@@ -148,6 +148,7 @@ type Dependency struct {
 	Kind     string `json:"kind"`
 	Target   string `json:"target"`
 	Critical bool   `json:"critical,omitempty" jsonschema:"без неё сервис не работает"`
+	Affects  string `json:"affects,omitempty" jsonschema:"что ломается, когда она недоступна (со слов владельца)"`
 }
 
 type MetricDef struct {
@@ -222,7 +223,7 @@ func EncodeServiceInfoRep(v *catalogModel.ServiceInfo) ServiceInfoRep {
 }
 
 func encodeDependency(v svcModel.Dependency, _ int) Dependency {
-	return Dependency{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical}
+	return Dependency{Id: v.Id, Kind: v.Kind, Target: v.Target, Critical: v.Critical, Affects: v.Affects}
 }
 
 func encodeMetricDef(v svcModel.Metric, _ int) MetricDef {
