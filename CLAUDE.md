@@ -218,6 +218,10 @@ domain service → repo
   В проде логи шлёт fluent-bit: лейблы `kubernetes_namespace_name`, `kubernetes_pod_name`.
 - Метрики приложений (go-шаблон) в проде с префиксом `<ns>_<svc>_request_total` (у старых —
   `_request_count`) и `status=ok|error`: дефолтные golden signals ищут имя регэкспом `__name__`.
+  Новый шаблон добавляет лейбл `code` (код ошибки ответа): `error_rate` — сбои (`code` пуст или
+  `service_not_available`/`not_implemented`/`invalid_config`), `rejected_rate` — отказы по делу
+  (у сервиса без `code` пуст). Подсказка снапшота: ошибки в метриках есть, error-логов нет —
+  ошибки ответов пишутся не уровнем error, причины — query_logs без level.
   Сервисам, опубликованным в ruto, снапшот добавляет `public_*` по метрикам gateway (`{ruto_apps}`).
 
 ### Хранилища

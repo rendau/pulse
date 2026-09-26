@@ -133,6 +133,10 @@ func (s *Service) SummaryHints(snap *model.Snapshot, now time.Time) []string {
 		hints = append(hints, fmt.Sprintf("в логах %d× «%s»", p.Count, lo.Ellipsis(p.Template, 160)))
 	}
 
+	if hint := silentErrorsHint(snap); hint != "" {
+		hints = append(hints, hint)
+	}
+
 	oomCount := lo.CountBy(snap.RecentEvents, func(e eventModel.Event) bool { return e.Type == constant.EventTypeOOMKill })
 	if oomCount > 0 {
 		hints = append(hints, fmt.Sprintf("OOMKilled: %d событий за окно", oomCount))
@@ -146,6 +150,21 @@ func (s *Service) SummaryHints(snap *model.Snapshot, now time.Time) []string {
 }
 
 // selfHints — что сервис сообщает о себе: не-ok зависимости (сначала критичные) и показатели.
+// silentErrorsMin — доля ошибок, с которой их отсутствие в логах стоит объяснять.
+const silentErrorsMin = 0.01
+
+// silentErrorsHint — ошибки в метриках есть, а error-строк в логах за окно нет (и Loki ответил):
+// сервис пишет ошибки ответов не уровнем error, причины — в логах без фильтра по уровню.
+func silentErrorsHint(snap *model.Snapshot) string {
+	m, ok := lo.Find(snap.Metrics, func(m model.Metric) bool { return m.Id == "error_rate" })
+	if !ok || m.Current == nil || *m.Current < silentErrorsMin || len(snap.TopErrors) > 0 ||
+		lo.ContainsBy(snap.Errors, func(e model.SourceError) bool { return e.Source == constant.SourceLoki }) {
+		return ""
+	}
+	return fmt.Sprintf("error_rate %.1f%%, но error-строк в логах за окно нет: ошибки ответов сервис пишет не уровнем error — "+
+		"причины в query_logs по сервису без level", *m.Current*100)
+}
+
 func selfHints(self *model.SelfReport, now time.Time) []string {
 	if self == nil {
 		return nil

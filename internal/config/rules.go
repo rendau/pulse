@@ -356,14 +356,25 @@ func defaultRules() *Rules {
 // поэтому имя ищется регэкспом, а ошибка — это status error или 5xx. Метрики приложения
 // есть только у сервисов со ServiceMonitor; у остальных rps/error_rate/latency пустые.
 //
+// Лейбл code (новый шаблон) — код ошибки ответа: service_not_available и прочие коды сбоя —
+// сбой (error_rate), остальные коды сервиса (object_not_found, invalid_request…) — отказ по делу
+// (rejected_rate). Без лейбла (старые сервисы) всё status error — в error_rate, как раньше, а
+// rejected_rate пуст: различить нечем.
+//
 // Под регэксп попадает несколько метрик (app_request_count и worker_request_count): rate()
 // отбрасывает имя, и ряды с одинаковыми лейблами дают «vector cannot contain metrics with the
 // same labelset». Поэтому имя копируется в лейбл metric (label_replace) и rate берётся по
 // подзапросу [5m:30s] — label_replace работает только с мгновенным вектором.
+// failureCodes — коды ошибок ответа go-шаблона (лейбл code), которые значат сбой сервиса, а не
+// отказ по делу; пустой код — метрика без лейбла (старый шаблон), считается как раньше.
+const failureCodes = `|service_not_available|not_implemented|invalid_config`
+
 func defaultMetrics() []MetricDef {
 	const (
 		requests = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}`
-		errors   = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status=~"error|5.."}`
+		errors   = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status=~"error|5..", code=~"` + failureCodes + `"}`
+		rejected = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status="error", code!~"` + failureCodes + `"}`
+		withCode = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", code!=""}`
 		buckets  = `{__name__=~".+_response_duration_seconds_bucket", namespace="{namespace}", pod=~"{pod_regex}"}`
 	)
 	rate := func(selector string) string {
@@ -372,8 +383,11 @@ func defaultMetrics() []MetricDef {
 	return []MetricDef{
 		{Id: "rps", Title: "Запросов в секунду", Unit: "rps",
 			PromQL: `sum(` + rate(requests) + `)`},
-		{Id: "error_rate", Title: "Доля ошибок (status error или 5xx)", Unit: "ratio", Direction: "lower_is_better",
+		{Id: "error_rate", Title: "Доля сбоев (status error или 5xx, кроме отказов по делу)", Unit: "ratio", Direction: "lower_is_better",
 			PromQL: `(sum(` + rate(errors) + `) or vector(0)) / sum(` + rate(requests) + `)`},
+		// у сервиса без лейбла code — пусто, а не 0: отказы не отличить от сбоев
+		{Id: "rejected_rate", Title: "Доля отказов по делу (не найдено, неверный запрос, нет прав) — не сбой", Unit: "ratio",
+			PromQL: `(sum(` + rate(rejected) + `) or 0 * sum(` + rate(withCode) + `)) / sum(` + rate(requests) + `)`},
 		{Id: "latency_p95", Title: "Latency p95", Unit: "seconds", Direction: "lower_is_better",
 			PromQL: `histogram_quantile(0.95, sum by (le) (` + rate(buckets) + `))`},
 		{Id: "cpu_cores", Title: "CPU, ядер", Unit: "cores", Direction: "lower_is_better",

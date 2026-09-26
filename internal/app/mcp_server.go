@@ -28,6 +28,8 @@ const mcpInstructions = `pulse — единая точка доступа к и�
 	`Смысл статусов и «застрял ли объект» — domain в get_service_info (stuck_after); чей номер — id_matches в query_logs. ` +
 	`«Сколько объектов сейчас, есть ли застрявшие» — сначала self_reported.entities в get_service_snapshot: сервис сам ` +
 	`считает по статусам и порогам domain (stuck; oldest_s — время в статусе, не с создания); ручки — за подробностями. ` +
+	`error_rate — сбои сервиса; rejected_rate — отказы по делу (не найдено, неверный запрос или код): не сбой, резкий ` +
+	`рост — повод посмотреть, кто шлёт такие запросы. Разбивка по методам и кодам — query_metrics promql с sum by (method, code). ` +
 	`Предметные вопросы (где заказ, что в очереди) — diagnostic_endpoints из get_service_info и call_service_endpoint, ` +
 	`если сервис их объявил; self_reported в снапшоте — что сервис сообщает о своих зависимостях сам.`
 

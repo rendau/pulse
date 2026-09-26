@@ -90,3 +90,17 @@ func TestSummaryHints(t *testing.T) {
 	assert.Contains(t, hints, "источник loki недоступен: часть картины отсутствует")
 	assert.Contains(t, hints, "источник prometheus не успел ответить: часть картины отсутствует")
 }
+
+func TestSilentErrorsHint(t *testing.T) {
+	s := New(Config{})
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	snap := &model.Snapshot{Window: time.Hour, Metrics: []model.Metric{{MetricDef: model.MetricDef{Id: "error_rate"}, Current: new(0.05)}}}
+	assert.Contains(t, s.SummaryHints(snap, now), "error_rate 5.0%, но error-строк в логах за окно нет: ошибки ответов сервис пишет не уровнем error — причины в query_logs по сервису без level")
+
+	snap.Errors = []model.SourceError{{Source: "loki"}}
+	assert.Empty(t, silentErrorsHint(snap), "логи не прочитаны — отсутствие строк ничего не значит")
+
+	snap.Errors = nil
+	snap.Metrics[0].Current = new(0.001)
+	assert.Empty(t, silentErrorsHint(snap), "доля ниже порога")
+}
