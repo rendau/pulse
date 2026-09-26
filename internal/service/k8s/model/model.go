@@ -74,6 +74,9 @@ type Pod struct {
 	IP          string
 	Annotations map[string]string
 	Ports       []PodPort
+	// Images — образы контейнеров из спеки пода по имени контейнера (как в шаблоне workload'а):
+	// статусов у только что созданного пода ещё нет, а образ, который он запустит, уже известен
+	Images map[string]string
 }
 
 // PodPort — объявленный порт контейнера пода.

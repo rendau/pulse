@@ -284,6 +284,7 @@ func encodePod(p corev1.Pod, _ int) k8sModel.Pod {
 		IP:          p.Status.PodIP,
 		Annotations: p.Annotations,
 	}
+	result.Images = lo.SliceToMap(p.Spec.Containers, func(c corev1.Container) (string, string) { return c.Name, c.Image })
 	for _, c := range p.Spec.Containers {
 		for _, port := range c.Ports {
 			result.Ports = append(result.Ports, k8sModel.PodPort{

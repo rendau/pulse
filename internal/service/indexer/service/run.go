@@ -45,10 +45,15 @@ func (s *Service) Run(ctx context.Context) error {
 		pods = nil
 	}
 
+	// прошлое состояние каталога: с ним сравниваются образы (деплои, выкатки) и манифесты;
+	// nil — каталог недоступен
+	previous := s.previousWorkloads(ctx)
+
 	// 1. кластер → черновики
 	drafts := lo.Map(workloads, func(w k8sModel.Workload, _ int) *workloadDraft {
 		return s.newDraft(w, pods)
 	})
+	s.holdRollouts(drafts, previous)
 
 	// 1.1 образы, которые запускаются только Job'ами оркестратора: свой сервис и workload
 	drafts = append(drafts, s.jobDrafts(ctx, drafts, pods)...)
@@ -57,7 +62,7 @@ func (s *Service) Run(ctx context.Context) error {
 	s.resolvePackageRepos(ctx, drafts)
 
 	// 1.3 манифест сервиса на подах (docs/service-manifest.md): сервис рассказывает о себе сам
-	s.probeManifests(ctx, drafts, pods, now)
+	s.probeManifests(ctx, drafts, pods, previous, now)
 	stats.Manifests = lo.CountBy(drafts, func(d *workloadDraft) bool { return d.manifest != nil })
 
 	// 2. репозитории → service.yaml (параллельно, с общим кэшем на цикл)
@@ -71,7 +76,7 @@ func (s *Service) Run(ctx context.Context) error {
 	s.resolveCommits(ctx, drafts, &stats)
 
 	// 4. история деплоев: смена образа/digest относительно прошлого цикла
-	stats.Deploys = s.recordDeploys(ctx, drafts)
+	stats.Deploys = s.recordDeploys(ctx, drafts, previous)
 
 	// 5. группировка по сервисам и запись каталога
 	services := s.buildServices(ctx, drafts, metadata, now)
@@ -165,8 +170,12 @@ type workloadDraft struct {
 	repoUrl  string
 	// serviceKey — имя сервиса по умолчанию (имя образа); может быть заменено name из service.yaml
 	serviceKey string
-	digest     string
-	commit     string
+	// container — имя главного контейнера: digest и манифест берутся с него
+	container string
+	digest    string
+	commit    string
+	// rolling — выкатка нового образа: его поды уже созданы, но ни один ещё не запустился
+	rolling bool
 	// manifest — действующий манифест сервиса (новый или прошлый из каталога); nil — нет
 	manifest *localModel.ParsedManifest
 	// manifestProbe — результат поиска в этом цикле; nil — не искали, прошлый остаётся
@@ -187,7 +196,7 @@ func (s *Service) newDraft(w k8sModel.Workload, pods []k8sModel.Pod) *workloadDr
 		repoUrl, mapped := s.mapper.RepoUrl(ref)
 		if i == 0 || mapped {
 			mainContainer = c
-			draft.image, draft.imageRaw, draft.repoUrl = ref, c.Image, repoUrl
+			draft.container, draft.image, draft.imageRaw, draft.repoUrl = c.Name, ref, c.Image, repoUrl
 		}
 		if mapped {
 			break
@@ -207,31 +216,61 @@ func (s *Service) newDraft(w k8sModel.Workload, pods []k8sModel.Pod) *workloadDr
 		draft.commit = draft.image.Tag
 	}
 
-	// digest — из любого пода workload'а, у которого главный контейнер уже запущен
 	if w.Selector != "" {
 		if selector, err := labels.Parse(w.Selector); err == nil {
-			draft.digest = findDigest(pods, w.Namespace, selector, mainContainer.Name)
+			own := lo.Filter(pods, func(p k8sModel.Pod, _ int) bool {
+				return p.Namespace == w.Namespace && selector.Matches(labels.Set(p.Labels))
+			})
+			draft.digest, draft.rolling = runningDigest(own, mainContainer.Name, mainContainer.Image)
 		}
 	}
 
 	return draft
 }
 
-func findDigest(pods []k8sModel.Pod, namespace string, selector labels.Selector, containerName string) string {
+// runningDigest — digest главного контейнера на подах образа из шаблона workload'а, с самого
+// свежего запущенного пода. Во время выкатки живы и старые поды: их digest — прошлый образ,
+// а при том же теге (latest) — прошлая сборка. rolling — поды образа шаблона уже созданы,
+// но ни один ещё не запустился: что будет запущено, пока неизвестно. Ни у одного пода нет
+// образа шаблона (образ переписал admission webhook) — digest самого свежего пода.
+func runningDigest(pods []k8sModel.Pod, container, image string) (digest string, rolling bool) {
+	current := lo.Filter(pods, func(p k8sModel.Pod, _ int) bool { return p.Images[container] == image })
+	if len(current) == 0 {
+		return newestDigest(pods, container), false
+	}
+	digest = newestDigest(current, container)
+	return digest, digest == ""
+}
+
+// newestDigest — digest контейнера с самого свежего пода, где он уже запущен.
+func newestDigest(pods []k8sModel.Pod, container string) string {
+	var latest time.Time
+	digest := ""
 	for _, pod := range pods {
-		if pod.Namespace != namespace || !selector.Matches(labels.Set(pod.Labels)) {
-			continue
-		}
 		for _, c := range pod.Containers {
-			if c.Name != containerName {
-				continue
-			}
-			if digest := imageref.DigestFromImageID(c.ImageID); digest != "" {
-				return digest
+			if d := imageref.DigestFromImageID(c.ImageID); c.Name == container && d != "" && (digest == "" || pod.StartedAt.After(latest)) {
+				latest, digest = pod.StartedAt, d
 			}
 		}
 	}
-	return ""
+	return digest
+}
+
+// holdRollouts: пока новые поды выкатки не запустились, в каталоге остаются прошлые образ,
+// digest и коммит — они и работают. Иначе цикл посреди выкатки запишет новый образ со старым
+// коммитом, а деплой — с чужим или пустым digest; деплой запишет цикл, заставший новые поды.
+func (s *Service) holdRollouts(drafts []*workloadDraft, previous map[workloadModel.Key]*workloadModel.Main) {
+	for _, d := range drafts {
+		prev, ok := previous[d.key(s.conf.Cluster)]
+		if !d.rolling || !ok || prev.Image == "" {
+			continue
+		}
+		d.imageRaw, d.commit = prev.Image, ""
+	}
+}
+
+func (d *workloadDraft) key(cluster string) workloadModel.Key {
+	return workloadModel.Key{Cluster: cluster, Namespace: d.Namespace, Kind: d.Kind, Name: d.Name}
 }
 
 func (d *workloadDraft) toEdit(cluster string, now time.Time) *workloadModel.Edit {
@@ -479,21 +518,28 @@ func (s *Service) previousNamesByRepo(ctx context.Context) map[string]string {
 	)
 }
 
+// previousWorkloads — workload'ы кластера из каталога по ключу; nil — каталог недоступен.
+func (s *Service) previousWorkloads(ctx context.Context) map[workloadModel.Key]*workloadModel.Main {
+	previous, _, err := s.workload.List(ctx, &workloadModel.ListReq{Cluster: new(s.conf.Cluster)})
+	if err != nil {
+		slog.Warn("indexer: previous workloads are unavailable, deploys and manifests will not be updated", "error", err)
+		return nil
+	}
+	return lo.SliceToMap(previous, func(w *workloadModel.Main) (workloadModel.Key, *workloadModel.Main) { return w.Key(), w })
+}
+
 // recordDeploys сравнивает черновики с прошлым состоянием каталога и пишет факт деплоя,
 // когда у workload'а сменился образ или digest запущенного образа. Первое появление
 // workload'а деплоем не считается.
-func (s *Service) recordDeploys(ctx context.Context, drafts []*workloadDraft) int {
-	previous, _, err := s.workload.List(ctx, &workloadModel.ListReq{Cluster: new(s.conf.Cluster)})
-	if err != nil {
-		slog.Warn("indexer: previous workloads are unavailable, deploys will not be recorded", "error", err)
+func (s *Service) recordDeploys(ctx context.Context, drafts []*workloadDraft, previous map[workloadModel.Key]*workloadModel.Main) int {
+	if previous == nil {
 		return 0
 	}
-	byKey := lo.SliceToMap(previous, func(w *workloadModel.Main) (workloadModel.Key, *workloadModel.Main) { return w.Key(), w })
 
 	count := 0
 	for _, d := range drafts {
-		prev, ok := byKey[workloadModel.Key{Cluster: s.conf.Cluster, Namespace: d.Namespace, Kind: d.Kind, Name: d.Name}]
-		if !ok {
+		prev, ok := previous[d.key(s.conf.Cluster)]
+		if !ok || d.rolling {
 			continue
 		}
 		digestChanged := d.digest != "" && prev.ImageDigest != "" && d.digest != prev.ImageDigest
@@ -502,7 +548,7 @@ func (s *Service) recordDeploys(ctx context.Context, drafts []*workloadDraft) in
 			continue
 		}
 
-		_, err = s.deploy.Create(ctx, &deployModel.Edit{
+		_, err := s.deploy.Create(ctx, &deployModel.Edit{
 			Cluster: new(s.conf.Cluster), Namespace: new(d.Namespace), Kind: new(d.Kind), Name: new(d.Name),
 			ServiceName:     new(prev.ServiceName),
 			Image:           new(d.imageRaw),

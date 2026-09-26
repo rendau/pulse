@@ -22,6 +22,7 @@ import (
 	localModel "github.com/rendau/pulse/internal/service/indexer/service/model"
 	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
+	"github.com/rendau/pulse/internal/util/imageref"
 )
 
 // Поиск манифеста сервиса на подах (docs/service-manifest.md, «Как pulse находит манифест»).
@@ -36,22 +37,16 @@ const (
 // probeManifests ищет манифест у workload'ов, которым пора: сменился образ, принятый манифест
 // старше RefreshAfter, неудача старше RetryAfter. Остальным — прошлый результат из каталога.
 // Итог — в draft.manifest (действующий манифест) и draft.manifestProbe (новый результат поиска).
-func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, pods []k8sModel.Pod, now time.Time) {
-	if s.pods == nil || s.conf.Manifest.Path == "" {
+func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, pods []k8sModel.Pod, previous map[workloadModel.Key]*workloadModel.Main, now time.Time) {
+	if s.pods == nil || s.conf.Manifest.Path == "" || previous == nil {
 		return
 	}
-
-	previous, _, err := s.workload.List(ctx, &workloadModel.ListReq{Cluster: new(s.conf.Cluster)})
-	if err != nil {
-		slog.Warn("indexer: previous workloads are unavailable, manifests will not be probed", "error", err)
-		return
-	}
-	byKey := lo.SliceToMap(previous, func(w *workloadModel.Main) (workloadModel.Key, *workloadModel.Main) { return w.Key(), w })
 
 	scrapePorts := s.scrapePorts(ctx)
 	// именованные порты k8s Service: system/http* бывает только у Service, а не у контейнера
 	var services []k8sModel.Service
 	if s.k8s != nil {
+		var err error
 		if services, err = s.k8s.ListServices(ctx, ""); err != nil {
 			slog.Warn("indexer: k8s services are unavailable for manifest discovery", "error", err)
 		}
@@ -60,14 +55,15 @@ func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, p
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(manifestConcurrency)
 	for _, d := range drafts {
-		prev := byKey[workloadModel.Key{Cluster: s.conf.Cluster, Namespace: d.Namespace, Kind: d.Kind, Name: d.Name}]
+		prev := previous[d.key(s.conf.Cluster)]
 		var prevManifest *workloadModel.Manifest
 		if prev != nil && prev.Manifest.Status != "" {
 			prevManifest = &prev.Manifest
 		}
 
 		ready := readyPods(pods, d)
-		if len(ready) == 0 || !s.probeDue(prevManifest, d.digest, now) {
+		// выкатка: новые поды ещё не запустились, а старые отдадут манифест прошлой сборки
+		if len(ready) == 0 || d.rolling || !s.probeDue(prevManifest, d.digest, now) {
 			// прошлый результат: манифест разбирается заново — правила проверки могли поменяться
 			if prevManifest != nil {
 				d.manifest = parseStored(prevManifest)
@@ -271,7 +267,8 @@ func (s *Service) scrapePorts(ctx context.Context) map[string][]int {
 	return result
 }
 
-// readyPods — готовые поды workload'а с адресом, по имени (детерминированно).
+// readyPods — готовые поды workload'а с адресом, по имени (детерминированно). Digest известен —
+// только поды с ним: во время выкатки старые поды отдали бы манифест прошлой сборки.
 func readyPods(pods []k8sModel.Pod, d *workloadDraft) []k8sModel.Pod {
 	if d.Selector == "" {
 		return nil
@@ -281,7 +278,10 @@ func readyPods(pods []k8sModel.Pod, d *workloadDraft) []k8sModel.Pod {
 		return nil
 	}
 	result := lo.Filter(pods, func(p k8sModel.Pod, _ int) bool {
-		return p.Namespace == d.Namespace && p.Ready && p.IP != "" && selector.Matches(labels.Set(p.Labels))
+		return p.Namespace == d.Namespace && p.Ready && p.IP != "" && selector.Matches(labels.Set(p.Labels)) &&
+			(d.digest == "" || lo.ContainsBy(p.Containers, func(c k8sModel.PodContainer) bool {
+				return c.Name == d.container && imageref.DigestFromImageID(c.ImageID) == d.digest
+			}))
 	})
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
