@@ -25,18 +25,20 @@ const (
 	// ManifestMaxBytes — манифест больше не принимается
 	ManifestMaxBytes = 64 << 10
 
-	maxEndpoints     = 30
-	maxDependencies  = 30
-	maxMetrics       = 20
-	maxParams        = 10
-	maxAliases       = 20
-	maxSchemaDepth   = 6
-	maxTitleChars    = 100
-	maxTextChars     = 500
-	defaultTimeoutMs = 5000
-	maxTimeoutMs     = 10000
-	defaultMaxRows   = 50
-	maxMaxRows       = 100
+	maxEndpoints    = 30
+	maxDependencies = 30
+	maxMetrics      = 20
+	maxParams       = 10
+	maxAliases      = 20
+	maxSchemaDepth  = 6
+	maxTitleChars   = 100
+	maxTextChars    = 500
+	// maxEndpointDescChars — описание ручки: на нём держится выбор агента, когда её вызывать
+	maxEndpointDescChars = 1000
+	defaultTimeoutMs     = 5000
+	maxTimeoutMs         = 10000
+	defaultMaxRows       = 50
+	maxMaxRows           = 100
 )
 
 var (
@@ -353,7 +355,7 @@ func parseEndpoint(e ManifestEndpoint) (*svcModel.Endpoint, error) {
 	endpoint := &svcModel.Endpoint{
 		Id:          e.Id,
 		Title:       clip(e.Title, maxTitleChars),
-		Description: clip(e.Description, maxTextChars),
+		Description: clip(e.Description, maxEndpointDescChars),
 		Path:        e.Path,
 		Params:      make(map[string]svcModel.EndpointParam, len(e.Params)),
 		RowsPath:    e.RowsPath,
@@ -575,7 +577,7 @@ func longTexts(m *Manifest) []string {
 	}
 	for _, e := range m.Endpoints {
 		check("endpoints."+e.Id+".title", e.Title, maxTitleChars)
-		check("endpoints."+e.Id+".description", e.Description, maxTextChars)
+		check("endpoints."+e.Id+".description", e.Description, maxEndpointDescChars)
 		for name, p := range e.Params {
 			check("endpoints."+e.Id+".params."+name+".description", p.Description, maxTextChars)
 		}

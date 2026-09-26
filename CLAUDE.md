@@ -50,7 +50,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `Service.Runbooks`, `Handle[T]` — диагностическая ручка, схема ответа из Go-типа (json-теги,
   `pulse:"personal=…,maxLength=…,maxItems=…,enum=a|b,description=…"` — description последним), лог
   каждого вызова с `X-Pulse-Request-Id` (`RequestId(ctx)`), `CheckEndpoint` — сверка ответа со схемой
-  для тестов сервиса; правила стандарта (и лимиты текстов 100/500) — паникой при регистрации.
+  для тестов сервиса; нарушение стандарта при объявлении — не паника: элемент не публикуется, причина —
+  в лог и `Problems()`; длинный текст (100/500, описание ручки 1000) — `Warnings()`.
   Эталон пакета — gotemplate (`internal/infra/pulsekit`), копии в pulse и pulse_agent совпадают с ним
   файл в файл; только у pulse есть `pulse_test.go` (сверка с `ParseManifest`) — в сервисы не копируется.
   Тест сверяет манифест с `ParseManifest`. Манифест pulse — `app/manifest.go` (зависимости — источники,
