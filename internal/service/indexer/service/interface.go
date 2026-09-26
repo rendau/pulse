@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 type k8sClientI interface {

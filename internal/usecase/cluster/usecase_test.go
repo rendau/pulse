@@ -12,16 +12,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
-	clusterService "github.com/mechta-market/pulse/internal/domain/cluster/service"
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/constant"
+	clusterModel "github.com/rendau/pulse/internal/domain/cluster/model"
+	clusterService "github.com/rendau/pulse/internal/domain/cluster/service"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	snapshotService "github.com/rendau/pulse/internal/domain/snapshot/service"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	alertmanagerModel "github.com/rendau/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
 )
 
 type fakeWorkload struct{}

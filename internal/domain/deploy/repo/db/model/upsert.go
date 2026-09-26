@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
+	domainModel "github.com/rendau/pulse/internal/domain/deploy/model"
 )
 
 type Upsert struct {

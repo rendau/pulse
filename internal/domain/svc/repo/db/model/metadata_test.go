@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	domainModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 // Метаданные переживают запись в jsonb и чтение: бизнес-смысл (domain) — целиком.

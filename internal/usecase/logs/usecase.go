@@ -15,14 +15,14 @@ import (
 
 	"github.com/samber/lo"
 
-	commonModel "github.com/mechta-market/pulse/internal/domain/common/model"
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/usecase/logs/model"
-	"github.com/mechta-market/pulse/internal/util/podname"
-	"github.com/mechta-market/pulse/internal/util/window"
+	commonModel "github.com/rendau/pulse/internal/domain/common/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/usecase/logs/model"
+	"github.com/rendau/pulse/internal/util/podname"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 // Config — лимиты (из yaml-правил).

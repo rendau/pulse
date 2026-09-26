@@ -5,10 +5,10 @@ import (
 
 	"github.com/samber/lo"
 
-	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
-	"github.com/mechta-market/pulse/internal/util/window"
+	clusterModel "github.com/rendau/pulse/internal/domain/cluster/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	"github.com/rendau/pulse/internal/util/tz"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 type GetClusterHealthReq struct {

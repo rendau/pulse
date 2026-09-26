@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 // Текст ошибки — без query: там бывает значение, подставленное вместо токена.

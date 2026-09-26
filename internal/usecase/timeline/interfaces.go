@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/usecase/timeline/model"
 )
 
 type TimelineI interface {

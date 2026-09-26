@@ -14,17 +14,17 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	"github.com/mechta-market/pulse/internal/util/imageref"
-	"github.com/mechta-market/pulse/internal/util/podname"
-	"github.com/mechta-market/pulse/internal/util/window"
+	"github.com/rendau/pulse/internal/constant"
+	clusterModel "github.com/rendau/pulse/internal/domain/cluster/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	alertmanagerModel "github.com/rendau/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/util/imageref"
+	"github.com/rendau/pulse/internal/util/podname"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 // Config — лимиты (из yaml-правил).

@@ -12,14 +12,14 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/usecase/dependencies/model"
+	"github.com/rendau/pulse/internal/constant"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/usecase/dependencies/model"
 )
 
 // Config — лимиты (из yaml-правил).

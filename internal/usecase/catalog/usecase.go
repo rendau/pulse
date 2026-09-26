@@ -10,14 +10,14 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	svcService "github.com/mechta-market/pulse/internal/domain/svc/service"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/usecase/catalog/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	"github.com/rendau/pulse/internal/constant"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	svcService "github.com/rendau/pulse/internal/domain/svc/service"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/usecase/catalog/model"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 const (

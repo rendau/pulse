@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
 )
 
 // Client — read-only доступ к GitHub REST API.

@@ -7,10 +7,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/handler/mcp/dto"
-	usecaseSnapshotModel "github.com/mechta-market/pulse/internal/usecase/snapshot/model"
-	"github.com/mechta-market/pulse/internal/util/window"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/handler/mcp/dto"
+	usecaseSnapshotModel "github.com/rendau/pulse/internal/usecase/snapshot/model"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 const (

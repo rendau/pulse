@@ -5,7 +5,7 @@ import (
 
 	"github.com/samber/lo"
 
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
 )
 
 // Транспортные модели kusec (protojson): int64 приходят строками, optional-поля без значения

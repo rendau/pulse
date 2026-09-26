@@ -12,9 +12,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/infra/httpx"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/infra/httpx"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 type Service struct {

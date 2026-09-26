@@ -1,8 +1,8 @@
 package model
 
 import (
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
 )
 
 // ResolveResult — кандидаты на формулировку пользователя.

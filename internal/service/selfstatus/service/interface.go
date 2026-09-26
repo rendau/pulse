@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 // PodGetterI — GET прямо в под (svcproxy или pods/proxy локально).

@@ -3,7 +3,7 @@ package kusec
 import (
 	"context"
 
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
 )
 
 // Client — read-only доступ к kusec (docs/monitoring-api.md проекта kusec): аудит изменений

@@ -19,7 +19,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/constant"
 )
 
 const (

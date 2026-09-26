@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
+	lokiModel "github.com/rendau/pulse/internal/service/loki/model"
 )
 
 // Client — read-only доступ к Loki HTTP API.

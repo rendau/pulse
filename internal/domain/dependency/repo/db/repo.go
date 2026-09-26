@@ -11,9 +11,9 @@ import (
 	moboneTools "github.com/mechta-market/mobone/v2/tools"
 	"github.com/samber/lo"
 
-	commonRepoPg "github.com/mechta-market/pulse/internal/domain/common/repo/pg"
-	"github.com/mechta-market/pulse/internal/domain/dependency/model"
-	repoModel "github.com/mechta-market/pulse/internal/domain/dependency/repo/db/model"
+	commonRepoPg "github.com/rendau/pulse/internal/domain/common/repo/pg"
+	"github.com/rendau/pulse/internal/domain/dependency/model"
+	repoModel "github.com/rendau/pulse/internal/domain/dependency/repo/db/model"
 )
 
 const tableName = "dependency"

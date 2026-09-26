@@ -8,9 +8,9 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	"github.com/mechta-market/pulse/internal/domain/svc/model"
-	"github.com/mechta-market/pulse/internal/util/fuzzy"
+	"github.com/rendau/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/domain/svc/model"
+	"github.com/rendau/pulse/internal/util/fuzzy"
 )
 
 const (

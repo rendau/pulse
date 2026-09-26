@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	clusterService "github.com/mechta-market/pulse/internal/domain/cluster/service"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	clusterService "github.com/rendau/pulse/internal/domain/cluster/service"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	snapshotService "github.com/rendau/pulse/internal/domain/snapshot/service"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
 )
 
 type manifestWorkloads struct{}

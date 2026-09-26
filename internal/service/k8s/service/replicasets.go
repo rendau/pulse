@@ -9,7 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 const revisionAnnotation = "deployment.kubernetes.io/revision"

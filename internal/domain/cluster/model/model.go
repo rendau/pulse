@@ -3,8 +3,8 @@ package model
 import (
 	"time"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
 )
 
 // Health — состояние кластера в целом.

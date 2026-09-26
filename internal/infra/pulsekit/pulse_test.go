@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/service/model"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/service/model"
 )
 
 // Только в pulse (в сервисы не копируется): манифест, который строит pulsekit, проходит

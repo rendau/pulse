@@ -6,7 +6,7 @@ import (
 
 	"github.com/samber/lo"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 // defaultMaxLength — строка без maxLength в схеме обрезается до этой длины.

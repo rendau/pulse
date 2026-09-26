@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/infra/httpx"
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/infra/httpx"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
 )
 
 const (

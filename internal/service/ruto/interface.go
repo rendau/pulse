@@ -3,7 +3,7 @@ package ruto
 import (
 	"context"
 
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
 
 // Client — read-only доступ к ruto-core (API-gateway): опубликованная конфигурация маршрутов.

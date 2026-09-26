@@ -16,16 +16,16 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	"github.com/mechta-market/pulse/internal/util/podname"
-	"github.com/mechta-market/pulse/internal/util/window"
+	"github.com/rendau/pulse/internal/constant"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/util/podname"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 // Config — параметры сбора (из yaml-правил).

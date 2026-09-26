@@ -1,7 +1,7 @@
 package db
 
 import (
-	"github.com/mechta-market/pulse/internal/domain/dependency/model"
+	"github.com/rendau/pulse/internal/domain/dependency/model"
 )
 
 var allowedSortFields = map[string]string{

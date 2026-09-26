@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
-	"github.com/mechta-market/pulse/internal/usecase/publicapi/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
+	"github.com/rendau/pulse/internal/usecase/publicapi/model"
 )
 
 type PublicApiI interface {

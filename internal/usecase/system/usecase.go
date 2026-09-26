@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	"github.com/mechta-market/pulse/internal/usecase/system/model"
+	"github.com/rendau/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/usecase/system/model"
 )
 
 const pingTimeout = 3 * time.Second

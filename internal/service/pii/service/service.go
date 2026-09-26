@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/util/redact"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/util/redact"
 )
 
 // searchPhoneRe — шаблон поиска, который целиком телефон с «+» (так агент подставляет номер

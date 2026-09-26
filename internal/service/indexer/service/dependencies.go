@@ -11,8 +11,8 @@ import (
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/labels"
 
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 // topology — общие для цикла факты о связях: k8s Service → сервис и маршруты ruto.

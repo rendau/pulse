@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
 )
 
 const (

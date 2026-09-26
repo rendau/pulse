@@ -1,7 +1,7 @@
 package db
 
 import (
-	"github.com/mechta-market/pulse/internal/domain/svc/model"
+	"github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 var allowedSortFields = map[string]string{

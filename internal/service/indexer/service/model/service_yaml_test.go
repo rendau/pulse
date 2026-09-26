@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 const sample = `

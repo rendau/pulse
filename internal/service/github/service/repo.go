@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
 )
 
 // repoInfoTtl — описание и topics меняются редко: индексер ходит за ними раз в несколько

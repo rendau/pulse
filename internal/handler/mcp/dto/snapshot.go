@@ -5,11 +5,11 @@ import (
 
 	"github.com/samber/lo"
 
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	usecaseSnapshotModel "github.com/mechta-market/pulse/internal/usecase/snapshot/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
-	"github.com/mechta-market/pulse/internal/util/window"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	usecaseSnapshotModel "github.com/rendau/pulse/internal/usecase/snapshot/model"
+	"github.com/rendau/pulse/internal/util/tz"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 // get_service_snapshot

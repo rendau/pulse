@@ -3,7 +3,7 @@ package alertmanager
 import (
 	"context"
 
-	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
+	alertmanagerModel "github.com/rendau/pulse/internal/service/alertmanager/model"
 )
 
 // Client — read-only доступ к Alertmanager HTTP API.

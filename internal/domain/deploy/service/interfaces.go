@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/mechta-market/pulse/internal/domain/deploy/model"
+	"github.com/rendau/pulse/internal/domain/deploy/model"
 )
 
 type RepoDbI interface {

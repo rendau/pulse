@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	logsService "github.com/mechta-market/pulse/internal/domain/logs/service"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
-	lokiService "github.com/mechta-market/pulse/internal/service/loki/service"
-	"github.com/mechta-market/pulse/internal/usecase/logs/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	logsService "github.com/rendau/pulse/internal/domain/logs/service"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	lokiModel "github.com/rendau/pulse/internal/service/loki/model"
+	lokiService "github.com/rendau/pulse/internal/service/loki/service"
+	"github.com/rendau/pulse/internal/usecase/logs/model"
 )
 
 func newClusterUsecase(loki LokiI) *Usecase {

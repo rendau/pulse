@@ -14,11 +14,11 @@ import (
 	"github.com/samber/lo/mutable"
 	"golang.org/x/sync/errgroup"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/usecase/logs/model"
-	"github.com/mechta-market/pulse/internal/util/podname"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/usecase/logs/model"
+	"github.com/rendau/pulse/internal/util/podname"
 )
 
 // minSearchLen — короче искать по всем логам кластера бессмысленно: совпадёт почти всё.

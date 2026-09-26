@@ -5,8 +5,8 @@ import (
 
 	"github.com/samber/lo"
 
-	usecaseDependenciesModel "github.com/mechta-market/pulse/internal/usecase/dependencies/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	usecaseDependenciesModel "github.com/rendau/pulse/internal/usecase/dependencies/model"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 type GetDependenciesReq struct {

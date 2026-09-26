@@ -9,10 +9,10 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/constant"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 // serviceRollout — выкатка с причиной и сервисом её workload'а.

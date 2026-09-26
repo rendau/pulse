@@ -3,7 +3,7 @@ package system
 import (
 	"context"
 
-	"github.com/mechta-market/pulse/internal/usecase/system/model"
+	"github.com/rendau/pulse/internal/usecase/system/model"
 )
 
 type SystemI interface {

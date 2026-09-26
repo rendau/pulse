@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/infra/httpx"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/infra/httpx"
 )
 
 const (

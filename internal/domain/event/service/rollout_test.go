@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	"github.com/mechta-market/pulse/internal/domain/event/model"
+	"github.com/rendau/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/domain/event/model"
 )
 
 func reloaded(name, hash string) string {

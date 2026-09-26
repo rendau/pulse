@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/go-github/v82/github"
 
-	"github.com/mechta-market/pulse/internal/infra/httpx"
+	"github.com/rendau/pulse/internal/infra/httpx"
 )
 
 type Service struct {

@@ -4,8 +4,8 @@ import (
 	"path"
 	"strings"
 
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
-	"github.com/mechta-market/pulse/internal/util/imageref"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	"github.com/rendau/pulse/internal/util/imageref"
 )
 
 // imageMapper применяет правила «образ → репозиторий»: первое совпадение по registry

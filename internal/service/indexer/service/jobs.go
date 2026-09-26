@@ -8,10 +8,10 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/util/imageref"
-	"github.com/mechta-market/pulse/internal/util/jobprefix"
+	"github.com/rendau/pulse/internal/constant"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/util/imageref"
+	"github.com/rendau/pulse/internal/util/jobprefix"
 )
 
 // maxJobDrafts — потолок workload'ов из Job'ов оркестраторов за цикл.

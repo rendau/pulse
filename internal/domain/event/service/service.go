@@ -8,9 +8,9 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	"github.com/mechta-market/pulse/internal/domain/event/model"
+	"github.com/rendau/pulse/internal/constant"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	"github.com/rendau/pulse/internal/domain/event/model"
 )
 
 type Service struct{}

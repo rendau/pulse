@@ -10,7 +10,7 @@ import (
 	"github.com/google/go-github/v82/github"
 	"github.com/samber/lo"
 
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
 )
 
 const perPage = 100

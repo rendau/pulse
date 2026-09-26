@@ -1,7 +1,7 @@
 package db
 
 import (
-	"github.com/mechta-market/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/domain/workload/model"
 )
 
 var allowedSortFields = map[string]string{

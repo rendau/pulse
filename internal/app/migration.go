@@ -11,7 +11,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 
-	"github.com/mechta-market/pulse/internal/config"
+	"github.com/rendau/pulse/internal/config"
 )
 
 func runMigrations() {

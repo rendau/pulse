@@ -5,8 +5,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/handler/mcp/dto"
-	usecaseEndpointsModel "github.com/mechta-market/pulse/internal/usecase/endpoints/model"
+	"github.com/rendau/pulse/internal/handler/mcp/dto"
+	usecaseEndpointsModel "github.com/rendau/pulse/internal/usecase/endpoints/model"
 )
 
 const callServiceEndpointDescription = `Вызов диагностической ручки, объявленной самим сервисом (манифест): предметные данные, ` +

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
 )
 
 // Client — read-only доступ к Prometheus HTTP API.

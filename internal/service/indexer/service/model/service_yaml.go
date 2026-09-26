@@ -6,7 +6,7 @@ import (
 	"github.com/samber/lo"
 	"go.yaml.in/yaml/v3"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 // ServiceYaml — транспортная модель файла service.yaml.

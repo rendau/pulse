@@ -5,9 +5,9 @@ import (
 
 	"github.com/samber/lo"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	usecaseLogsModel "github.com/mechta-market/pulse/internal/usecase/logs/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	usecaseLogsModel "github.com/rendau/pulse/internal/usecase/logs/model"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 // query_logs

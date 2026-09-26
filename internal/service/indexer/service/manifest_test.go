@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
-	localModel "github.com/mechta-market/pulse/internal/service/indexer/service/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	localModel "github.com/rendau/pulse/internal/service/indexer/service/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 var manifestConf = indexerModel.ManifestConfig{

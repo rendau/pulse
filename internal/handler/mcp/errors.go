@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/mechta-market/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/errs"
 )
 
 // toolError переводит ошибку usecase в текст для модели: семантические ошибки

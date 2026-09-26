@@ -1,4 +1,4 @@
-module github.com/mechta-market/pulse
+module github.com/rendau/pulse
 
 go 1.27
 

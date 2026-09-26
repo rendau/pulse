@@ -3,8 +3,8 @@ package dto
 import (
 	"github.com/samber/lo"
 
-	usecasePublicapiModel "github.com/mechta-market/pulse/internal/usecase/publicapi/model"
-	"github.com/mechta-market/pulse/internal/util/window"
+	usecasePublicapiModel "github.com/rendau/pulse/internal/usecase/publicapi/model"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 type GetPublicApiReq struct {

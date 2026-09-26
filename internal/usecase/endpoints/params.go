@@ -11,8 +11,8 @@ import (
 
 	"github.com/samber/lo"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	"github.com/mechta-market/pulse/internal/errs"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	"github.com/rendau/pulse/internal/errs"
 )
 
 // validateParams: неизвестный параметр — ошибка; тип, границы, pattern и enum — по декларации;

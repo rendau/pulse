@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/errs"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
 )
 
 const (

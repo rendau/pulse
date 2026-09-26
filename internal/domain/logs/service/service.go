@@ -12,7 +12,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/domain/logs/model"
+	"github.com/rendau/pulse/internal/domain/logs/model"
 )
 
 type Service struct{}

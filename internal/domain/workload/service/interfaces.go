@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/domain/workload/model"
 )
 
 type RepoDbI interface {

@@ -5,15 +5,15 @@ package mcp
 import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/usecase/catalog"
-	"github.com/mechta-market/pulse/internal/usecase/cluster"
-	"github.com/mechta-market/pulse/internal/usecase/dependencies"
-	"github.com/mechta-market/pulse/internal/usecase/endpoints"
-	"github.com/mechta-market/pulse/internal/usecase/logs"
-	"github.com/mechta-market/pulse/internal/usecase/publicapi"
-	"github.com/mechta-market/pulse/internal/usecase/snapshot"
-	"github.com/mechta-market/pulse/internal/usecase/system"
-	"github.com/mechta-market/pulse/internal/usecase/timeline"
+	"github.com/rendau/pulse/internal/usecase/catalog"
+	"github.com/rendau/pulse/internal/usecase/cluster"
+	"github.com/rendau/pulse/internal/usecase/dependencies"
+	"github.com/rendau/pulse/internal/usecase/endpoints"
+	"github.com/rendau/pulse/internal/usecase/logs"
+	"github.com/rendau/pulse/internal/usecase/publicapi"
+	"github.com/rendau/pulse/internal/usecase/snapshot"
+	"github.com/rendau/pulse/internal/usecase/system"
+	"github.com/rendau/pulse/internal/usecase/timeline"
 )
 
 type Handler struct {

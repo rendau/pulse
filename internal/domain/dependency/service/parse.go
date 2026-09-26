@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mechta-market/pulse/internal/domain/dependency/model"
+	"github.com/rendau/pulse/internal/domain/dependency/model"
 )
 
 var (

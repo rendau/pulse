@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	commonModel "github.com/mechta-market/pulse/internal/domain/common/model"
+	commonModel "github.com/rendau/pulse/internal/domain/common/model"
 )
 
 // источники факта связи

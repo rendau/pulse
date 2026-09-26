@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/usecase/dependencies/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	snapshotService "github.com/rendau/pulse/internal/domain/snapshot/service"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/usecase/dependencies/model"
 )
 
 type fakeSvc struct{}

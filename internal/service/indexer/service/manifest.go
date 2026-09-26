@@ -16,12 +16,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/labels"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	localModel "github.com/mechta-market/pulse/internal/service/indexer/service/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	"github.com/rendau/pulse/internal/constant"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	localModel "github.com/rendau/pulse/internal/service/indexer/service/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 // Поиск манифеста сервиса на подах (docs/service-manifest.md, «Как pulse находит манифест»).

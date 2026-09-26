@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/domain/event/model"
+	"github.com/rendau/pulse/internal/domain/event/model"
 )
 
 func TestLinkSyncs(t *testing.T) {

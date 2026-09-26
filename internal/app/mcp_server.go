@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/constant"
 )
 
 const mcpInstructions = `pulse — единая точка доступа к инфраструктурному контексту компании: ` +

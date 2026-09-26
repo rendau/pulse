@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/handler/mcp/dto"
+	"github.com/rendau/pulse/internal/handler/mcp/dto"
 )
 
 const pingDescription = `Проверка сервиса: версия и статус подключения к каждому источнику данных ` +

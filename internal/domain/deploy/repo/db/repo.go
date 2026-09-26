@@ -9,9 +9,9 @@ import (
 	moboneTools "github.com/mechta-market/mobone/v2/tools"
 	"github.com/samber/lo"
 
-	commonRepoPg "github.com/mechta-market/pulse/internal/domain/common/repo/pg"
-	"github.com/mechta-market/pulse/internal/domain/deploy/model"
-	repoModel "github.com/mechta-market/pulse/internal/domain/deploy/repo/db/model"
+	commonRepoPg "github.com/rendau/pulse/internal/domain/common/repo/pg"
+	"github.com/rendau/pulse/internal/domain/deploy/model"
+	repoModel "github.com/rendau/pulse/internal/domain/deploy/repo/db/model"
 )
 
 const tableName = "deploy"

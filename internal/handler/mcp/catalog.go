@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/handler/mcp/dto"
+	"github.com/rendau/pulse/internal/handler/mcp/dto"
 )
 
 const (

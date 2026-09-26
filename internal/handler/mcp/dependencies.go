@@ -5,8 +5,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/handler/mcp/dto"
-	usecaseDependenciesModel "github.com/mechta-market/pulse/internal/usecase/dependencies/model"
+	"github.com/rendau/pulse/internal/handler/mcp/dto"
+	usecaseDependenciesModel "github.com/rendau/pulse/internal/usecase/dependencies/model"
 )
 
 const getDependenciesDescription = `Граф связей сервиса: от кого зависит (upstream) и кто зависит от него (downstream), ` +

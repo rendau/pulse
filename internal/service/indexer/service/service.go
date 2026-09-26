@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
 )
 
 // Service — индексер топологии: периодически обходит кластер, сопоставляет образы

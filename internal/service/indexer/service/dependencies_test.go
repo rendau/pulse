@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	dependencyService "github.com/mechta-market/pulse/internal/domain/dependency/service"
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	dependencyService "github.com/rendau/pulse/internal/domain/dependency/service"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
 
 type fakeK8sDeps struct {

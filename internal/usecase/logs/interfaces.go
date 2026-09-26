@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
-	"github.com/mechta-market/pulse/internal/usecase/logs/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	lokiModel "github.com/rendau/pulse/internal/service/loki/model"
+	"github.com/rendau/pulse/internal/usecase/logs/model"
 )
 
 type LogsI interface {

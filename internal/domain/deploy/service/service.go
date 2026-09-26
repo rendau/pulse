@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/domain/deploy/model"
-	"github.com/mechta-market/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/domain/deploy/model"
+	"github.com/rendau/pulse/internal/errs"
 )
 
 type Service struct {

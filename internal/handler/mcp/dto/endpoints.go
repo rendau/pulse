@@ -6,8 +6,8 @@ import (
 
 	"github.com/samber/lo"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	usecaseEndpointsModel "github.com/mechta-market/pulse/internal/usecase/endpoints/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	usecaseEndpointsModel "github.com/rendau/pulse/internal/usecase/endpoints/model"
 )
 
 // декларация ручек в карточке сервиса (get_service_info)

@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 // podLogsLimitBytes — потолок на один контейнер: хвост логов, а не весь файл kubelet'а.

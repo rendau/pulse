@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
-	"github.com/mechta-market/pulse/internal/util/imageref"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	"github.com/rendau/pulse/internal/util/imageref"
 )
 
 func TestImageMapper(t *testing.T) {

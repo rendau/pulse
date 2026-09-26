@@ -3,10 +3,10 @@ package catalog
 import (
 	"context"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/usecase/catalog/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/usecase/catalog/model"
 )
 
 type CatalogI interface {

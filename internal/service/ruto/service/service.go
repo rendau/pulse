@@ -12,9 +12,9 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/infra/httpx"
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/infra/httpx"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
 
 const (

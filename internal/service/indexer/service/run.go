@@ -13,15 +13,15 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/labels"
 
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
-	localConstant "github.com/mechta-market/pulse/internal/service/indexer/service/constant"
-	localModel "github.com/mechta-market/pulse/internal/service/indexer/service/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/util/imageref"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	localConstant "github.com/rendau/pulse/internal/service/indexer/service/constant"
+	localModel "github.com/rendau/pulse/internal/service/indexer/service/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/util/imageref"
 )
 
 // Run выполняет один цикл: кластер → образы → репозитории → service.yaml → каталог.

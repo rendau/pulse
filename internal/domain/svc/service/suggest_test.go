@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/domain/svc/model"
+	"github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 type fakeRepo struct{ items []*model.Main }

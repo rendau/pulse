@@ -5,16 +5,16 @@ import (
 
 	"time"
 
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	"github.com/mechta-market/pulse/internal/usecase/snapshot/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	alertmanagerModel "github.com/rendau/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/usecase/snapshot/model"
 )
 
 type SnapshotI interface {

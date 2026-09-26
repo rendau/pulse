@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
+	domainModel "github.com/rendau/pulse/internal/domain/dependency/model"
 )
 
 // Upsert — модель записи; составной PK входит в CreateColumnMap для UpdateOrCreate.

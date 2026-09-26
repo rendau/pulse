@@ -7,12 +7,12 @@ import (
 
 	"github.com/samber/lo"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/util/imageref"
-	"github.com/mechta-market/pulse/internal/util/jobprefix"
-	"github.com/mechta-market/pulse/internal/util/podname"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/util/imageref"
+	"github.com/rendau/pulse/internal/util/jobprefix"
+	"github.com/rendau/pulse/internal/util/podname"
 )
 
 // podGroup — чьи поды входят в логи сервиса: workload каталога (поды по правилам именования

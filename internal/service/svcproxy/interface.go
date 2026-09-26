@@ -3,7 +3,7 @@ package svcproxy
 import (
 	"context"
 
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 // Client — GET к ручке сервиса внутри кластера прямо в под: манифест, ручка состояния и

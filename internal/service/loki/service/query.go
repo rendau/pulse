@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	lokiModel "github.com/mechta-market/pulse/internal/service/loki/model"
+	"github.com/rendau/pulse/internal/errs"
+	lokiModel "github.com/rendau/pulse/internal/service/loki/model"
 )
 
 const (

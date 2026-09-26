@@ -12,8 +12,8 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 const (

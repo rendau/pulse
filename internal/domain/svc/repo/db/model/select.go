@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	domainModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 type Select struct {

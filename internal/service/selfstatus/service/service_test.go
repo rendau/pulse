@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	piiServiceP "github.com/mechta-market/pulse/internal/service/pii/service"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	piiServiceP "github.com/rendau/pulse/internal/service/pii/service"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 type fakePods struct {

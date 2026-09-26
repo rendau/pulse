@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	"github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	"github.com/rendau/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/domain/snapshot/model"
 )
 
 func TestComputeHealth(t *testing.T) {

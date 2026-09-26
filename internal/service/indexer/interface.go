@@ -3,7 +3,7 @@ package indexer
 import (
 	"context"
 
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
 )
 
 // Indexer — фоновый обход кластера: строит каталог сервисов и workloads.

@@ -5,8 +5,8 @@ import (
 
 	"github.com/samber/lo"
 
-	systemModel "github.com/mechta-market/pulse/internal/usecase/system/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	systemModel "github.com/rendau/pulse/internal/usecase/system/model"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 // EmptyReq — инструмент без параметров.

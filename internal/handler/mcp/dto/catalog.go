@@ -6,10 +6,10 @@ import (
 
 	"github.com/samber/lo"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	catalogModel "github.com/mechta-market/pulse/internal/usecase/catalog/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	catalogModel "github.com/rendau/pulse/internal/usecase/catalog/model"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 // resolve_service

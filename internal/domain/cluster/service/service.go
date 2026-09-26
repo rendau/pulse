@@ -10,8 +10,8 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/domain/cluster/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	"github.com/rendau/pulse/internal/domain/cluster/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
 )
 
 // Config — пороги.

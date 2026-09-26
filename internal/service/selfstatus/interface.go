@@ -3,8 +3,8 @@ package selfstatus
 import (
 	"context"
 
-	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
+	selfstatusModel "github.com/rendau/pulse/internal/service/selfstatus/model"
+	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
 // Client — ручка состояния сервиса (docs/service-manifest.md, «Состояние»): что сервис сам

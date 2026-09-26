@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 // Client — read-only доступ к кластеру: только get/list.

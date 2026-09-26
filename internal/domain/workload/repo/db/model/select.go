@@ -5,7 +5,7 @@ import (
 
 	"github.com/samber/lo"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/workload/model"
+	domainModel "github.com/rendau/pulse/internal/domain/workload/model"
 )
 
 type Select struct {

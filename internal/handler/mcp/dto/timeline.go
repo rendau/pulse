@@ -5,10 +5,10 @@ import (
 
 	"github.com/samber/lo"
 
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	usecaseTimelineModel "github.com/mechta-market/pulse/internal/usecase/timeline/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
-	"github.com/mechta-market/pulse/internal/util/window"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	usecaseTimelineModel "github.com/rendau/pulse/internal/usecase/timeline/model"
+	"github.com/rendau/pulse/internal/util/tz"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 // get_timeline

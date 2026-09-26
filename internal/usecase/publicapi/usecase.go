@@ -16,13 +16,13 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
-	"github.com/mechta-market/pulse/internal/usecase/publicapi/model"
-	"github.com/mechta-market/pulse/internal/util/window"
+	"github.com/rendau/pulse/internal/constant"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	"github.com/rendau/pulse/internal/errs"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
+	"github.com/rendau/pulse/internal/usecase/publicapi/model"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 // errorStatusRe — ошибка сервера: HTTP 5xx или серверный код gRPC (как в мониторинге ruto)

@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	"github.com/mechta-market/pulse/internal/infra/pulsekit"
-	serviceIndexerServiceP "github.com/mechta-market/pulse/internal/service/indexer/service"
+	"github.com/rendau/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/infra/pulsekit"
+	serviceIndexerServiceP "github.com/rendau/pulse/internal/service/indexer/service"
 )
 
 // манифест самого pulse (docs/service-manifest.md): pulse — первый сервис по своему стандарту
@@ -21,7 +21,7 @@ func newPulsekit() *pulsekit.Kit {
 		Aliases:     []string{"пульс", "pulse-mcp", "infra-mcp"},
 		OwnerTeam:   "platform",
 		Criticality: "low",
-		RepoUrl:     "https://github.com/mechta-market/pulse",
+		RepoUrl:     "https://github.com/rendau/pulse",
 		Domain: &pulsekit.Domain{
 			Responsibilities: []string{
 				"Каталог сервисов: находит сервисы и их манифесты в кластере, коммит в проде, граф зависимостей",

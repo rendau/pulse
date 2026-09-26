@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
 )
 
 var auditRecords = []string{

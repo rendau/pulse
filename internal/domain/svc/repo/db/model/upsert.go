@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	domainModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 // Upsert — модель записи. PK (name) входит в CreateColumnMap, чтобы работал

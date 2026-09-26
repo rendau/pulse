@@ -3,9 +3,9 @@ package snapshot
 import (
 	"time"
 
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 // podsState сводит поды workload'а к счётчикам и проблемам; из последних завершений

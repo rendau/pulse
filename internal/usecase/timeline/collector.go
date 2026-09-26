@@ -11,17 +11,17 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/labels"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
-	"github.com/mechta-market/pulse/internal/util/podname"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	"github.com/rendau/pulse/internal/constant"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/usecase/timeline/model"
+	"github.com/rendau/pulse/internal/util/podname"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 // alertsQuery — история срабатываний: Alertmanager не хранит историю, её даёт Prometheus

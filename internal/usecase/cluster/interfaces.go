@@ -4,14 +4,14 @@ import (
 	"context"
 	"time"
 
-	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	clusterModel "github.com/rendau/pulse/internal/domain/cluster/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	alertmanagerModel "github.com/rendau/pulse/internal/service/alertmanager/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
 )
 
 type ClusterI interface {

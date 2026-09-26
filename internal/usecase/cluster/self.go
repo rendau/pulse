@@ -8,10 +8,10 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
+	clusterModel "github.com/rendau/pulse/internal/domain/cluster/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	selfstatusModel "github.com/rendau/pulse/internal/service/selfstatus/model"
 )
 
 // selfReportsParallel — сколько сервисов опрашивать одновременно.

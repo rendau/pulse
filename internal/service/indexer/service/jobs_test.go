@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	indexerModel "github.com/mechta-market/pulse/internal/service/indexer/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/constant"
+	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 // TestJobDrafts — образ, который запускается только Job'ами оркестратора (код задач в своей

@@ -8,10 +8,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/handler/mcp/dto"
-	usecaseLogsModel "github.com/mechta-market/pulse/internal/usecase/logs/model"
-	"github.com/mechta-market/pulse/internal/util/tz"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/handler/mcp/dto"
+	usecaseLogsModel "github.com/rendau/pulse/internal/usecase/logs/model"
+	"github.com/rendau/pulse/internal/util/tz"
 )
 
 const queryLogsDescription = `Логи сервиса из Loki, по умолчанию агрегированные в паттерны: тысяча одинаковых ошибок ` +

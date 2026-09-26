@@ -5,7 +5,7 @@ import (
 
 	"github.com/samber/lo"
 
-	domainModel "github.com/mechta-market/pulse/internal/domain/svc/model"
+	domainModel "github.com/rendau/pulse/internal/domain/svc/model"
 )
 
 // metadataJSON — repo-локальная DTO формата хранения jsonb-колонки metadata.

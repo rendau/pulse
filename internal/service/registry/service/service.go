@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mechta-market/pulse/internal/errs"
-	"github.com/mechta-market/pulse/internal/infra/httpx"
-	"github.com/mechta-market/pulse/internal/util/imageref"
+	"github.com/rendau/pulse/internal/errs"
+	"github.com/rendau/pulse/internal/infra/httpx"
+	"github.com/rendau/pulse/internal/util/imageref"
 )
 
 const (

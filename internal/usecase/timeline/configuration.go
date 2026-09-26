@@ -11,13 +11,13 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
-	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
+	"github.com/rendau/pulse/internal/constant"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
+	"github.com/rendau/pulse/internal/usecase/timeline/model"
+	"github.com/rendau/pulse/internal/util/redact"
 )
 
 // maxSyncRuns — запусков sync на приложение за окно (каждый — отдельный запрос за объектами)

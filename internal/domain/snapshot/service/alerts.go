@@ -7,7 +7,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/constant"
 )
 
 // alertObjectKeys — лейблы, по значению которых алерт привязывается к сервису/workload'у.

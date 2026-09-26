@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
+	"github.com/rendau/pulse/internal/constant"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	"github.com/rendau/pulse/internal/errs"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
 
 type fakeSvc struct{}

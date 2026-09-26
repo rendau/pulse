@@ -8,12 +8,12 @@ import (
 
 	"github.com/samber/lo"
 
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	"github.com/mechta-market/pulse/internal/errs"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	"github.com/mechta-market/pulse/internal/usecase/snapshot/model"
-	"github.com/mechta-market/pulse/internal/util/window"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	"github.com/rendau/pulse/internal/errs"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/usecase/snapshot/model"
+	"github.com/rendau/pulse/internal/util/window"
 )
 
 const (

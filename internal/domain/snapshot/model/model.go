@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
-	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
+	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
 )
 
 // Health — детерминированная оценка состояния сервиса.

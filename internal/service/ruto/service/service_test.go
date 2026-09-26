@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rutoModel "github.com/mechta-market/pulse/internal/service/ruto/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
 
 const snapshotBody = `{"data":{

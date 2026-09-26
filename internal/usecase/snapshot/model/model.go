@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
 )
 
 // QueryMetricsReq — drill-down по метрике: приоритет у MetricId из service.yaml

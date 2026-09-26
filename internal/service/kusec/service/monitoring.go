@@ -11,7 +11,7 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
 )
 
 func (s *Service) Resolve(ctx context.Context, namespace, kubeName string) (*kusecModel.Resolved, error) {

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/domain/dependency/model"
+	"github.com/rendau/pulse/internal/domain/dependency/model"
 )
 
 func TestParseEndpoints(t *testing.T) {

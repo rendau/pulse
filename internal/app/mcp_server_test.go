@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	handlerMcpP "github.com/mechta-market/pulse/internal/handler/mcp"
-	usecaseSystemP "github.com/mechta-market/pulse/internal/usecase/system"
+	"github.com/rendau/pulse/internal/constant"
+	handlerMcpP "github.com/rendau/pulse/internal/handler/mcp"
+	usecaseSystemP "github.com/rendau/pulse/internal/usecase/system"
 )
 
 // pingClient подключается к тестовому серверу и вызывает ping — критерий приёмки фазы 0.

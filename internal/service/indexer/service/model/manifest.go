@@ -13,8 +13,8 @@ import (
 
 	"github.com/samber/lo"
 
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	"github.com/mechta-market/pulse/internal/util/redact"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	"github.com/rendau/pulse/internal/util/redact"
 )
 
 // Манифест сервиса (docs/service-manifest.md): транспортная модель и проверка по стандарту.

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
+	"github.com/rendau/pulse/internal/constant"
 )
 
 // соседи сервиса pulse в одном namespace: префикс «pulse-» захватывал их всех

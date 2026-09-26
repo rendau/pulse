@@ -3,8 +3,8 @@ package model
 import (
 	"time"
 
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	eventModel "github.com/mechta-market/pulse/internal/domain/event/model"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	eventModel "github.com/rendau/pulse/internal/domain/event/model"
 )
 
 const ScopeCluster = "cluster"

@@ -15,8 +15,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
+	"github.com/rendau/pulse/internal/constant"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
 const requestTimeout = 30 * time.Second

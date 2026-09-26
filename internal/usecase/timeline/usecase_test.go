@@ -13,17 +13,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse/internal/constant"
-	deployModel "github.com/mechta-market/pulse/internal/domain/deploy/model"
-	eventService "github.com/mechta-market/pulse/internal/domain/event/service"
-	snapshotService "github.com/mechta-market/pulse/internal/domain/snapshot/service"
-	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
-	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
-	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
-	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
-	kusecModel "github.com/mechta-market/pulse/internal/service/kusec/model"
-	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
-	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
+	"github.com/rendau/pulse/internal/constant"
+	deployModel "github.com/rendau/pulse/internal/domain/deploy/model"
+	eventService "github.com/rendau/pulse/internal/domain/event/service"
+	snapshotService "github.com/rendau/pulse/internal/domain/snapshot/service"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
+	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
+	githubModel "github.com/rendau/pulse/internal/service/github/model"
+	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
+	kusecModel "github.com/rendau/pulse/internal/service/kusec/model"
+	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	"github.com/rendau/pulse/internal/usecase/timeline/model"
 )
 
 // fakes
