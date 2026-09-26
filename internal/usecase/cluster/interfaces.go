@@ -7,6 +7,7 @@ import (
 	clusterModel "github.com/mechta-market/pulse/internal/domain/cluster/model"
 	logsModel "github.com/mechta-market/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/mechta-market/pulse/internal/domain/snapshot/model"
+	svcModel "github.com/mechta-market/pulse/internal/domain/svc/model"
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
@@ -45,6 +46,15 @@ type LogsI interface {
 	ClusterErrors(ctx context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error)
 }
 
+type svcServiceI interface {
+	List(ctx context.Context, pars *svcModel.ListReq) ([]*svcModel.Main, int64, error)
+}
+
+// SelfReportI экспортирован: самоотчёт сервиса по манифесту (service/selfreport); nil — выключено.
+type SelfReportI interface {
+	Report(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main) (*snapshotModel.SelfReport, []snapshotModel.SourceError)
+}
+
 type rulesServiceI interface {
 	ComputeHealth(h *clusterModel.Health, nodesUnavailable bool) string
 	SummaryHints(h *clusterModel.Health, now time.Time) []string
@@ -56,4 +66,5 @@ type baselineServiceI interface {
 	AlertLabels(labels map[string]string) map[string]string
 	MergeAlertLabels(all []map[string]string) map[string]string
 	IsMonitoringAlert(labels map[string]string) bool
+	SelfHints(self *snapshotModel.SelfReport, now time.Time) []string
 }

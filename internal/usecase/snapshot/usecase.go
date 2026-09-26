@@ -60,7 +60,7 @@ type Usecase struct {
 	logs         LogsI
 	events       eventServiceI
 	rules        rulesServiceI
-	self         SelfStatusI
+	self         SelfReportI
 }
 
 func New(
@@ -74,7 +74,7 @@ func New(
 	logs LogsI,
 	events eventServiceI,
 	rules rulesServiceI,
-	self SelfStatusI,
+	self SelfReportI,
 ) *Usecase {
 	if conf.Deadline <= 0 {
 		conf.Deadline = 5 * time.Second

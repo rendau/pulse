@@ -20,6 +20,7 @@ import (
 	alertmanagerModel "github.com/mechta-market/pulse/internal/service/alertmanager/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	selfreportService "github.com/mechta-market/pulse/internal/service/selfreport/service"
 	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
 	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	"github.com/mechta-market/pulse/internal/usecase/snapshot/model"
@@ -319,7 +320,7 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	}}
 
 	u := New(Config{Deadline: 2 * time.Second, DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: "x"}}}, svc, wl, &fakeDepend{}, k8s,
-		nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}), self)
+		nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}), selfreportService.New(k8s, self))
 	snap, err := u.Snapshot(context.Background(), "payments-api", time.Hour)
 	require.NoError(t, err)
 

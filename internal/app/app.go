@@ -44,6 +44,7 @@ import (
 	servicePrometheusServiceP "github.com/mechta-market/pulse/internal/service/prometheus/service"
 	serviceRegistryServiceP "github.com/mechta-market/pulse/internal/service/registry/service"
 	serviceRutoServiceP "github.com/mechta-market/pulse/internal/service/ruto/service"
+	serviceSelfreportServiceP "github.com/mechta-market/pulse/internal/service/selfreport/service"
 	serviceSelfstatusServiceP "github.com/mechta-market/pulse/internal/service/selfstatus/service"
 	serviceSvcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	serviceSvcproxyServiceP "github.com/mechta-market/pulse/internal/service/svcproxy/service"
@@ -221,6 +222,8 @@ func (a *App) Init() {
 		serviceSelfstatusServiceP.Config{Path: rules.Manifest.Path + "/status", CacheTtl: rules.Manifest.StatusCache},
 		caller, piiService,
 	)
+	// self report (самоотчёт сервиса: худший под, объявленные зависимости и объекты) — снапшоту и кластеру
+	selfReportService := serviceSelfreportServiceP.New(k8sService, selfStatusService)
 
 	// indexer
 	if config.Conf.IndexerEnabled {
@@ -323,7 +326,7 @@ func (a *App) Init() {
 				TopErrors: rules.Logs.TopErrors,
 			},
 			svcService, workloadService, dependencyService, k8sService, prometheusClient, alertmanagerClient, logsClient, eventService, rulesService,
-			selfStatusService,
+			selfReportService,
 		)
 	}
 
@@ -417,7 +420,7 @@ func (a *App) Init() {
 					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
 				}),
 			},
-			workloadService, k8sService, prometheusClient, alertmanagerClient, logsUsecase,
+			svcService, selfReportService, workloadService, k8sService, prometheusClient, alertmanagerClient, logsUsecase,
 			domainClusterServiceP.New(domainClusterServiceP.Config{
 				PendingPodsThreshold: rules.Cluster.PendingPodsThreshold,
 				ProblemPodsThreshold: rules.Cluster.ProblemPodsThreshold,

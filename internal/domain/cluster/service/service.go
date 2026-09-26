@@ -114,6 +114,13 @@ func (s *Service) SummaryHints(h *model.Health, now time.Time) []string {
 		}
 		hints = append(hints, hint)
 	}
+	for _, r := range h.SelfReported {
+		hint := fmt.Sprintf("%s сообщает о себе: %s", r.Service, r.Report.Status)
+		if len(r.Hints) > 0 {
+			hint += " — " + strings.TrimPrefix(r.Hints[0], "сервис сообщает: ")
+		}
+		hints = append(hints, hint)
+	}
 	if h.ServiceAlertsActive > 0 {
 		hints = append(hints, fmt.Sprintf("активных алертов по сервисам: %d (смотри get_service_snapshot)", h.ServiceAlertsActive))
 	}

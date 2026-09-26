@@ -74,7 +74,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `X-Pulse-Request-Id`), `cluster` (get_cluster_health: ноды, поды
   по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
   `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
-  метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
+  метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`,
+  сервисы, которые сами сообщают о проблеме, — `self_reported`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
   индексера, маршруты из снапшота ruto, трафик из метрик gateway). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
@@ -102,7 +103,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
   `svcproxy` (GET прямо в под по IP, без редиректов; локально — `ENDPOINT_CALL_MODE=k8s-proxy`
   через `k8s.ProxyGetPod`),
-  `indexer` (фоновый обход кластера → каталог + история деплоев), `selfstatus` (ручка состояния
+  `indexer` (фоновый обход кластера → каталог + история деплоев), `selfreport` (самоотчёт сервиса:
+  ручка состояния до 3 готовых подов workload'ов с манифестом, худший под, зависимости — только
+  объявленные, объекты — только из domain; общий для снапшота и `get_cluster_health.self_reported` —
+  сервисы, чей самоотчёт не ok или устарел, с подсказками), `selfstatus` (ручка состояния
   сервиса `<manifest.path>/status` прямо с пода: проверка по стандарту, тексты через
   `pii.Text` — учётные данные вырезаны, карты маской, кэш `manifest.status_cache`).
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы.

@@ -165,6 +165,12 @@ func silentErrorsHint(snap *model.Snapshot) string {
 		"причины в query_logs по сервису без level", *m.Current*100)
 }
 
+// SelfHints — подсказки по самоотчёту сервиса («сервис сообщает: …»): устарел, зависимости,
+// показатели и объекты не в норме.
+func (s *Service) SelfHints(self *model.SelfReport, now time.Time) []string {
+	return selfHints(self, now)
+}
+
 func selfHints(self *model.SelfReport, now time.Time) []string {
 	if self == nil {
 		return nil

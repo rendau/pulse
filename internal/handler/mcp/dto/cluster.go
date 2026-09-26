@@ -27,6 +27,7 @@ type ClusterHealthRep struct {
 	ServiceAlertsActive int           `json:"service_alerts_active"`
 	Metrics             []Metric      `json:"metrics"`
 	LogErrors           *LogErrors    `json:"log_errors,omitempty" jsonschema:"ошибки в логах всего кластера по сервисам; нет — логи недоступны (см. errors)"`
+	SelfReported        []ClusterSelf `json:"self_reported" jsonschema:"сервисы с манифестом, которые сами сообщают о проблеме (самоотчёт не ok или устарел); подробности — self_reported в get_service_snapshot"`
 	Errors              []SourceError `json:"errors"`
 }
 
@@ -116,8 +117,25 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 		ServiceAlertsActive: v.ServiceAlertsActive,
 		Metrics:             lo.Map(v.Metrics, encodeMetric),
 		LogErrors:           encodeLogErrors(v.LogErrors),
-		Errors:              lo.Map(v.Errors, encodeSnapshotSourceError),
+		SelfReported: lo.Map(v.SelfReported, func(s clusterModel.ServiceSelfReport, _ int) ClusterSelf {
+			rep := ClusterSelf{Service: s.Service, Status: s.Report.Status, Stale: s.Report.Stale, Pod: s.Report.Pod, Hints: lo.Ternary(s.Hints == nil, []string{}, s.Hints)}
+			if !s.Report.CheckedAt.IsZero() {
+				rep.CheckedAt = new(tz.In(s.Report.CheckedAt))
+			}
+			return rep
+		}),
+		Errors: lo.Map(v.Errors, encodeSnapshotSourceError),
 	}
+}
+
+// ClusterSelf — сервис, который сам сообщает о проблеме.
+type ClusterSelf struct {
+	Service   string     `json:"service"`
+	Status    string     `json:"status" jsonschema:"ok | degraded | down — худший под"`
+	Stale     bool       `json:"stale,omitempty" jsonschema:"отчёт устарел: фоновая проверка в сервисе остановилась"`
+	Pod       string     `json:"pod"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	Hints     []string   `json:"hints" jsonschema:"что именно: зависимости, показатели, застрявшие объекты"`
 }
 
 // topErrorChars — шаблон ошибки в выжимке по кластеру короче, чем в query_logs: ответ

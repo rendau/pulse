@@ -3,8 +3,6 @@ package snapshot
 import (
 	"context"
 
-	selfstatusModel "github.com/mechta-market/pulse/internal/service/selfstatus/model"
-	svcproxyModel "github.com/mechta-market/pulse/internal/service/svcproxy/model"
 	"time"
 
 	dependencyModel "github.com/mechta-market/pulse/internal/domain/dependency/model"
@@ -55,9 +53,9 @@ type AlertmanagerI interface {
 }
 
 // LogsI — usecase логов (top_errors); nil, когда Loki не сконфигурирован.
-// SelfStatusI экспортирован: ручка состояния сервиса (манифест); nil — поиск манифестов выключен.
-type SelfStatusI interface {
-	Get(ctx context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error)
+// SelfReportI экспортирован: самоотчёт сервиса (ручка состояния по манифесту); nil — выключено.
+type SelfReportI interface {
+	Report(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main) (*snapshotModel.SelfReport, []snapshotModel.SourceError)
 }
 
 type LogsI interface {

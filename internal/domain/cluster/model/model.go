@@ -22,7 +22,16 @@ type Health struct {
 	Metrics             []snapshotModel.Metric
 	// LogErrors — ошибки в логах всего кластера по сервисам; nil — логи недоступны
 	LogErrors *logsModel.ClusterErrors
-	Errors    []snapshotModel.SourceError
+	// SelfReported — сервисы, которые сами сообщают о проблеме (самоотчёт не ok или устарел)
+	SelfReported []ServiceSelfReport
+	Errors       []snapshotModel.SourceError
+}
+
+// ServiceSelfReport — самоотчёт сервиса не в норме и подсказки по нему («сервис сообщает: …»).
+type ServiceSelfReport struct {
+	Service string
+	Report  *snapshotModel.SelfReport
+	Hints   []string
 }
 
 type Nodes struct {

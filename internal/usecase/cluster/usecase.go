@@ -40,6 +40,8 @@ type Config struct {
 type Usecase struct {
 	conf Config
 
+	svc          svcServiceI
+	self         SelfReportI
 	workload     workloadServiceI
 	k8s          k8sClientI
 	prometheus   PrometheusI
@@ -49,7 +51,7 @@ type Usecase struct {
 	baseline     baselineServiceI
 }
 
-func New(conf Config, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, logs LogsI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
+func New(conf Config, svc svcServiceI, self SelfReportI, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, logs LogsI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
 	if conf.Deadline <= 0 {
 		conf.Deadline = time.Minute
 	}
@@ -65,7 +67,7 @@ func New(conf Config, workload workloadServiceI, k8s k8sClientI, prometheus Prom
 	if conf.MaxLogServices <= 0 {
 		conf.MaxLogServices = 10
 	}
-	return &Usecase{conf: conf, workload: workload, k8s: k8s, prometheus: prometheus, alertmanager: alertmanager, logs: logs, rules: rules, baseline: baseline}
+	return &Usecase{conf: conf, svc: svc, self: self, workload: workload, k8s: k8s, prometheus: prometheus, alertmanager: alertmanager, logs: logs, rules: rules, baseline: baseline}
 }
 
 const pendingGrace = 2 * time.Minute
@@ -100,6 +102,7 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 	eg.Go(func() error { c.alerts(egCtx); return nil })
 	eg.Go(func() error { c.metrics(egCtx); return nil })
 	eg.Go(func() error { c.logErrors(egCtx); return nil })
+	eg.Go(func() error { c.selfReports(egCtx); return nil })
 	_ = eg.Wait()
 
 	c.h.Errors = lo.UniqBy(c.h.Errors, func(e snapshotModel.SourceError) string { return e.Source })
