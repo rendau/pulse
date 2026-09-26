@@ -103,7 +103,7 @@ func (f *fakeAlertmanager) ListAlerts(context.Context) ([]alertmanagerModel.Aler
 
 // fixtures
 
-const promRPS = `sum(rate(request_total{namespace="prod", pod=~"^(payments-api)-.*"}[5m]))`
+const promRPS = `sum(rate(request_total{namespace="prod", pod=~"^payments-api-[bcdfghjklmnpqrstvwxz2456789]{6,10}-[bcdfghjklmnpqrstvwxz2456789]{5}$"}[5m]))`
 
 func fixtures() (*fakeSvc, *fakeWorkload) {
 	svc := &fakeSvc{service: &svcModel.Main{Name: "payments-api", Title: "Платежи"}}
@@ -127,16 +127,18 @@ func TestSnapshot_Degraded(t *testing.T) {
 	now := time.Now()
 	k8s := &fakeK8s{
 		pods: []k8sModel.Pod{
-			{Name: "payments-api-1", Ready: true, Phase: "Running", StartedAt: now.Add(-2 * time.Hour)},
-			{Name: "payments-api-2", Ready: false, Phase: "Running", Restarts: 7, Containers: []k8sModel.PodContainer{{
+			{Name: "payments-api-7d9f8b6c5-x2k4b", Ready: true, Phase: "Running", StartedAt: now.Add(-2 * time.Hour)},
+			{Name: "payments-api-7d9f8b6c5-x2k4c", Ready: false, Phase: "Running", Restarts: 7, Containers: []k8sModel.PodContainer{{
 				Name: "app", State: "waiting", Reason: "CrashLoopBackOff", Restarts: 7,
 				LastTerminationReason: "OOMKilled", LastTerminatedAt: now.Add(-10 * time.Minute),
 			}}},
 		},
 		events: []k8sModel.Event{
-			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "payments-api-2", Reason: "BackOff", Type: "Warning", Message: "Back-off restarting failed container", Count: 12, LastTS: now.Add(-5 * time.Minute)},
+			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "payments-api-7d9f8b6c5-x2k4c", Reason: "BackOff", Type: "Warning", Message: "Back-off restarting failed container", Count: 12, LastTS: now.Add(-5 * time.Minute)},
 			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "other-svc-1", Reason: "BackOff", Type: "Warning", LastTS: now},
-			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "payments-api-1", Reason: "Pulled", Type: "Normal", LastTS: now},
+			// соседний workload с префиксом «payments-api-» — не сервис
+			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "payments-api-worker-7d9f8b6c5-x2k4d", Reason: "BackOff", Type: "Warning", LastTS: now},
+			{Namespace: "prod", ObjectKind: "Pod", ObjectName: "payments-api-7d9f8b6c5-x2k4b", Reason: "Pulled", Type: "Normal", LastTS: now},
 		},
 	}
 	prom := &fakePrometheus{values: map[string]float64{promRPS: 100}}
@@ -179,6 +181,7 @@ func TestSnapshot_Degraded(t *testing.T) {
 	assert.NotContains(t, types, constant.EventTypeInfo, "Normal-события отброшены")
 	for _, e := range snap.RecentEvents {
 		assert.NotContains(t, e.Summary, "other-svc", "чужие события отфильтрованы")
+		assert.NotContains(t, e.Summary, "payments-api-worker", "события соседа с тем же префиксом отфильтрованы")
 	}
 	for i := 1; i < len(snap.RecentEvents); i++ {
 		assert.False(t, snap.RecentEvents[i].TS.After(snap.RecentEvents[i-1].TS), "события отсортированы по убыванию времени")
@@ -189,7 +192,7 @@ func TestSnapshot_Degraded(t *testing.T) {
 }
 
 func TestSnapshot_PartialWhenSourcesFail(t *testing.T) {
-	k8s := &fakeK8s{pods: []k8sModel.Pod{{Name: "payments-api-1", Ready: true, Phase: "Running"}}}
+	k8s := &fakeK8s{pods: []k8sModel.Pod{{Name: "payments-api-7d9f8b6c5-x2k4b", Ready: true, Phase: "Running"}}}
 	prom := &fakePrometheus{err: errors.New("connection refused")}
 	am := &fakeAlertmanager{err: errors.New("503")}
 
@@ -298,14 +301,14 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	wl.items[0].Manifest = workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003}
 
 	k8s := &fakeK8s{pods: []k8sModel.Pod{
-		{Namespace: "prod", Name: "payments-api-1", IP: "10.0.0.1", Ready: true, Phase: "Running"},
-		{Namespace: "prod", Name: "payments-api-2", IP: "10.0.0.2", Ready: true, Phase: "Running"},
-		{Namespace: "prod", Name: "payments-api-3", IP: "10.0.0.3", Ready: true, Phase: "Running"},
-		{Namespace: "prod", Name: "payments-api-4", IP: "10.0.0.4", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4b", IP: "10.0.0.1", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4c", IP: "10.0.0.2", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4d", IP: "10.0.0.3", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4f", IP: "10.0.0.4", Ready: true, Phase: "Running"},
 	}}
 	self := &fakeSelf{statuses: map[string]*selfstatusModel.Status{
-		"payments-api-1": {Status: "ok", CheckedAt: now},
-		"payments-api-2": {Status: "degraded", CheckedAt: now, Dependencies: []selfstatusModel.Dependency{
+		"payments-api-7d9f8b6c5-x2k4b": {Status: "ok", CheckedAt: now},
+		"payments-api-7d9f8b6c5-x2k4c": {Status: "degraded", CheckedAt: now, Dependencies: []selfstatusModel.Dependency{
 			{Id: "pg", Status: "ok"},
 			{Id: "bank", Status: "degraded", LatencyMs: new(int64(4200)), Message: "ответ дольше 2 с"},
 			{Id: "undeclared", Status: "down"},
@@ -324,7 +327,7 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	assert.Equal(t, 3003, self.targets[0].Port, "порт манифеста")
 	require.NotNil(t, snap.Self)
 	assert.Equal(t, "degraded", snap.Self.Status)
-	assert.Equal(t, "payments-api-2", snap.Self.Pod, "показан худший под")
+	assert.Equal(t, "payments-api-7d9f8b6c5-x2k4c", snap.Self.Pod, "показан худший под")
 	assert.Equal(t, 2, snap.Self.Pods, "у третьего пода ручки состояния нет")
 	require.Len(t, snap.Self.Dependencies, 2, "только объявленные в манифесте")
 	assert.Equal(t, "api.bank.kz", snap.Self.Dependencies[1].Target)

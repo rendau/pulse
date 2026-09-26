@@ -21,6 +21,7 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
+	"github.com/mechta-market/pulse/internal/util/podname"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -348,10 +349,18 @@ func podOf(labels map[string]string) string {
 	return ""
 }
 
-func workloadNames(workloads []*workloadModel.Main) []string {
-	names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
-	sort.Strings(names)
-	return names
+// workloadKinds — виды и имена workload'ов без повторов, по имени.
+func workloadKinds(workloads []*workloadModel.Main) []podname.Workload {
+	result := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) podname.Workload {
+		return podname.Workload{Kind: w.Kind, Name: w.Name}
+	}))
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name != result[j].Name {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].Kind < result[j].Kind
+	})
+	return result
 }
 
 func levelRegexp(level string) string {

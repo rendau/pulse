@@ -101,6 +101,14 @@ func newUsecase(loki LokiI, selector string) *Usecase {
 	return newUsecaseWithPods(loki, selector, nil)
 }
 
+// поды и регэкспы по правилам именования Kubernetes (podname): Deployment и CronJob сервиса
+const (
+	podApi       = "payments-api-7d9f8b6c5-x2k4b"
+	podReconcile = "payments-api-reconcile-29311520-kd5ck"
+	reApi        = `payments-api-[bcdfghjklmnpqrstvwxz2456789]{6,10}-[bcdfghjklmnpqrstvwxz2456789]{5}`
+	reReconcile  = `payments-api-reconcile-[0-9]{1,10}-[bcdfghjklmnpqrstvwxz2456789]{5}`
+)
+
 func newUsecaseWithPods(loki LokiI, selector string, pods []k8sModel.Pod) *Usecase {
 	svc := &fakeSvc{service: &svcModel.Main{Name: "payments-api"}}
 	svc.service.Metadata.Logs.Selector = selector
@@ -132,7 +140,7 @@ func TestQuery_PatternsWithDerivedSelector(t *testing.T) {
 	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Level: "error"})
 	require.NoError(t, err)
 
-	assert.Equal(t, `{namespace="prod", pod=~"^(payments-api|payments-api-reconcile)-.*"}`, res.Selector)
+	assert.Equal(t, `{namespace="prod", pod=~"^(?:`+reApi+`|`+reReconcile+`)$"}`, res.Selector)
 	assert.Contains(t, loki.query, res.Selector)
 	assert.Contains(t, loki.query, `|~ "(?i)error|fatal|panic|critical"`)
 	assert.Equal(t, 5000, loki.limit)
@@ -190,7 +198,7 @@ func TestQuery_Validation(t *testing.T) {
 
 	// Loki не ответил, и Kubernetes тоже — в ошибке оба источника
 	failing := newUsecaseWithPods(&fakeLoki{err: errors.New("503")}, "", []k8sModel.Pod{
-		{Namespace: "prod", Name: "payments-api-7d9f-q2", Containers: []k8sModel.PodContainer{{Name: "app"}}},
+		{Namespace: "prod", Name: podApi, Containers: []k8sModel.PodContainer{{Name: "app"}}},
 	})
 	failing.k8s.(*fakeK8s).logsErr = errors.New("forbidden")
 	_, err = failing.Query(ctx, &model.QueryReq{Service: "payments-api"})
@@ -204,21 +212,24 @@ func TestQuery_Validation(t *testing.T) {
 func TestQuery_KubernetesFallback(t *testing.T) {
 	now := time.Now()
 	pods := []k8sModel.Pod{
-		{Namespace: "prod", Name: "payments-api-7d9f-q2", StartedAt: now.Add(-time.Hour), Containers: []k8sModel.PodContainer{
+		{Namespace: "prod", Name: podApi, StartedAt: now.Add(-time.Hour), Containers: []k8sModel.PodContainer{
 			{Name: "app", Restarts: 2, LastTerminatedAt: now.Add(-10 * time.Minute)},
 		}},
 		{Namespace: "prod", Name: "other-service-1-x", Containers: []k8sModel.PodContainer{{Name: "app"}}},
+		// соседний workload с префиксом «payments-api-» — не под сервиса
+		{Namespace: "prod", Name: "payments-api-worker-7d9f8b6c5-x2k4c", Containers: []k8sModel.PodContainer{{Name: "app"}}},
 	}
 	u := newUsecaseWithPods(nil, "", pods)
 	u.k8s.(*fakeK8s).logs = map[string][]k8sModel.LogLine{
-		"payments-api-7d9f-q2/app": {
+		podApi + "/app": {
 			{TS: now.Add(-time.Minute), Text: `{"level":"error","msg":"acquirer timeout","error":"call 77021330032 failed"}`},
 			{TS: now.Add(-2 * time.Minute), Text: `INFO request handled in 12ms`},
 		},
-		"payments-api-7d9f-q2/app/previous": {
+		podApi + "/app/previous": {
 			{TS: now.Add(-11 * time.Minute), Text: `{"level":"error","msg":"panic: nil map"}`},
 		},
-		"other-service-1-x/app": {{TS: now, Text: "ERROR not ours"}},
+		"other-service-1-x/app":                   {{TS: now, Text: "ERROR not ours"}},
+		"payments-api-worker-7d9f8b6c5-x2k4c/app": {{TS: now, Text: "ERROR neighbour"}},
 	}
 
 	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Level: "error", Mode: model.ModeRaw})
@@ -254,8 +265,8 @@ func TestQuery_WorkloadsAndPII(t *testing.T) {
 	now := time.Now()
 	line := `{"level":"error","msg":"sms_traffic: fail to send: context deadline exceeded, phone: 77021330032"}`
 	loki := &fakeLoki{streams: []lokiModel.Stream{
-		{Labels: map[string]string{"kubernetes_pod_name": "payments-api-reconcile-29001-x1"}, Entries: []lokiModel.Entry{{TS: now, Line: line}}},
-		{Labels: map[string]string{"pod": "payments-api-7d9f-q2"}, Entries: []lokiModel.Entry{{TS: now.Add(-time.Second), Line: line}}},
+		{Labels: map[string]string{"kubernetes_pod_name": podReconcile}, Entries: []lokiModel.Entry{{TS: now, Line: line}}},
+		{Labels: map[string]string{"pod": podApi}, Entries: []lokiModel.Entry{{TS: now.Add(-time.Second), Line: line}}},
 	}}
 	u := newUsecase(loki, "")
 
@@ -268,7 +279,7 @@ func TestQuery_WorkloadsAndPII(t *testing.T) {
 
 	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Mode: model.ModeRaw, Workload: "payments-api-reconcile"})
 	require.NoError(t, err)
-	assert.Equal(t, `{namespace="prod", pod=~"^(payments-api-reconcile)-.*"}`, res.Selector)
+	assert.Equal(t, `{namespace="prod", pod=~"^`+reReconcile+`$"}`, res.Selector)
 	require.Len(t, res.Lines, 1)
 	assert.Equal(t, "payments-api-reconcile", res.Lines[0].Workload)
 	assert.Contains(t, res.Lines[0].Text, "77021330032")
@@ -288,7 +299,7 @@ func TestQuery_OrchestratorJobs(t *testing.T) {
 			Containers: []k8sModel.PodContainer{{Image: image}}}
 	}
 	pods := []k8sModel.Pod{
-		{Namespace: "prod", Name: "payments-api-7d9f-q2"}, // workload сервиса
+		{Namespace: "prod", Name: podApi}, // workload сервиса
 		job("pa-sync-1-abc-x1", "pa-sync-1-abc", "payments-api", "ghcr.io/org/dags/dags:latest"),
 		job("pa-sync-2-def-x2", "pa-sync-2-def", "payments-api", "ghcr.io/org/dags/dags:latest"),
 		job("pa-report-1-aaa-x3", "pa-report-1-aaa", "", "ghcr.io/org/payments-api:v1"), // по образу
@@ -302,14 +313,14 @@ func TestQuery_OrchestratorJobs(t *testing.T) {
 
 	res, err := u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Level: "error"})
 	require.NoError(t, err)
-	assert.Equal(t, `{namespace="prod", pod=~"^((payments-api|payments-api-reconcile)-.*|pa-.*)"}`, res.Selector)
+	assert.Equal(t, `{namespace="prod", pod=~"^(?:`+reApi+`|`+reReconcile+`|pa-.*)$"}`, res.Selector)
 	require.Len(t, res.Patterns, 1)
 	assert.Equal(t, []string{"pa-*"}, res.Patterns[0].Workloads, "удалённый под — по префиксу Job'ов")
 
 	// только Job'ы
 	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "pa-*"})
 	require.NoError(t, err)
-	assert.Equal(t, `{namespace="prod", pod=~"^(pa-.*)"}`, res.Selector)
+	assert.Equal(t, `{namespace="prod", pod=~"^pa-.*$"}`, res.Selector)
 }
 
 func TestQuery_ServiceWithEnd(t *testing.T) {

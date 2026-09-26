@@ -423,7 +423,8 @@ Dockerfile из переменных CI (`GITHUB_SHA`, тег релиза), к�
 
 **`metrics[]`** — как в `service.yaml`: `id`, `title`, `promql`, `unit` (`count`, `ratio`,
 `seconds`, `bytes`, `rps`), `direction` (`higher_is_better` / `lower_is_better`). Плейсхолдеры
-`{namespace}`, `{pod_regex}`, `{service}` подставляет pulse. Всё остальное, что знает только
+`{namespace}`, `{pod_regex}` (только поды workload'ов сервиса, не соседних с тем же префиксом
+имени), `{service}` подставляет pulse. Всё остальное, что знает только
 сервис (префикс имён метрик из `METRICS_NAMESPACE` и т. п.), сервис подставляет сам: манифест
 строится при запуске, PromQL — обычная строка.
 

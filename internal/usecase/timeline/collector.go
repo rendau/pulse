@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	githubModel "github.com/mechta-market/pulse/internal/service/github/model"
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	"github.com/mechta-market/pulse/internal/usecase/timeline/model"
+	"github.com/mechta-market/pulse/internal/util/podname"
 	"github.com/mechta-market/pulse/internal/util/tz"
 )
 
@@ -62,14 +62,26 @@ func (c *collector) names() []string {
 	return lo.Map(c.services, func(s *svcModel.Main, _ int) string { return s.Name })
 }
 
-// serviceOf — сервис по имени объекта кластера: имя workload'а или его префикс.
+// serviceOf — сервис по имени объекта кластера: workload, его ReplicaSet, Job или под.
 func (c *collector) serviceOf(namespace, objectName string) (string, bool) {
-	for _, w := range c.workloads {
-		if w.Namespace == namespace && (objectName == w.Name || strings.HasPrefix(objectName, w.Name+"-")) {
-			return w.ServiceName, true
-		}
+	if w := workloadOf(c.workloads, namespace, objectName, podname.ObjectOwner); w != nil {
+		return w.ServiceName, true
 	}
 	return "", false
+}
+
+// workloadOf — workload каталога в namespace, которому принадлежит под или объект:
+// по правилам именования вида (podname), а не по префиксу «имя-» — иначе под pulse-agent-…
+// достался бы pulse.
+func workloadOf(workloads []*workloadModel.Main, namespace, name string, owner func(string, []podname.Workload) int) *workloadModel.Main {
+	local := lo.Filter(workloads, func(w *workloadModel.Main, _ int) bool { return w.Namespace == namespace })
+	i := owner(name, lo.Map(local, func(w *workloadModel.Main, _ int) podname.Workload {
+		return podname.Workload{Kind: w.Kind, Name: w.Name}
+	}))
+	if i < 0 {
+		return nil
+	}
+	return local[i]
 }
 
 func (c *collector) deploys(ctx context.Context) {

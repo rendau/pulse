@@ -28,6 +28,8 @@ snapshot:
   max_events: 50
   max_alerts: 50
   # golden signals, когда в service.yaml нет metrics. Плейсхолдеры: {namespace}, {pod_regex}, {service}.
+  # {pod_regex} — только поды workload'ов сервиса по правилам именования Kubernetes (Deployment
+  # «имя-<hash>-<5>», StatefulSet «имя-N», DaemonSet «имя-<5>», CronJob «имя-<время>-<5>»).
   # Без секции берётся встроенный набор (rps, error_rate, latency_p95, cpu_cores, memory_bytes,
   # restarts_1h): метрики go-шаблона ищутся по имени регэкспом, т.к. в кластере они с префиксом
   # (mechta_caravan_request_total, у старых сервисов *_request_count) и статусом ok|error.

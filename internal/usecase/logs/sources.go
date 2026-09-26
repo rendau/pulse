@@ -3,7 +3,6 @@ package logs
 import (
 	"context"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/samber/lo"
@@ -13,16 +12,18 @@ import (
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	"github.com/mechta-market/pulse/internal/util/imageref"
 	"github.com/mechta-market/pulse/internal/util/jobprefix"
+	"github.com/mechta-market/pulse/internal/util/podname"
 )
 
-// podGroup — чьи поды входят в логи сервиса: workload каталога (поды «имя-…») или Job'ы,
+// podGroup — чьи поды входят в логи сервиса: workload каталога (поды по правилам именования
+// его вида — podname: префикс «имя-» захватил бы соседей, pulse-agent-… у pulse) или Job'ы,
 // которые создаёт оркестратор (Argo Workflows, Airflow и т.п.) — у них нет workload'а, но
 // поды принадлежат сервису по app.kubernetes.io/managed-by или по репозиторию образа.
 // Job'ы группируются по общему префиксу имени («nightly-*»): в Loki только имя пода, а
 // префикс покрывает и уже удалённые поды — логи отработавших Job'ов остаются доступны.
 type podGroup struct {
 	Name      string // имя workload'а или префикс Job'ов со звёздочкой
-	Prefix    string // префикс имени пода
+	Pattern   string // регэксп имён подов без якорей (podname)
 	Namespace string
 	Jobs      bool
 }
@@ -32,8 +33,8 @@ const managedByLabel = "app.kubernetes.io/managed-by"
 // podGroups — workload'ы сервиса и Job'ы оркестратора в его namespace. Не получилось
 // прочитать поды — только workload'ы: Job'ы — уточнение, без них логи всё равно есть.
 func (u *Usecase) podGroups(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main) []podGroup {
-	groups := lo.Map(workloadNames(workloads), func(name string, _ int) podGroup {
-		return podGroup{Name: name, Prefix: name + "-", Namespace: workloads[0].Namespace}
+	groups := lo.Map(workloadKinds(workloads), func(w podname.Workload, _ int) podGroup {
+		return podGroup{Name: w.Name, Pattern: podname.Pattern(w.Kind, w.Name), Namespace: workloads[0].Namespace}
 	})
 	if len(workloads) == 0 || u.k8s == nil || strings.TrimSpace(service.Metadata.Logs.Selector) != "" {
 		return groups
@@ -48,7 +49,7 @@ func (u *Usecase) podGroups(ctx context.Context, service *svcModel.Main, workloa
 
 	var jobs, foreign []string
 	for _, pod := range pods {
-		if lo.ContainsBy(groups, func(g podGroup) bool { return strings.HasPrefix(pod.Name, g.Prefix) }) {
+		if lo.ContainsBy(groups, func(g podGroup) bool { return podname.MatchPattern(g.Pattern, pod.Name) }) {
 			continue // под workload'а сервиса
 		}
 		if job := jobprefix.JobName(pod.Labels); job != "" && ownedBy(pod, service.Name) {
@@ -76,32 +77,28 @@ func ownedBy(pod k8sModel.Pod, service string) bool {
 // jobGroups — группы Job'ов по префиксам имён (jobprefix.Prefixes).
 func jobGroups(jobs, foreign []string, namespace string) []podGroup {
 	return lo.Map(jobprefix.Prefixes(jobs, foreign), func(prefix string, _ int) podGroup {
-		return podGroup{Name: prefix + "*", Prefix: prefix, Namespace: namespace, Jobs: true}
+		return podGroup{Name: prefix + "*", Pattern: podname.Prefix(prefix), Namespace: namespace, Jobs: true}
 	})
 }
 
-// podRegex — регэксп имён подов для селектора: workload'ы — «^(a|b)-.*», с Job'ами —
-// «^((a|b)-.*|nightly-.*)».
+// podRegex — регэксп имён подов для селектора: поды workload'ов (podname) и Job'ов
+// оркестратора по префиксу — «^(?:a-…|nightly-.*)$».
 func podRegex(groups []podGroup) string {
-	workloads := lo.FilterMap(groups, func(g podGroup, _ int) (string, bool) { return g.Name, !g.Jobs })
-	jobs := lo.FilterMap(groups, func(g podGroup, _ int) (string, bool) { return regexp.QuoteMeta(g.Prefix) + ".*", g.Jobs })
-
-	parts := jobs
-	if len(workloads) > 0 {
-		parts = append([]string{"(" + strings.Join(workloads, "|") + ")-.*"}, jobs...)
-	}
-	if len(parts) == 1 && len(workloads) > 0 {
-		return "^" + parts[0]
-	}
-	return "^(" + strings.Join(parts, "|") + ")"
+	return podname.Join(lo.Map(groups, func(g podGroup, _ int) string { return g.Pattern }))
 }
 
-// groupOfPod — группа, к которой относится под: самый длинный префикс
-// (sms-im-7d9f-q2 → sms-im, а не sms).
+// groupOfPod — группа, к которой относится под: workload по правилам именования, иначе
+// Job'ы с самым длинным префиксом (nightly-sync-1-… → nightly-sync-1-*, а не nightly-*).
 func groupOfPod(pod string, groups []podGroup) string {
 	best := podGroup{}
 	for _, g := range groups {
-		if strings.HasPrefix(pod, g.Prefix) && len(g.Prefix) > len(best.Prefix) {
+		if !podname.MatchPattern(g.Pattern, pod) {
+			continue
+		}
+		if !g.Jobs {
+			return g.Name
+		}
+		if len(g.Pattern) > len(best.Pattern) {
 			best = g
 		}
 	}

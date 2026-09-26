@@ -57,7 +57,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   Тест сверяет манифест с `ParseManifest`. Манифест pulse — `app/manifest.go` (зависимости — источники,
   ручка `indexer_last_cycle`), коммит сборки — `constant.Commit` (Makefile, ldflags). Прообраз модуля
   gotemplate.
-- `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение),
+- `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение), `podname` (регэксп и владелец подов workload'а по его виду),
   `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII — с тестами; `redact.Text` — телефоны,
   email, карты в свободном тексте; `redact.ReplacePII` — те же правила поиска с своей заменой: строки
   логов при чтении из Loki и Kubernetes идут через `pii.Text` — карты маской, до паттернов и ответа;
@@ -186,6 +186,12 @@ domain service → repo
   «застряло N из M … в статусе …».
 - Логи: селектор из `service.yaml` (`logs.selector`), иначе `logs.default_selector` из правил
   с плейсхолдерами `{namespace}`, `{pod_regex}`; запрос без привязки к сервису невозможен.
+  `{pod_regex}` (логи и метрики снапшота) — `util/podname`: только поды workload'ов сервиса по
+  правилам именования вида (Deployment `имя-<hash>-<5>`, StatefulSet `имя-N`, DaemonSet `имя-<5>`,
+  CronJob `имя-<время>-<5>`; хэш и суффикс — в алфавите k8s без гласных, длинная основа обрезается
+  до 58), семейство Job'ов — префиксом. Префикс «имя-» не годится: у `pulse` захватывал
+  `pulse-agent-…`, `pulse-pg-0`. Под → workload в Go — тоже `podname` (`Owner`/`ObjectOwner`:
+  по правилам, иначе самый длинный префикс; в снапшоте сервиса — только по правилам).
   Строка привязывается к workload'у сервиса по лейблу пода (`pod`, `kubernetes_pod_name`, …),
   у паттерна — `workloads`; `query_logs(workload=…)` сужает до одного workload'а.
   Поды Job'ов, которые создаёт оркестратор (managed-by сервиса или его образ), входят в логи

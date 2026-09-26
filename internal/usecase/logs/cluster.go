@@ -18,6 +18,7 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	"github.com/mechta-market/pulse/internal/usecase/logs/model"
+	"github.com/mechta-market/pulse/internal/util/podname"
 )
 
 // minSearchLen — короче искать по всем логам кластера бессмысленно: совпадёт почти всё.
@@ -307,20 +308,18 @@ func (u *Usecase) owners(ctx context.Context) (owners, error) {
 	return lo.GroupBy(workloads, func(w *workloadModel.Main) string { return w.Namespace }), nil
 }
 
-// attach — владелец строки по лейблам потока: workload каталога с самым длинным префиксом
-// имени пода (sms-im-7d9f-q2 → sms-im, а не sms; у семейства Job'ов имя — общий префикс).
-// Под не из каталога — только namespace.
+// attach — владелец строки по лейблам потока: workload каталога по правилам именования
+// подов его вида (podname.Owner: sms-im-7d9f8b6c5-q2x4z → sms-im, а не sms; у семейства
+// Job'ов имя — общий префикс). Под не из каталога — только namespace.
 func (o owners) attach(labels map[string]string, line *logsModel.Line) {
 	line.Namespace = namespaceOf(labels)
 	pod := podOf(labels)
 
-	var best *workloadModel.Main
-	for _, w := range o[line.Namespace] {
-		if strings.HasPrefix(pod, w.Name+"-") && (best == nil || len(w.Name) > len(best.Name)) {
-			best = w
-		}
-	}
-	if best != nil {
-		line.Service, line.Workload = best.ServiceName, best.Name
+	workloads := o[line.Namespace]
+	i := podname.Owner(pod, lo.Map(workloads, func(w *workloadModel.Main, _ int) podname.Workload {
+		return podname.Workload{Kind: w.Kind, Name: w.Name}
+	}))
+	if i >= 0 {
+		line.Service, line.Workload = workloads[i].ServiceName, workloads[i].Name
 	}
 }

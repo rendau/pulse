@@ -30,7 +30,8 @@ type Rules struct {
 		MaxEvents int `yaml:"max_events"`
 		MaxAlerts int `yaml:"max_alerts"`
 		// DefaultMetrics — golden signals, когда в service.yaml нет metrics. Плейсхолдеры в promql:
-		// {namespace}, {pod_regex} (^(w1|w2)-.*), {service}
+		// {namespace}, {pod_regex} (только поды workload'ов сервиса по правилам именования их вида,
+		// util/podname: ^(?:w1-<hash>-<5>|w2-[0-9]+)$ — не «w1-.*», тот захватывал соседей), {service}
 		DefaultMetrics []MetricDef `yaml:"default_metrics"`
 		// PublicMetrics — внешняя картина по метрикам gateway ruto; добавляются к метрикам сервиса,
 		// у которого есть приложения ruto. Плейсхолдер {ruto_apps} — регэксп имён приложений (a|b)
@@ -49,7 +50,8 @@ type Rules struct {
 		// TopErrors — сколько error-паттернов класть в снапшот
 		TopErrors int `yaml:"top_errors"`
 		// DefaultSelector — LogQL-селектор, когда в service.yaml нет logs.selector.
-		// Плейсхолдеры: {namespace}, {pod_regex}, {service}, {workloads} (w1|w2)
+		// Плейсхолдеры: {namespace}, {pod_regex} (как у DefaultMetrics, плюс Job'ы оркестратора по
+		// префиксу), {service}, {workloads} (w1|w2)
 		DefaultSelector string `yaml:"default_selector"`
 		// ClusterSelector — LogQL-селектор всех логов кластера: поиск по всем сервисам
 		// (query_logs без service) и ошибки кластера в get_cluster_health

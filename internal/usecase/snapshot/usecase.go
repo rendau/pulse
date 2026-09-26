@@ -24,6 +24,7 @@ import (
 	workloadModel "github.com/mechta-market/pulse/internal/domain/workload/model"
 	"github.com/mechta-market/pulse/internal/errs"
 	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
+	"github.com/mechta-market/pulse/internal/util/podname"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -244,14 +245,9 @@ func (c *collector) events(ctx context.Context) {
 	c.mu.Unlock()
 }
 
-// belongs — объект принадлежит сервису: имя workload'а или его префикс (поды, ReplicaSet, Job).
+// belongs — объект принадлежит сервису: workload, его ReplicaSet, Job или под (podname).
 func (c *collector) belongs(objectName string) bool {
-	for _, w := range c.workloads {
-		if objectName == w.Name || strings.HasPrefix(objectName, w.Name+"-") {
-			return true
-		}
-	}
-	return false
+	return lo.ContainsBy(c.workloads, func(w *workloadModel.Main) bool { return podname.MatchObject(w.Kind, w.Name, objectName) })
 }
 
 // alerts — активные алерты Alertmanager, относящиеся к сервису по значениям лейблов.
@@ -421,10 +417,9 @@ func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.
 	case len(declared) > 0 && !manifest:
 		defs = declared
 	case len(workloads) > 0:
-		names := lo.Uniq(lo.Map(workloads, func(w *workloadModel.Main, _ int) string { return w.Name }))
 		replacer := strings.NewReplacer(
 			"{namespace}", workloads[0].Namespace,
-			"{pod_regex}", "^("+strings.Join(names, "|")+")-.*",
+			"{pod_regex}", podRegex(workloads),
 			"{service}", service.Name,
 		)
 		defs = lo.Map(u.conf.DefaultMetrics, func(m snapshotModel.MetricDef, _ int) snapshotModel.MetricDef {
@@ -449,6 +444,14 @@ func (u *Usecase) metricDefs(service *svcModel.Main, workloads []*workloadModel.
 		m.PromQL = apps.Replace(m.PromQL)
 		return m
 	})...)
+}
+
+// podRegex — {pod_regex}: только поды workload'ов сервиса по правилам именования их вида
+// (префикс «имя-» захватил бы соседей: pulse-agent-…, pulse-pg-0 у pulse).
+func podRegex(workloads []*workloadModel.Main) string {
+	return podname.Regex(lo.Map(workloads, func(w *workloadModel.Main, _ int) podname.Workload {
+		return podname.Workload{Kind: w.Kind, Name: w.Name}
+	}))
 }
 
 // rutoApps — имена приложений gateway ruto, ведущих на сервис (рёбра индексера). Ошибка

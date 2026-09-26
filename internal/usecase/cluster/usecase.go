@@ -23,6 +23,7 @@ import (
 	k8sModel "github.com/mechta-market/pulse/internal/service/k8s/model"
 	prometheusModel "github.com/mechta-market/pulse/internal/service/prometheus/model"
 	"github.com/mechta-market/pulse/internal/util/imageref"
+	"github.com/mechta-market/pulse/internal/util/podname"
 	"github.com/mechta-market/pulse/internal/util/window"
 )
 
@@ -248,12 +249,24 @@ func (c *collector) pods(ctx context.Context) {
 // serviceOf — сервис каталога, к которому относится под: по workload'у каталога; под без
 // него (Job, созданный оркестратором: Argo Workflows, Airflow и т.п.) — по ownerService.
 func (c *collector) serviceOf(pod *k8sModel.Pod) string {
-	for _, w := range c.workloads {
-		if w.Namespace == pod.Namespace && strings.HasPrefix(pod.Name, w.Name+"-") {
-			return w.ServiceName
-		}
+	if w := workloadOf(c.workloads, pod.Namespace, pod.Name, podname.Owner); w != nil {
+		return w.ServiceName
 	}
 	return c.ownerService(lo.Map(pod.Containers, func(ct k8sModel.PodContainer, _ int) string { return ct.Image }), pod.Labels)
+}
+
+// workloadOf — workload каталога в namespace, которому принадлежит под или объект:
+// по правилам именования вида (podname), а не по префиксу «имя-» — иначе под pulse-agent-…
+// достался бы pulse.
+func workloadOf(workloads []*workloadModel.Main, namespace, name string, owner func(string, []podname.Workload) int) *workloadModel.Main {
+	local := lo.Filter(workloads, func(w *workloadModel.Main, _ int) bool { return w.Namespace == namespace })
+	i := owner(name, lo.Map(local, func(w *workloadModel.Main, _ int) podname.Workload {
+		return podname.Workload{Kind: w.Kind, Name: w.Name}
+	}))
+	if i < 0 {
+		return nil
+	}
+	return local[i]
 }
 
 // ownerService — сервис объекта без workload'а каталога (под, Job): по имени репозитория
@@ -305,10 +318,8 @@ func (c *collector) objectService(namespace, name string) string {
 	if service := pods[name]; service != "" {
 		return service
 	}
-	for _, w := range c.workloads {
-		if w.Namespace == namespace && (name == w.Name || strings.HasPrefix(name, w.Name+"-")) {
-			return w.ServiceName
-		}
+	if w := workloadOf(c.workloads, namespace, name, podname.ObjectOwner); w != nil {
+		return w.ServiceName
 	}
 	for pod, service := range pods {
 		if service != "" && strings.HasPrefix(pod, name+"-") {
