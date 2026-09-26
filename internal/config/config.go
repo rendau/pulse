@@ -63,10 +63,6 @@ var Conf = struct {
 	// пода (в кластере); k8s-proxy — через API-сервер (локальная разработка, нужен RBAC pods/proxy)
 	EndpointCallMode string `env:"ENDPOINT_CALL_MODE" envDefault:"direct"`
 
-	// ключ токенов персональных данных (HMAC, секрет): один телефон — один токен pii:phone:…
-	// у всех инструментов и между рестартами; пусто — случайный на время жизни процесса
-	PiiTokenKey string `env:"PII_TOKEN_KEY"`
-
 	// индексер топологии
 	IndexerInterval time.Duration `env:"INDEXER_INTERVAL" envDefault:"5m"`
 	IndexerEnabled  bool          `env:"INDEXER_ENABLED" envDefault:"true"`

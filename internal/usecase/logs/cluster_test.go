@@ -2,7 +2,6 @@ package logs
 
 import (
 	"context"
-	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -78,7 +77,7 @@ func TestQuery_SearchAllServices(t *testing.T) {
 	assert.Equal(t, "orders", res.Lines[1].Service)
 	assert.Equal(t, "sms-im", res.Lines[2].Service, "sms-im-…, а не sms")
 	assert.Equal(t, "orders-worker", res.Lines[3].Workload, "самый длинный префикс workload'а")
-	assert.NotContains(t, res.Lines[3].Text, "7011234567", "PII маскируется и при поиске")
+	assert.Contains(t, res.Lines[3].Text, "7011234567", "телефон как есть: от модели прячет агент")
 
 	res, err = u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-12345", Limit: 2})
 	require.NoError(t, err)
@@ -300,13 +299,13 @@ func TestLive_ClusterQueries(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Телефон в строке логов — токеном; поиск по токену по всем сервисам — регэкспом номера в
-// любом написании; сам номер в запросе к Loki есть, в ответе — нет.
-func TestQuery_SearchByPiiToken(t *testing.T) {
+// Телефон в строке логов — как есть (от модели прячет агент), карта — маской; поиск номера
+// (+…) по всем сервисам — регэкспом номера в любом написании.
+func TestQuery_SearchByPhone(t *testing.T) {
 	now := time.Now()
 	loki := &fakeLoki{streams: []lokiModel.Stream{
 		{Labels: streamLabels("prod", "orders-worker-7d9f-q2"), Entries: []lokiModel.Entry{
-			{TS: now.Add(-time.Minute), Line: `{"level":"info","msg":"order ORD-1 paid","phone":"+7 701 123 45 67"}`},
+			{TS: now.Add(-time.Minute), Line: `{"level":"info","msg":"order ORD-1 paid","phone":"+7 701 123 45 67","card":"4111111111111111"}`},
 		}},
 	}}
 	u := newClusterUsecase(loki)
@@ -314,22 +313,11 @@ func TestQuery_SearchByPiiToken(t *testing.T) {
 	res, err := u.Query(context.Background(), &model.QueryReq{Pattern: "ORD-1", Window: time.Hour})
 	require.NoError(t, err)
 	require.Len(t, res.Lines, 1)
-	token := testPii.Tokenize("phone", "87011234567")
-	assert.Contains(t, res.Lines[0].Text, token, "телефон в строке — токеном")
-	assert.NotContains(t, res.Lines[0].Text, "701 123")
+	assert.Contains(t, res.Lines[0].Text, "+7 701 123 45 67")
+	assert.Contains(t, res.Lines[0].Text, `"card":"***1111"`)
 
-	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: token, Window: time.Hour})
+	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "+77011234567", Window: time.Hour})
 	require.NoError(t, err)
 	assert.Contains(t, loki.query, `|= "7011234567" |~ "(?:^|[^0-9])(?:\\+?7|8)?7011234567(?:[^0-9]|$)"`,
 		"в Loki — подстрока-предфильтр и точный регэксп номера")
-
-	// ошибка источника при поиске по токену — без запроса (в нём настоящий номер)
-	loki.err = errors.New("query_range: http://loki/query?query=%7C%3D+%227011234567%22: timeout awaiting response headers")
-	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: token, Window: time.Hour})
-	require.ErrorIs(t, err, errs.ServiceNA)
-	assert.NotContains(t, err.Error(), "7011234567")
-	loki.err = nil
-
-	_, err = u.Query(context.Background(), &model.QueryReq{Pattern: "pii:phone:abcdefghijkl", Window: time.Hour})
-	require.ErrorIs(t, err, errs.InvalidRequest, "неизвестный токен")
 }

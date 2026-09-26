@@ -16,7 +16,7 @@ import (
 )
 
 // validateParams: неизвестный параметр — ошибка; тип, границы, pattern и enum — по декларации;
-// персональный параметр — токен (или сырое значение того же вида) → настоящее значение;
+// персональный параметр — значение, приведённое к одному виду (токены раскрывает агент);
 // обязательные без дефолта — ошибка.
 func (u *Usecase) validateParams(endpoint svcModel.Endpoint, params map[string]any) (map[string]string, error) {
 	values := make(map[string]string, len(endpoint.Params))
@@ -50,8 +50,7 @@ func (u *Usecase) validateParams(endpoint svcModel.Endpoint, params map[string]a
 			return nil, err
 		}
 		if def.Personal != "" {
-			// токен от pulse — в настоящее значение: оно уходит только в запрос к сервису
-			if value, err = u.pii.Resolve(def.Personal, value); err != nil {
+			if value, err = u.pii.Normalize(def.Personal, value); err != nil {
 				return nil, fmt.Errorf("parameter %q: %w", name, err)
 			}
 		}

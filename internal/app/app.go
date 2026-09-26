@@ -213,11 +213,8 @@ func (a *App) Init() {
 		slog.Info("service calls go through kubernetes API proxy (pods/proxy)")
 	}
 
-	// pii (персональные данные токенами)
-	piiService := servicePiiServiceP.New(servicePiiServiceP.Config{
-		Key:         []byte(config.Conf.PiiTokenKey),
-		CountryCode: rules.Manifest.PhoneCountryCode,
-	})
+	// pii (карты и учётные данные вырезаются; телефоны и email от модели прячет агент)
+	piiService := servicePiiServiceP.New(servicePiiServiceP.Config{CountryCode: rules.Manifest.PhoneCountryCode})
 
 	// self status (ручка состояния сервиса из манифеста)
 	selfStatusService := serviceSelfstatusServiceP.New(

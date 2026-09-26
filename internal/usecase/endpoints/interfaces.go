@@ -33,10 +33,10 @@ type CallerI interface {
 	GetPod(ctx context.Context, target svcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error)
 }
 
-// PiiI — персональные данные токенами: в ответе ручки — токены, токен в параметре — настоящее
-// значение (только в исходящий запрос).
+// PiiI — персональные данные: карты и учётные данные вырезаются, персональный параметр
+// приводится к одному виду; телефоны и email от модели прячет агент (по personal_fields).
 type PiiI interface {
-	Tokenize(kind, value string) string
 	Text(s string) string
-	Resolve(kind, value string) (string, error)
+	Value(kind, value string) string
+	Normalize(kind, value string) (string, error)
 }

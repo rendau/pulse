@@ -1,7 +1,7 @@
 // Package endpoints — вызов диагностических ручек сервиса из его манифеста
 // (docs/service-manifest.md). Самая рискованная часть: allowlist по id, только объявленные
 // параметры (строки — по pattern, enum или виду персональных данных), только GET прямо в под,
-// к агенту доходят только поля из схемы ответа, персональные данные — токенами.
+// к агенту доходят только поля из схемы ответа, персональные — с отметкой вида.
 package endpoints
 
 import (
@@ -84,7 +84,7 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		return nil, fmt.Errorf("%w: endpoint %s has invalid path %q", errs.InvalidConfig, endpoint.Id, endpoint.Path)
 	}
 
-	// 2. только объявленные параметры: тип, границы, pattern/enum; токен — в настоящее значение
+	// 2. только объявленные параметры: тип, границы, pattern/enum; персональные — к одному виду
 	values, err := u.validateParams(endpoint, req.Params)
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		Truncated:  resp.Truncated,
 	}
 
-	// 4. ошибка ручки — только её текст (через токены), тело ответа не пропускается
+	// 4. ошибка ручки — только её текст, тело ответа не пропускается
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		result.Data = map[string]any{"error": u.errorText(resp.Body)}
 		return result, nil
@@ -140,12 +140,11 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		return nil, fmt.Errorf("%w: endpoint %s answered not JSON — the service violates the manifest standard", errs.ServiceNA, endpoint.Id)
 	}
 
-	// 5. проекция на схему: только объявленные поля, персональные — токенами, строки — по длине
-	p := &projector{pii: u.pii}
+	// 5. проекция на схему: только объявленные поля, персональные — с отметкой вида, строки — по длине
+	p := &projector{pii: u.pii, personal: map[string]string{}}
 	result.Data = p.value(data, endpoint.Response, "")
 	result.DroppedFields = p.dropped
-	result.PersonalFields = lo.Uniq(p.personal)
-	sort.Strings(result.PersonalFields)
+	result.PersonalFields = p.personal
 
 	// 6. лимит строк: список по rows_path или сам ответ-массив
 	maxRows := lo.Clamp(lo.CoalesceOrEmpty(endpoint.MaxRows, u.conf.MaxRows), 1, u.conf.MaxRows)

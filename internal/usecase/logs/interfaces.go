@@ -41,11 +41,10 @@ type LokiI interface {
 	QueryVector(ctx context.Context, query string, at time.Time) ([]lokiModel.Sample, error)
 }
 
-// PiiI — персональные данные токенами: в строках логов вместо телефонов и email — токены,
-// токен в шаблоне поиска — поиск настоящего значения.
+// PiiI — строки логов без карт и учётных данных; телефон в шаблоне поиска — в любом написании.
 type PiiI interface {
 	Text(s string) string
-	SearchPattern(pattern string) (literal, regex string, err error)
+	SearchPattern(pattern string) (literal, regex string)
 }
 
 type patternsServiceI interface {

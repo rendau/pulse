@@ -65,7 +65,7 @@ func (f *fakeCaller) GetPod(_ context.Context, target svcproxyModel.PodTarget, p
 	return resp, nil
 }
 
-var pii = piiServiceP.New(piiServiceP.Config{Key: []byte("test")})
+var pii = piiServiceP.New(piiServiceP.Config{})
 
 func str(extra ...func(*svcModel.Schema)) *svcModel.Schema {
 	s := &svcModel.Schema{Type: "string"}
@@ -113,8 +113,8 @@ func newUsecase(caller *fakeCaller) *Usecase {
 	return New(Config{MaxRows: 100, MaxBodyBytes: 1 << 20, MaxTimeout: 10 * time.Second}, fakeSvc{service()}, fakeWorkload{}, fakeK8s{}, caller, pii)
 }
 
-// Ответ проецируется на схему: необъявленное вырезано, персональные данные — токенами,
-// телефон в тексте — токеном, строки и массивы — по лимитам.
+// Ответ проецируется на схему: необъявленное вырезано, персональные поля — как есть с отметкой
+// вида (от модели их прячет агент), строки и массивы — по лимитам.
 func TestCall_Projection(t *testing.T) {
 	caller := &fakeCaller{status: 200, body: `{
 		"number": "234115", "status": "assembling",
@@ -133,9 +133,8 @@ func TestCall_Projection(t *testing.T) {
 	assert.Equal(t, caller.headers["X-Pulse-Request-Id"], res.RequestId)
 
 	data := res.Data.(map[string]any)
-	phone := pii.Tokenize("phone", "87011234567")
-	assert.Equal(t, phone, data["customer_phone"])
-	assert.Equal(t, pii.Tokenize("customer_id", "42"), data["customer_id"])
+	assert.Equal(t, "8 701 123 45 67", data["customer_phone"])
+	assert.Equal(t, float64(42), data["customer_id"])
 	assert.NotContains(t, data, "customer_name", "не объявлено — вырезано")
 	assert.NotContains(t, data, "password")
 	assert.Equal(t, "ждём склад, клиен...", data["stuck_reason"], "maxLength")
@@ -143,18 +142,18 @@ func TestCall_Projection(t *testing.T) {
 	require.Len(t, history, 2, "maxItems")
 	assert.Equal(t, map[string]any{"status": "new"}, history[0], "operator не объявлен")
 	assert.Equal(t, map[string]any{"new": float64(1)}, data["by_state"], "значение словаря не того типа — вырезано")
-	assert.Equal(t, []string{"customer_id", "customer_phone"}, res.PersonalFields)
+	assert.Equal(t, map[string]string{"customer_id": "customer_id", "customer_phone": "phone"}, res.PersonalFields)
 	assert.Equal(t, 4, res.DroppedFields, "customer_name, password, history[].operator, by_state.paid")
 }
 
 func TestCall_Params(t *testing.T) {
 	caller := &fakeCaller{status: 200, body: `{"items": [{"number": "1"}, {"number": "2"}, {"number": "3"}]}`}
 	u := newUsecase(caller)
-	phone := pii.Tokenize("phone", "+7 701 123 45 67")
+	phone := "+7 701 123 45 67"
 
 	res, err := u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "orders_by_phone", Params: map[string]any{"phone": phone, "state": "paid"}})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"phone": "77011234567", "state": "paid"}, caller.query, "токен — в настоящий номер, только в запрос к сервису")
+	assert.Equal(t, map[string]string{"phone": "77011234567", "state": "paid"}, caller.query, "телефон — к одному виду")
 	assert.Equal(t, 2, res.Rows)
 	assert.Equal(t, 3, res.TotalRows)
 	assert.True(t, res.Truncated)
@@ -162,9 +161,9 @@ func TestCall_Params(t *testing.T) {
 
 	bad := map[string]map[string]any{
 		"неизвестный параметр": {"phone": phone, "debug": true},
-		"не из enum":  {"phone": phone, "state": "lost"},
-		"не телефон":  {"phone": "Иванов"},
-		"чужой токен": {"phone": pii.Tokenize("email", "a@b.kz")},
+		"не из enum": {"phone": phone, "state": "lost"},
+		"не телефон": {"phone": "Иванов"},
+		"токен":      {"phone": "pii:phone:abcdefghijkl"},
 	}
 	for name, params := range bad {
 		_, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "orders_by_phone", Params: params})
@@ -189,7 +188,7 @@ func TestCall_ErrorsAndNotJson(t *testing.T) {
 	res, err := u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "99999"}})
 	require.NoError(t, err)
 	assert.Equal(t, 404, res.StatusCode)
-	assert.Equal(t, map[string]any{"error": "заказ не найден, звоните " + pii.Tokenize("phone", "87011234567")}, res.Data, "только текст ошибки, без остального тела")
+	assert.Equal(t, map[string]any{"error": "заказ не найден, звоните +7 701 123 45 67"}, res.Data, "только текст ошибки, без остального тела")
 
 	caller.status, caller.body = 200, "<html>"
 	_, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "99999"}})

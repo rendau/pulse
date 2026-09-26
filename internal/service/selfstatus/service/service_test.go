@@ -38,7 +38,7 @@ func TestGet(t *testing.T) {
 	    {"id": "note", "title": "Заметка", "value": "любой текст"}
 	  ]
 	}`)}}
-	pii := piiServiceP.New(piiServiceP.Config{Key: []byte("k")})
+	pii := piiServiceP.New(piiServiceP.Config{})
 	s := New(Config{Path: "/.well-known/pulse/status", CacheTtl: time.Minute}, pods, pii)
 	target := svcproxyModel.PodTarget{Namespace: "prod", Pod: "ocenter-1", IP: "10.0.0.5", Port: 3003}
 
@@ -50,8 +50,6 @@ func TestGet(t *testing.T) {
 	require.Len(t, status.Dependencies, 2, "записи не по стандарту пропущены")
 	assert.Equal(t, int64(4200), *status.Dependencies[1].LatencyMs)
 	assert.NotContains(t, status.Dependencies[1].Message, "s3cr3t", "учётные данные вырезаны")
-	assert.NotContains(t, status.Dependencies[1].Message, "701 123", "телефон скрыт")
-	assert.Contains(t, status.Dependencies[1].Message, pii.Tokenize("phone", "87011234567"), "телефон — токеном")
 	require.Len(t, status.Gauges, 2, "значение-текст не принимается")
 	assert.InDelta(t, 1840, *status.Gauges[0].Value, 0)
 	assert.NotNil(t, status.Gauges[1].Time)

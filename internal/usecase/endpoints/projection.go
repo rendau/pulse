@@ -2,7 +2,6 @@ package endpoints
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
@@ -14,12 +13,13 @@ import (
 const defaultMaxLength = 500
 
 // projector — ответ ручки, спроецированный на схему манифеста (docs/service-manifest.md,
-// «Конфиденциальность»): к агенту доходят только объявленные поля нужного типа; персональные —
-// токенами; телефоны и email в любом тексте — тоже токенами; строки — по длине.
+// «Конфиденциальность»): к агенту доходят только объявленные поля нужного типа; строки — по
+// длине, карты — маской. Персональные поля отдаются как есть и отмечаются (путь → вид): от
+// модели их прячет агент.
 type projector struct {
 	pii      PiiI
 	dropped  int
-	personal []string
+	personal map[string]string
 }
 
 func (p *projector) value(v any, schema *svcModel.Schema, path string) any {
@@ -43,7 +43,7 @@ func (p *projector) value(v any, schema *svcModel.Schema, path string) any {
 					result[key] = value
 				}
 			case schema.Values != nil:
-				// словарь: ключи — текст (через токены), значения — только числа/булевы
+				// словарь: ключи — текст, значения — по схеме values
 				if value := p.value(obj[key], schema.Values, join(path, "{}")); value != nil {
 					result[p.pii.Text(key)] = value
 				}
@@ -73,8 +73,8 @@ func (p *projector) value(v any, schema *svcModel.Schema, path string) any {
 			return p.drop()
 		}
 		if schema.Personal != "" {
-			p.personal = append(p.personal, path)
-			return p.pii.Tokenize(schema.Personal, s)
+			p.personal[path] = schema.Personal
+			return p.pii.Value(schema.Personal, s)
 		}
 		return lo.Ellipsis(p.pii.Text(s), lo.CoalesceOrEmpty(schema.MaxLength, defaultMaxLength))
 	case "integer", "number":
@@ -83,8 +83,7 @@ func (p *projector) value(v any, schema *svcModel.Schema, path string) any {
 			return p.drop()
 		}
 		if schema.Personal != "" {
-			p.personal = append(p.personal, path)
-			return p.pii.Tokenize(schema.Personal, strconv.FormatFloat(num, 'f', -1, 64))
+			p.personal[path] = schema.Personal
 		}
 		return num
 	case "boolean":

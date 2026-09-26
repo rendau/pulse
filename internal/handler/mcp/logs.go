@@ -21,7 +21,7 @@ const queryLogsDescription = `Логи сервиса из Loki, по умолч
 	`Без service — поиск pattern (номер заказа, id клиента; ищется целым словом) во всех логах кластера назад по суткам, ` +
 	`пока не найдёт следы (до 30 дней, ≤1 мин); services — где и сколько, lines — последние строки по порядку событий. ` +
 	`end — конец окна в прошлом: дата (эти сутки) или время. ` +
-	`Телефоны и email в строках — токенами pii:… (pattern=токен ищет этого человека по всем логам), карты маскированы. Без Loki — из Kubernetes (source=kubernetes: только живые поды, хвост). ` +
+	`Телефон в pattern — с «+» (+77011234567): ищется в любом написании; карты в строках маскированы. Без Loki — из Kubernetes (source=kubernetes: только живые поды, хвост). ` +
 	`Не подходит для метрик и событий кластера.`
 
 func (h *Handler) QueryLogs(ctx context.Context, _ *mcp.CallToolRequest, req dto.QueryLogsReq) (*mcp.CallToolResult, dto.QueryLogsRep, error) {

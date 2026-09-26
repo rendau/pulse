@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/samber/lo"
@@ -16,9 +17,9 @@ type EndpointDef struct {
 	Title       string                   `json:"title,omitempty"`
 	Description string                   `json:"description,omitempty" jsonschema:"когда вызывать — от владельца сервиса"`
 	Params      map[string]EndpointParam `json:"params,omitempty"`
-	Fields      []string                 `json:"fields,omitempty" jsonschema:"поля ответа верхнего уровня; (personal: вид) — значение придёт токеном pii:…"`
+	Fields      []string                 `json:"fields,omitempty" jsonschema:"поля ответа верхнего уровня; (personal: вид) — персональные данные"`
 	MaxRows     int                      `json:"max_rows,omitempty"`
-	PII         []string                 `json:"pii,omitempty" jsonschema:"поля ответа с персональными данными — придут токенами pii:…"`
+	PII         []string                 `json:"pii,omitempty" jsonschema:"поля ответа с персональными данными"`
 }
 
 type EndpointParam struct {
@@ -30,7 +31,7 @@ type EndpointParam struct {
 	Pattern     string   `json:"pattern,omitempty"`
 	Enum        []string `json:"enum,omitempty"`
 	Description string   `json:"description,omitempty"`
-	Personal    string   `json:"personal,omitempty" jsonschema:"вид персональных данных: передавай токен pii:… из ответов pulse"`
+	Personal    string   `json:"personal,omitempty" jsonschema:"вид персональных данных (phone, email…): значение приводится к одному виду"`
 }
 
 func EncodeEndpointDef(v svcModel.Endpoint, _ int) EndpointDef {
@@ -50,7 +51,7 @@ func EncodeEndpointDef(v svcModel.Endpoint, _ int) EndpointDef {
 	}
 }
 
-// personalFields — пути полей схемы с x-personal: их значения придут токенами.
+// personalFields — пути полей схемы с x-personal.
 func personalFields(schema *svcModel.Schema, path string) []string {
 	if schema == nil {
 		return nil
@@ -111,28 +112,31 @@ type CallServiceEndpointRep struct {
 	Title      string   `json:"title,omitempty"`
 	StatusCode int      `json:"status_code"`
 	DurationMs int64    `json:"duration_ms"`
-	Data       any      `json:"data" jsonschema:"ответ ручки: только поля из схемы манифеста; персональные данные — токенами pii:…; ошибка ручки — {error}"`
+	Data       any      `json:"data" jsonschema:"ответ ручки: только поля из схемы манифеста; ошибка ручки — {error}"`
 	Rows       int      `json:"rows,omitempty"`
 	TotalRows  int      `json:"total_rows,omitempty"`
 	Truncated  bool     `json:"truncated" jsonschema:"строк или байт больше лимита — сузь параметры"`
-	MaskedKeys []string `json:"masked_keys,omitempty" jsonschema:"поля, чьи значения заменены токенами pii:… (передавай токен дальше как есть: query_logs pattern, персональный параметр ручки)"`
-	RequestId  string   `json:"request_id,omitempty" jsonschema:"X-Pulse-Request-Id вызова: по нему вызов находится в логах сервиса"`
-	Dropped    int      `json:"dropped_fields,omitempty" jsonschema:"сколько полей ответа вырезано — их нет в схеме манифеста"`
+	MaskedKeys []string `json:"masked_keys,omitempty" jsonschema:"пути персональных полей ответа (вид — в personal_fields)"`
+	// PersonalFields — путь → вид: по нему клиент pulse (агент) прячет значения от модели
+	PersonalFields map[string]string `json:"personal_fields,omitempty" jsonschema:"персональные поля ответа: путь (history[].phone; [] — элементы массива, {} — значения словаря) → вид (phone, email, iin, customer_id, name, address, document, other)"`
+	RequestId      string            `json:"request_id,omitempty" jsonschema:"X-Pulse-Request-Id вызова: по нему вызов находится в логах сервиса"`
+	Dropped        int               `json:"dropped_fields,omitempty" jsonschema:"сколько полей ответа вырезано — их нет в схеме манифеста"`
 }
 
 func EncodeCallServiceEndpointRep(v *usecaseEndpointsModel.CallResult) CallServiceEndpointRep {
 	return CallServiceEndpointRep{
-		Service:    v.Service,
-		EndpointId: v.EndpointId,
-		Title:      v.Title,
-		StatusCode: v.StatusCode,
-		DurationMs: v.Duration.Milliseconds(),
-		Data:       v.Data,
-		Rows:       v.Rows,
-		TotalRows:  v.TotalRows,
-		Truncated:  v.Truncated,
-		MaskedKeys: v.PersonalFields,
-		RequestId:  v.RequestId,
-		Dropped:    v.DroppedFields,
+		Service:        v.Service,
+		EndpointId:     v.EndpointId,
+		Title:          v.Title,
+		StatusCode:     v.StatusCode,
+		DurationMs:     v.Duration.Milliseconds(),
+		Data:           v.Data,
+		Rows:           v.Rows,
+		TotalRows:      v.TotalRows,
+		Truncated:      v.Truncated,
+		MaskedKeys:     slices.Sorted(maps.Keys(v.PersonalFields)),
+		PersonalFields: v.PersonalFields,
+		RequestId:      v.RequestId,
+		Dropped:        v.DroppedFields,
 	}
 }

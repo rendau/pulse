@@ -9,7 +9,7 @@ type CallReq struct {
 	Params     map[string]any
 }
 
-// CallResult — ответ ручки после проекции на схему манифеста, токенов и лимитов.
+// CallResult — ответ ручки после проекции на схему манифеста и лимитов.
 type CallResult struct {
 	Service    string
 	EndpointId string
@@ -23,8 +23,8 @@ type CallResult struct {
 	Rows      int
 	TotalRows int
 	Truncated bool
-	// PersonalFields — поля, чьи значения заменены токенами pii:…
-	PersonalFields []string
+	// PersonalFields — персональные поля ответа: путь (history[].phone) → вид (phone, email…)
+	PersonalFields map[string]string
 	// DroppedFields — сколько полей ответа вырезано: их нет в схеме манифеста
 	DroppedFields int
 }

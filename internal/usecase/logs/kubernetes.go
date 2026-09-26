@@ -26,7 +26,7 @@ const (
 // fetchK8s — логи из Kubernetes API (как kubectl logs): запасной источник, когда Loki не
 // подключён или недоступен. Только живые поды сервиса (удалённых на нодах уже нет), хвост
 // каждого контейнера; у перезапускавшихся в окне — и прошлый запуск (--previous).
-// Фильтры уровня и регэкспа — на стороне pulse; PII маскируется так же, как у Loki.
+// Фильтры уровня и регэкспа — на стороне pulse; карты маскируются так же, как у Loki.
 func (u *Usecase) fetchK8s(ctx context.Context, groups []podGroup, pattern, level string, start, end time.Time, limit int) ([]logsModel.Line, error) {
 	var re *regexp.Regexp
 	if pattern != "" {

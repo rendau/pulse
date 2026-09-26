@@ -119,7 +119,7 @@ type Rules struct {
 		SkipPorts []int `yaml:"skip_ports"`
 		// StatusCache — сколько держать ответ ручки состояния пода
 		StatusCache time.Duration `yaml:"status_cache"`
-		// PhoneCountryCode — код страны для приведения телефонов перед токеном (8… → 7…)
+		// PhoneCountryCode — код страны для приведения телефонов (параметры ручек, поиск в логах; 8… → 7…)
 		PhoneCountryCode string `yaml:"phone_country_code"`
 	} `yaml:"manifest"`
 

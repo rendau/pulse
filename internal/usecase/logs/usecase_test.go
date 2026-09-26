@@ -220,7 +220,7 @@ func TestQuery_KubernetesFallback(t *testing.T) {
 	assert.Contains(t, res.Selector, "payments-api")
 	require.Len(t, res.Lines, 2, "error-строки текущего и прошлого запуска; чужой под не читается")
 	assert.Equal(t, "payments-api", res.Lines[0].Workload)
-	assert.NotContains(t, res.Lines[0].Text, "77021330032")
+	assert.Contains(t, res.Lines[0].Text, "77021330032")
 	assert.Contains(t, res.Lines[1].Text, "panic: nil map")
 
 	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Pattern: "handled", Mode: model.ModeRaw})
@@ -242,7 +242,7 @@ func TestTopErrors(t *testing.T) {
 }
 
 // TestQuery_WorkloadsAndPII — из какого workload'а строка (самый длинный префикс пода), фильтр
-// по workload'у и маскирование PII (случай notifire-sms из переписки с ботом).
+// по workload'у; телефон — как есть (от модели прячет агент).
 func TestQuery_WorkloadsAndPII(t *testing.T) {
 	now := time.Now()
 	line := `{"level":"error","msg":"sms_traffic: fail to send: context deadline exceeded, phone: 77021330032"}`
@@ -256,7 +256,7 @@ func TestQuery_WorkloadsAndPII(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Patterns, 1)
 	assert.Equal(t, []string{"payments-api", "payments-api-reconcile"}, res.Patterns[0].Workloads)
-	assert.NotContains(t, res.Patterns[0].Example, "77021330032")
+	assert.Contains(t, res.Patterns[0].Example, "77021330032")
 	assert.NotContains(t, res.Patterns[0].Template, "77021330032")
 
 	res, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Mode: model.ModeRaw, Workload: "payments-api-reconcile"})
@@ -264,7 +264,7 @@ func TestQuery_WorkloadsAndPII(t *testing.T) {
 	assert.Equal(t, `{namespace="prod", pod=~"^(payments-api-reconcile)-.*"}`, res.Selector)
 	require.Len(t, res.Lines, 1)
 	assert.Equal(t, "payments-api-reconcile", res.Lines[0].Workload)
-	assert.NotContains(t, res.Lines[0].Text, "77021330032")
+	assert.Contains(t, res.Lines[0].Text, "77021330032")
 
 	_, err = u.Query(context.Background(), &model.QueryReq{Service: "payments-api", Workload: "notifire-sms"})
 	require.Error(t, err)
@@ -325,4 +325,4 @@ func TestQuery_ServiceWithEnd(t *testing.T) {
 	assert.WithinDuration(t, time.Now(), res.End, time.Second)
 }
 
-var testPii = piiServiceP.New(piiServiceP.Config{Key: []byte("test")})
+var testPii = piiServiceP.New(piiServiceP.Config{})
