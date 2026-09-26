@@ -236,8 +236,8 @@ type SelfEntityStatus struct {
 	Meaning    string `json:"meaning,omitempty" jsonschema:"что значит статус (domain манифеста)"`
 	StuckAfter string `json:"stuck_after,omitempty" jsonschema:"дольше — застрял (domain манифеста)"`
 	Count      int64  `json:"count"`
-	Stuck      int64  `json:"stuck,omitempty" jsonschema:"сколько из них дольше stuck_after"`
-	OldestS    int64  `json:"oldest_s,omitempty" jsonschema:"сколько секунд в статусе самый старый"`
+	Stuck      *int64 `json:"stuck,omitempty" jsonschema:"сколько из них дольше stuck_after; есть всегда, когда задан stuck_after (0 — застрявших нет)"`
+	OldestS    int64  `json:"oldest_s,omitempty" jsonschema:"сколько секунд в текущем статусе (не с создания) самый старый из тех, кто может застрять"`
 }
 
 type SelfDependency struct {
@@ -280,9 +280,10 @@ func encodeSelfReport(v *snapshotModel.SelfReport) *SelfReport {
 			return SelfEntity{
 				Name: e.Name, Status: e.Status, Created1h: e.Created1h, Finished1h: e.Finished1h,
 				Statuses: lo.Map(e.Statuses, func(s snapshotModel.SelfEntityStatus, _ int) SelfEntityStatus {
-					status := SelfEntityStatus{Name: s.Name, Meaning: s.Meaning, Count: s.Count, Stuck: s.Stuck, OldestS: int64(s.Oldest / time.Second)}
+					status := SelfEntityStatus{Name: s.Name, Meaning: s.Meaning, Count: s.Count, OldestS: int64(s.Oldest / time.Second)}
 					if s.StuckAfter > 0 {
 						status.StuckAfter = shortDuration(s.StuckAfter)
+						status.Stuck = new(s.Stuck)
 					}
 					return status
 				}),
