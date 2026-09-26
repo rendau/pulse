@@ -197,8 +197,10 @@ Go-сервисам на gotemplate всё это даёт готовый мод
   обрывает запрос по таймауту из манифеста, но не дольше 10 с.
 - Размер ответа — **≤ 256 KB**. Больше — pulse обрезает и помечает ответ как усечённый.
 - Без редиректов (pulse им не следует).
-- Время — RFC 3339 со смещением (`2026-09-25T19:07:41+05:00`); длительности — числом в
-  миллисекундах (`latency_ms`); размеры — в байтах.
+- Время — RFC 3339 со смещением (`2026-09-25T19:07:41+05:00`; UTC — `2026-09-25T14:07:41Z`,
+  это тоже смещение); длительности — числом в миллисекундах (`latency_ms`); размеры — в байтах.
+- `null` у любого поля ответа — «нет значения» (заказ ещё не отгружен — `shipped_at: null`); pulse
+  пропускает его как есть. Необъявленное поле `null` не спасает — оно вырезается.
 - Ошибка — HTTP-статус 4xx/5xx и тело `{"error": "что пошло не так"}`. Текст ошибки уходит
   агенту (после маскировки), поэтому пишите его для человека: «заказ не найден», а не стек.
 - pulse передаёт в каждом запросе заголовки:
@@ -353,7 +355,9 @@ Dockerfile из переменных CI (`GITHUB_SHA`, тег релиза), к�
 
 Манифест ≤ 64 KB; ручек ≤ 30; параметров у ручки ≤ 10; зависимостей ≤ 30; метрик ≤ 20;
 вложенность схемы ответа ≤ 6 уровней. Превышение — `invalid` (для манифеста) или отказ ручке
-(`partial`).
+(`partial`). Тексты: названия (`title`) ≤ 100 символов, описания (`description`) ≤ 500 —
+длиннее pulse обрезает и ставит манифесту `partial` с причиной: хвост описания для агента бывает
+самым важным.
 
 ---
 
@@ -650,27 +654,51 @@ gotemplate делает это из Go-структуры; в других ст�
 // pg
 a.pgpool, err = initPgPool(config.Conf.PgDsn)
 errCheck(err, "pgpool init")
-a.pulsekit.Depend("pg", "postgres", hostOf(config.Conf.PgDsn), true, a.pgpool.Ping)
+a.pulsekit.Depend("pg", "postgres", pulsekit.Host(config.Conf.PgDsn), true, a.pgpool.Ping)
 
 // 1С — своя проверка функцией
-a.pulsekit.Depend("onec", "http", "onec-proxy", false, func(ctx context.Context) error {
+a.pulsekit.Depend("onec", "http", pulsekit.Host(config.Conf.OnecUrl), false, func(ctx context.Context) error {
 	return onecClient.Ping(ctx)
 })
 ```
 
 Аргументы: `id`, вид (`postgres`, `redis`, `kafka`, `http`…), `target` — хост без учётных данных,
-`critical`, проверка «работает ли» (Ping клиента). Проверки идут в фоне раз в 30 с; в ручке
-состояния — своё короткое сообщение («таймаут», «в соединении отказано»), а не текст ошибки.
+`critical`, проверка «работает ли» (Ping клиента). Адрес из конфигурации — только через
+`pulsekit.Host`: она понимает URL (`postgres://user:pass@db:5432/app`), DSN вида
+`host=db port=5432 password=…`, gRPC (`dns:///orders:9090`) и `host:port` и возвращает только хост;
+не распознала — пусто. target с учётными данными или похожий на строку подключения в манифест
+не попадает: вместо него — `unknown` и предупреждение в лог (адрес приходит из окружения — ронять
+сервис из-за него нельзя). Проверки идут в фоне раз в 30 с; в ручке состояния — своё короткое
+сообщение («таймаут», «в соединении отказано»), а не текст ошибки. Тот же классификатор —
+`pulsekit.Describe(err)` — годится для своих сообщений.
+
+**Показатели состояния** (`gauges`) — то, чего нет в метриках и что объясняет состояние. Читаются
+в фоне вместе с проверками; статус не `ok` делает сервис `degraded`:
+
+```go
+a.pulsekit.Gauge("outbox_backlog", "Неотправленные события", "count", func(ctx context.Context) (float64, string, error) {
+	n, err := outboxRepo.Count(ctx)
+	return float64(n), lo.Ternary(n > 1000, "degraded", "ok"), err
+})
+a.pulsekit.GaugeTime("last_1c_sync", "Последняя выгрузка в 1С", func(ctx context.Context) (time.Time, string, error) {
+	return syncService.LastSuccess(ctx)
+})
+```
+
+**Метрики, ошибки в логах, инструкции**: `a.pulsekit.Metric(pulsekit.Metric{Id, Title, PromQL,
+Unit, Direction})`, `a.pulsekit.ErrorPattern("1С недоступна", "onec: .*timeout")`, инструкции для
+дежурных — `Runbooks` в `pulsekit.Service` (`internal/app/manifest.go`).
 
 **Диагностическая ручка** — функция с типизированным ответом, схема строится из типа:
 
 ```go
 type orderStatusRep struct {
-	Number  string       `json:"number"`
-	Status  string       `json:"status"`
-	Phone   string       `json:"customer_phone" pulse:"personal=phone"`
-	Reason  string       `json:"stuck_reason" pulse:"maxLength=300"`
-	History []historyRep `json:"history" pulse:"maxItems=50"`
+	Number    string       `json:"number"`
+	Status    string       `json:"status" pulse:"enum=new|paid|shipped,description=статус: new — создан, paid — оплачен"`
+	Phone     string       `json:"customer_phone" pulse:"personal=phone"`
+	Reason    string       `json:"stuck_reason" pulse:"maxLength=300"`
+	ShippedAt *time.Time   `json:"shipped_at"` // nil — null: ещё не отгружен
+	History   []historyRep `json:"history" pulse:"maxItems=50"`
 }
 
 pulsekit.Handle(a.pulsekit, pulsekit.Endpoint{
@@ -678,7 +706,10 @@ pulsekit.Handle(a.pulsekit, pulsekit.Endpoint{
 	Title:       "Где заказ в конвейере",
 	Description: "Вызывай, когда спрашивают о конкретном заказе по номеру…",
 	Path:        "/diag/order/{number}",
-	Params:      map[string]pulsekit.Param{"number": {Pattern: "[0-9]{5,12}"}},
+	Params: map[string]pulsekit.Param{
+		"number": {Pattern: "[0-9]{5,12}"},
+		"limit":  {Type: "integer", Default: "20"}, // в манифесте — числом 20
+	},
 }, func(ctx context.Context, params map[string]string) (orderStatusRep, error) {
 	order, err := ordersUsecase.Status(ctx, params["number"])
 	if errors.Is(err, errs.ObjectNotFound) {
@@ -688,13 +719,31 @@ pulsekit.Handle(a.pulsekit, pulsekit.Endpoint{
 })
 ```
 
-- Персональное поле — тег `pulse:"personal=<вид>"`; значение отдаётся как есть, токеном его заменит
+- Тег `pulse:"…"`: `personal=<вид>`, `maxLength=`, `maxItems=`, `enum=a|b|c`, `description=` —
+  **последним**: берётся всё до конца тега, запятые можно.
+- Персональное поле — `personal=<вид>`; значение отдаётся как есть, токеном его заменит
   pulse_agent (ключ токенов есть только у него).
+- Время — `time.Time` (RFC 3339 со смещением, UTC — `Z`); указатель `nil` — `null`.
+- Каждый вызов pulsekit пишет в лог сам: ручка, `X-Pulse-Request-Id`, параметры (персональные —
+  только вид), статус, время. Для своих строк лога — `pulsekit.RequestId(ctx)`.
 - Правила стандарта проверяются при регистрации — паникой, то есть в тестах сервиса, а не после
   выкатки: строковый параметр без `Pattern`/`Enum`/`Personal`, поле или параметр с именем секрета,
-  словарь не с числами, `target` с учётными данными.
+  словарь не с числами, тексты длиннее лимитов (название ≤ 100, описание ≤ 500), `Default` не в
+  типе параметра, неизвестный вид персональных данных.
 - Ошибка для человека — `pulsekit.Error{Status, Message}`; любая другая ошибка уходит как
-  «внутренняя ошибка»: её текст наружу не попадает.
+  «внутренняя ошибка»: её текст наружу не попадает, в лог сервиса — попадает.
+- **Проверка ответа в тесте** — `kit.CheckEndpoint(id, params)`: вызывает ручку, как pulse, и
+  сверяет ответ со схемой (лишние поля, типы, `maxLength`, `maxItems`, `enum`, время; у ошибки —
+  только `{"error"}`). Зависимости ручки в тесте — фейки:
+
+```go
+func TestOrderStatusEndpoint(t *testing.T) {
+	kit := pulsekit.New(pulsekit.Config{}, testService, pulsekit.Build{})
+	handleOrderStatus(kit, fakeOrders{})
+	require.NoError(t, kit.CheckEndpoint("order_status", map[string]string{"number": "234115"}))
+	require.NoError(t, kit.CheckEndpoint("order_status", map[string]string{"number": "00000"})) // 404 по стандарту
+}
+```
 
 ## Настройки pulse (для администратора)
 

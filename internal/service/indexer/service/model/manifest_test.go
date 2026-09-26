@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,6 +140,7 @@ func TestParseManifest_Partial(t *testing.T) {
 	accepted := []any{
 		endpoint(func(e map[string]any) {
 			e["id"] = "orders_by_phone"
+			e["description"] = strings.Repeat("д", 501)
 			e["path"] = "/diag/orders"
 			e["params"] = map[string]any{"phone": map[string]any{"type": "string", "x-personal": "phone"}}
 			e["rows_path"] = "items"
@@ -172,8 +174,9 @@ func TestParseManifest_Partial(t *testing.T) {
 	require.Len(t, m.Metadata.Dependencies, 1)
 	assert.Equal(t, "pg", m.Metadata.Dependencies[0].Id)
 	assert.Empty(t, m.Commit)
-	// 10 ручек + телефон + 2 зависимости + коммит
-	assert.Len(t, m.Problems, len(rejected)+4, m.Problems)
+	assert.Contains(t, m.Problems, "endpoints.orders_by_phone.description: 501 символов, лимит 500 — обрезано", "обрезка — не молча")
+	// 10 ручек + телефон + 2 зависимости + коммит + длинное описание
+	assert.Len(t, m.Problems, len(rejected)+5, m.Problems)
 }
 
 func anyValues(m map[string]map[string]any) []any {

@@ -160,7 +160,7 @@ func (a *App) Init() {
 	// pulsekit (манифест pulse: сведения о себе и фоновые проверки источников — ручка состояния)
 	a.pulsekit = newPulsekit()
 	{
-		a.pulsekit.Depend("postgres", "postgres", hostOf(config.Conf.PgDsn), true, a.pgpool.Ping)
+		a.pulsekit.Depend("postgres", "postgres", pulsekit.Host(config.Conf.PgDsn), true, a.pgpool.Ping)
 		a.pulsekit.Depend("kubernetes", "http", "kubernetes API", true, k8sService.Ping)
 		a.pulsekit.Depend("github", "http", "api.github.com", false, githubService.Ping)
 		for _, m := range lo.UniqBy(rules.ImageMapping, func(m config.ImageMapping) string { return m.Registry }) {
@@ -179,7 +179,7 @@ func (a *App) Init() {
 		}
 		for _, src := range optional {
 			if src.url != "" {
-				a.pulsekit.Depend(src.id, "http", hostOf(src.url), false, src.ping)
+				a.pulsekit.Depend(src.id, "http", pulsekit.Host(src.url), false, src.ping)
 			}
 		}
 	}

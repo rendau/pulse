@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -249,6 +250,7 @@ func ParseManifest(raw []byte) (*ParsedManifest, error) {
 	problem := func(format string, args ...any) {
 		result.Problems = append(result.Problems, fmt.Sprintf(format, args...))
 	}
+	result.Problems = append(result.Problems, longTexts(m)...)
 
 	// контакты — чат или почта команды; личные телефоны не принимаются
 	for _, c := range lo.Compact(svc.Owner.Contacts) {
@@ -536,6 +538,46 @@ func parsePersonal(raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("x-personal %s: ожидается один из %s", raw, strings.Join(PersonalKinds, ", "))
 	}
 	return kind, nil
+}
+
+// longTexts — тексты длиннее лимитов стандарта: pulse их обрезает, владелец должен об этом знать
+// (хвост описания для агента бывает самым важным).
+func longTexts(m *Manifest) []string {
+	var result []string
+	check := func(what, text string, limit int) {
+		if n := len([]rune(strings.TrimSpace(text))); n > limit {
+			result = append(result, fmt.Sprintf("%s: %d символов, лимит %d — обрезано", what, n, limit))
+		}
+	}
+	check("service.title", m.Service.Title, maxTitleChars)
+	check("service.description", m.Service.Description, maxTextChars)
+	for _, r := range m.Runbooks {
+		check("runbooks.title", r.Title, maxTitleChars)
+	}
+	for _, mt := range m.Metrics {
+		check("metrics."+mt.Id+".title", mt.Title, maxTitleChars)
+	}
+	var walk func(s *ManifestSchema, path string, depth int)
+	walk = func(s *ManifestSchema, path string, depth int) {
+		if s == nil || depth > maxSchemaDepth {
+			return
+		}
+		check(path+".description", s.Description, maxTextChars)
+		for name, prop := range s.Properties {
+			walk(prop, path+"."+name, depth+1)
+		}
+		walk(s.Items, path+"[]", depth+1)
+	}
+	for _, e := range m.Endpoints {
+		check("endpoints."+e.Id+".title", e.Title, maxTitleChars)
+		check("endpoints."+e.Id+".description", e.Description, maxTextChars)
+		for name, p := range e.Params {
+			check("endpoints."+e.Id+".params."+name+".description", p.Description, maxTextChars)
+		}
+		walk(e.Response, "endpoints."+e.Id+".response", 1)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func clip(s string, n int) string {

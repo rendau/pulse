@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/mechta-market/pulse/internal/constant"
@@ -24,15 +23,6 @@ func newPulsekit() *pulsekit.Kit {
 		Criticality: "low",
 		RepoUrl:     "https://github.com/mechta-market/pulse",
 	}, pulsekit.Build{Version: constant.Version, Commit: constant.Commit, BuiltAt: constant.BuiltAt})
-}
-
-// hostOf — хост адреса источника для target зависимости: без схемы, пути и учётных данных.
-func hostOf(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw
-	}
-	return u.Host
 }
 
 // indexerCycleRep — ответ диагностической ручки indexer_last_cycle.

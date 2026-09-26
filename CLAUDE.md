@@ -44,8 +44,13 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/infra/pulsekit/` — манифест сервиса по стандарту (`docs/service-manifest.md`) для самого pulse:
   `Depend(id, kind, target, critical, check)` — зависимость и её фоновая проверка (ручка состояния,
-  своё сообщение вместо текста ошибки), `Handle[T]` — диагностическая ручка, схема ответа из Go-типа
-  (json-теги, `pulse:"personal=…,maxLength=…,maxItems=…"`), правила стандарта — паникой при регистрации.
+  своё сообщение вместо текста ошибки — `Describe`), `Host` — хост из URL/DSN/gRPC-адреса (небезопасный
+  target → `unknown`, без паники), `Gauge`/`GaugeTime` — показатели состояния, `Metric`, `ErrorPattern`,
+  `Service.Runbooks`, `Handle[T]` — диагностическая ручка, схема ответа из Go-типа (json-теги,
+  `pulse:"personal=…,maxLength=…,maxItems=…,enum=a|b,description=…"` — description последним), лог
+  каждого вызова с `X-Pulse-Request-Id` (`RequestId(ctx)`), `CheckEndpoint` — сверка ответа со схемой
+  для тестов сервиса; правила стандарта (и лимиты текстов 100/500) — паникой при регистрации.
+  Копии — в pulse_agent и gotemplate: правки вносить во все три.
   Тест сверяет манифест с `ParseManifest`. Манифест pulse — `app/manifest.go` (зависимости — источники,
   ручка `indexer_last_cycle`), коммит сборки — `constant.Commit` (Makefile, ldflags). Прообраз модуля
   gotemplate.
