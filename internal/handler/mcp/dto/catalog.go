@@ -275,7 +275,7 @@ func encodeSourceError(v catalogModel.SourceError, _ int) SourceError {
 type Domain struct {
 	Responsibilities []string   `json:"responsibilities,omitempty" jsonschema:"за что сервис отвечает"`
 	NotResponsible   []Boundary `json:"not_responsible,omitempty" jsonschema:"чем не занимается и кто занимается — искать причину там"`
-	Entities         []Entity   `json:"entities,omitempty" jsonschema:"бизнес-объекты: по id_pattern узнаётся номер в вопросе и в логах"`
+	Entities         []Entity   `json:"entities,omitempty" jsonschema:"бизнес-объекты: по id_pattern узнаётся номер в вопросе и в логах; сколько их сейчас по статусам и сколько застряло — self_reported.entities в get_service_snapshot"`
 	Questions        []Question `json:"questions,omitempty" jsonschema:"типичные вопросы к сервису и куда за ответом"`
 }
 

@@ -26,6 +26,8 @@ const mcpInstructions = `pulse — единая точка доступа к и�
 	`не запрашивай их повторно по каждому сервису, разве что truncated. ` +
 	`Телефон в pattern query_logs — с «+» (+77011234567): найдётся в любом написании. ` +
 	`Смысл статусов и «застрял ли объект» — domain в get_service_info (stuck_after); чей номер — id_matches в query_logs. ` +
+	`«Сколько объектов сейчас, есть ли застрявшие» — сначала self_reported.entities в get_service_snapshot: сервис сам ` +
+	`считает по статусам и порогам domain (stuck; oldest_s — время в статусе, не с создания); ручки — за подробностями. ` +
 	`Предметные вопросы (где заказ, что в очереди) — diagnostic_endpoints из get_service_info и call_service_endpoint, ` +
 	`если сервис их объявил; self_reported в снапшоте — что сервис сообщает о своих зависимостях сам.`
 
