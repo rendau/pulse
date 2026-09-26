@@ -23,6 +23,8 @@ type Config struct {
 	ProblemPodsThreshold int
 	// NotReadyDownRatio — доля неготовых нод, с которой кластер считается упавшим
 	NotReadyDownRatio float64
+	// Public — пороги проблем публичных приложений gateway
+	Public PublicConfig
 }
 
 type Service struct {
@@ -39,6 +41,7 @@ func New(conf Config) *Service {
 	if conf.NotReadyDownRatio <= 0 {
 		conf.NotReadyDownRatio = 0.5
 	}
+	conf.Public.defaults()
 	return &Service{conf: conf}
 }
 
@@ -120,6 +123,13 @@ func (s *Service) SummaryHints(h *model.Health, now time.Time) []string {
 			hint += " — " + strings.TrimPrefix(r.Hints[0], "сервис сообщает: ")
 		}
 		hints = append(hints, hint)
+	}
+	for _, app := range h.PublicApps {
+		hint := "публичное приложение " + app.App
+		if app.Service != "" && app.Service != app.App {
+			hint += " (" + app.Service + ")"
+		}
+		hints = append(hints, hint+": "+strings.Join(lo.Map(app.Problems, func(p model.PublicProblem, _ int) string { return p.Text }), "; "))
 	}
 	if h.ServiceAlertsActive > 0 {
 		hints = append(hints, fmt.Sprintf("активных алертов по сервисам: %d (смотри get_service_snapshot)", h.ServiceAlertsActive))

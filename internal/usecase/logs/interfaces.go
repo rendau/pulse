@@ -18,6 +18,8 @@ type LogsI interface {
 	TopErrors(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main, window time.Duration, top int) ([]logsModel.Pattern, error)
 	// ClusterErrors — ошибки по всем логам кластера (top сервисов); для здоровья кластера.
 	ClusterErrors(ctx context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error)
+	// ServiceLines — строки сервиса по регэкспу за окно (все уровни); для здоровья кластера.
+	ServiceLines(ctx context.Context, service, pattern string, window time.Duration, limit int) ([]logsModel.Line, error)
 }
 
 // ports

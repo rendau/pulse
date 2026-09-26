@@ -5,6 +5,7 @@ import (
 	"time"
 
 	clusterModel "github.com/rendau/pulse/internal/domain/cluster/model"
+	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
 	logsModel "github.com/rendau/pulse/internal/domain/logs/model"
 	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
 	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
@@ -12,6 +13,7 @@ import (
 	alertmanagerModel "github.com/rendau/pulse/internal/service/alertmanager/model"
 	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
+	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
 
 type ClusterI interface {
@@ -44,6 +46,18 @@ type AlertmanagerI interface {
 // как у снапшота): селектор кластера, привязка подов к сервисам и паттерны — там.
 type LogsI interface {
 	ClusterErrors(ctx context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error)
+	ServiceLines(ctx context.Context, service, pattern string, window time.Duration, limit int) ([]logsModel.Line, error)
+}
+
+// RutoI экспортирован: gateway опционален (nil — проблемы публичных приложений не ищутся).
+type RutoI interface {
+	GetSnapshot(ctx context.Context) (*rutoModel.Snapshot, error)
+	GatewayErrorsFilter() string
+	ParseGatewayError(line string) (*rutoModel.GatewayError, bool)
+}
+
+type dependencyServiceI interface {
+	List(ctx context.Context, pars *dependencyModel.ListReq) ([]*dependencyModel.Main, int64, error)
 }
 
 type svcServiceI interface {
@@ -58,6 +72,7 @@ type SelfReportI interface {
 type rulesServiceI interface {
 	ComputeHealth(h *clusterModel.Health, nodesUnavailable bool) string
 	SummaryHints(h *clusterModel.Health, now time.Time) []string
+	PublicProblems(apps []*clusterModel.PublicApp, window time.Duration) []*clusterModel.PublicApp
 }
 
 type baselineServiceI interface {

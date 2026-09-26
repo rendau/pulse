@@ -52,3 +52,24 @@ func (a App) Route(e Endpoint) string {
 	}
 	return e.Method + " " + path
 }
+
+// виды ошибок gateway из его логов
+const (
+	// GatewayErrorProxy — backend не ответил: отказ соединения, таймаут, хост не найден (502)
+	GatewayErrorProxy = "proxy"
+	// GatewayErrorScript — скрипт трансформации маршрута не компилируется или падает
+	GatewayErrorScript = "script"
+)
+
+// GatewayError — ошибка из лога gateway: backend не ответил или сломан скрипт трансформации.
+type GatewayError struct {
+	Kind string // GatewayErrorProxy | GatewayErrorScript
+	// AppName — приложение (ошибки backend'а); AppId, EndpointId — маршрут (ошибки скрипта)
+	AppName    string
+	AppId      string
+	EndpointId string
+	// Reason — причина по-человечески: «backend connection refused», «request transform: compile failed»
+	Reason string
+	// Error — текст ошибки как есть
+	Error string
+}

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"math"
 	"time"
 
 	"github.com/samber/lo"
@@ -16,19 +17,20 @@ type GetClusterHealthReq struct {
 }
 
 type ClusterHealthRep struct {
-	GeneratedAt         time.Time     `json:"generated_at"`
-	Window              string        `json:"window"`
-	Health              string        `json:"health" jsonschema:"healthy | degraded | down | unknown — по фиксированным правилам"`
-	SummaryHints        []string      `json:"summary_hints"`
-	Nodes               ClusterNodes  `json:"nodes"`
-	Pods                ClusterPods   `json:"pods"`
-	EventReasons        []EventReason `json:"warning_events_by_reason"`
-	InfraAlerts         []Alert       `json:"infra_alerts" jsonschema:"активные алерты, не привязанные к сервисам каталога"`
-	ServiceAlertsActive int           `json:"service_alerts_active"`
-	Metrics             []Metric      `json:"metrics"`
-	LogErrors           *LogErrors    `json:"log_errors,omitempty" jsonschema:"ошибки в логах всего кластера по сервисам; нет — логи недоступны (см. errors)"`
-	SelfReported        []ClusterSelf `json:"self_reported" jsonschema:"сервисы с манифестом, которые сами сообщают о проблеме (самоотчёт не ok или устарел); подробности — self_reported в get_service_snapshot"`
-	Errors              []SourceError `json:"errors"`
+	GeneratedAt         time.Time          `json:"generated_at"`
+	Window              string             `json:"window"`
+	Health              string             `json:"health" jsonschema:"healthy | degraded | down | unknown — по фиксированным правилам"`
+	SummaryHints        []string           `json:"summary_hints"`
+	Nodes               ClusterNodes       `json:"nodes"`
+	Pods                ClusterPods        `json:"pods"`
+	EventReasons        []EventReason      `json:"warning_events_by_reason"`
+	InfraAlerts         []Alert            `json:"infra_alerts" jsonschema:"активные алерты, не привязанные к сервисам каталога"`
+	ServiceAlertsActive int                `json:"service_alerts_active"`
+	Metrics             []Metric           `json:"metrics"`
+	LogErrors           *LogErrors         `json:"log_errors,omitempty" jsonschema:"ошибки в логах всего кластера по сервисам; нет — логи недоступны (см. errors)"`
+	SelfReported        []ClusterSelf      `json:"self_reported" jsonschema:"сервисы с манифестом, которые сами сообщают о проблеме (самоотчёт не ok или устарел); подробности — self_reported в get_service_snapshot"`
+	PublicApps          []ClusterPublicApp `json:"public_apps" jsonschema:"приложения API-gateway (опубликованный наружу API) с проблемой за окно; пустой список — проблем нет или gateway не подключён; подробности — get_public_api(service)"`
+	Errors              []SourceError      `json:"errors"`
 }
 
 type LogErrors struct {
@@ -124,8 +126,91 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 			}
 			return rep
 		}),
-		Errors: lo.Map(v.Errors, encodeSnapshotSourceError),
+		PublicApps: lo.Map(v.PublicApps, encodePublicApp),
+		Errors:     lo.Map(v.Errors, encodeSnapshotSourceError),
 	}
+}
+
+// ClusterPublicApp — приложение gateway с проблемой снаружи.
+type ClusterPublicApp struct {
+	App           string                  `json:"app" jsonschema:"приложение gateway"`
+	Service       string                  `json:"service,omitempty" jsonschema:"сервис-бэкенд каталога; пусто — не найден"`
+	Problems      []ClusterPublicProblem  `json:"problems"`
+	Traffic       *ClusterPublicTraffic   `json:"traffic,omitempty" jsonschema:"трафик за окно по метрикам gateway и обычный уровень"`
+	BackendErrors []ClusterGatewayReason  `json:"backend_errors,omitempty" jsonschema:"backend не ответил gateway (логи gateway), по причинам"`
+	ScriptErrors  []ClusterScriptError    `json:"script_errors,omitempty" jsonschema:"ошибки скриптов трансформации маршрутов (логи gateway)"`
+	BackendPods   *ClusterPublicPodsReady `json:"backend_pods,omitempty" jsonschema:"готовые поды backend'а против желаемых"`
+}
+
+type ClusterPublicProblem struct {
+	Kind string `json:"kind" jsonschema:"errors — всплеск 5xx, backend — backend не отвечает или без готовых подов, script — сломан скрипт маршрута, slow — p95 выше обычного, no_traffic — пропал трафик"`
+	Text string `json:"text"`
+}
+
+type ClusterPublicTraffic struct {
+	Requests          float64  `json:"requests"`
+	Errors            float64  `json:"errors" jsonschema:"ответы 5xx и серверные коды gRPC"`
+	ErrorRate         *float64 `json:"error_rate,omitempty"`
+	UsualErrorRate    *float64 `json:"usual_error_rate,omitempty" jsonschema:"доля сбоев за сутки до окна"`
+	P95               *float64 `json:"p95_seconds,omitempty"`
+	UsualP95          *float64 `json:"usual_p95_seconds,omitempty" jsonschema:"то же окно вчера (нет — окном раньше)"`
+	PrevRequests      *float64 `json:"prev_requests,omitempty" jsonschema:"запросов окном раньше"`
+	YesterdayRequests *float64 `json:"yesterday_requests,omitempty" jsonschema:"запросов в то же окно вчера"`
+}
+
+type ClusterGatewayReason struct {
+	Reason  string `json:"reason"`
+	Count   int    `json:"count"`
+	Example string `json:"example,omitempty"`
+}
+
+type ClusterScriptError struct {
+	Route   string `json:"route,omitempty" jsonschema:"маршрут (METHOD /prefix/path); пусто — маршрута уже нет в конфигурации"`
+	Reason  string `json:"reason" jsonschema:"request/response transform: compile/run failed"`
+	Count   int    `json:"count"`
+	Example string `json:"example,omitempty"`
+}
+
+type ClusterPublicPodsReady struct {
+	Ready   int `json:"ready"`
+	Desired int `json:"desired"`
+}
+
+func encodePublicApp(v clusterModel.PublicApp, _ int) ClusterPublicApp {
+	rep := ClusterPublicApp{
+		App: v.App, Service: v.Service,
+		Problems: lo.Map(v.Problems, func(p clusterModel.PublicProblem, _ int) ClusterPublicProblem {
+			return ClusterPublicProblem{Kind: p.Kind, Text: p.Text}
+		}),
+		BackendErrors: lo.Map(v.BackendErrors, func(r clusterModel.GatewayReason, _ int) ClusterGatewayReason {
+			return ClusterGatewayReason{Reason: r.Reason, Count: r.Count, Example: r.Example}
+		}),
+		ScriptErrors: lo.Map(v.ScriptErrors, func(e clusterModel.ScriptError, _ int) ClusterScriptError {
+			return ClusterScriptError{Route: e.Route, Reason: e.Reason, Count: e.Count, Example: e.Example}
+		}),
+	}
+	if t := v.Traffic; t != nil {
+		rep.Traffic = &ClusterPublicTraffic{
+			Requests: roundTo(t.Requests), Errors: roundTo(t.Errors), ErrorRate: roundPtr(t.ErrorRate), UsualErrorRate: roundPtr(t.UsualErrorRate),
+			P95: roundPtr(t.P95), UsualP95: roundPtr(t.UsualP95), PrevRequests: roundPtr(t.PrevRequests), YesterdayRequests: roundPtr(t.YesterdayRequests),
+		}
+	}
+	if p := v.BackendPods; p != nil {
+		rep.BackendPods = &ClusterPublicPodsReady{Ready: p.Ready, Desired: p.Desired}
+	}
+	return rep
+}
+
+// roundTo — три знака после запятой: increase() даёт дробные счётчики.
+func roundTo(v float64) float64 {
+	return math.Round(v*1000) / 1000
+}
+
+func roundPtr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	return new(roundTo(*v))
 }
 
 // ClusterSelf — сервис, который сам сообщает о проблеме.

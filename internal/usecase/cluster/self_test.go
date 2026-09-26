@@ -50,7 +50,7 @@ func (fakeSelfReport) Report(_ context.Context, s *svcModel.Main, _ []*workloadM
 
 func TestSelfReported(t *testing.T) {
 	catalog := &fakeCatalog{}
-	u := New(Config{Deadline: 2 * time.Second}, catalog, fakeSelfReport{}, manifestWorkloads{}, &fakeK8s{}, nil, nil, nil,
+	u := New(Config{Deadline: 2 * time.Second}, catalog, fakeSelfReport{}, manifestWorkloads{}, &fakeK8s{}, nil, nil, nil, nil, nil,
 		clusterService.New(clusterService.Config{}), snapshotService.New(snapshotService.Config{}))
 
 	h, err := u.Health(context.Background(), time.Hour)

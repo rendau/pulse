@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"sync/atomic"
 	"testing"
 
@@ -73,4 +74,35 @@ func snapshotString(v *rutoModel.Snapshot) string {
 		}
 	}
 	return out
+}
+
+func TestParseGatewayError(t *testing.T) {
+	s := New("http://ruto")
+	re := regexp.MustCompile(s.GatewayErrorsFilter())
+
+	proxy := `{"time":"2026-09-26T09:13:32.58+05:00","level":"ERROR","msg":"proxy error POST /send/service/send","reason":"backend closed connection","error":"EOF","app_name":"sms_acc_service"}`
+	assert.True(t, re.MatchString(proxy))
+	e, ok := s.ParseGatewayError(proxy)
+	require.True(t, ok)
+	assert.Equal(t, rutoModel.GatewayError{Kind: rutoModel.GatewayErrorProxy, AppName: "sms_acc_service", Reason: "backend closed connection", Error: "EOF"}, *e)
+
+	script := `{"level":"ERROR","msg":"request transform: compile failed","error":"SyntaxError: Unexpected token","app_id":"a1","endpoint_id":"e1"}`
+	assert.True(t, re.MatchString(script))
+	e, ok = s.ParseGatewayError(script)
+	require.True(t, ok)
+	assert.Equal(t, rutoModel.GatewayError{Kind: rutoModel.GatewayErrorScript, AppId: "a1", EndpointId: "e1", Reason: "request transform: compile failed", Error: "SyntaxError: Unexpected token"}, *e)
+
+	e, ok = s.ParseGatewayError(`{"msg":"response transform: run failed","error":"TypeError","app_id":"a1","endpoint_id":"e2"}`)
+	require.True(t, ok)
+	assert.Equal(t, "response transform: run failed", e.Reason)
+
+	for _, line := range []string{
+		`{"msg":"proxy error GET /x","reason":"client canceled request","app_name":"a"}`,
+		`{"msg":"proxy error GET /x","reason":"backend connection refused"}`,
+		`proxy error GET /x: EOF`,
+		`{"msg":"request","status":"500"}`,
+	} {
+		_, ok = s.ParseGatewayError(line)
+		assert.False(t, ok, line)
+	}
 }

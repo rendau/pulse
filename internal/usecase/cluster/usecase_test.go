@@ -73,7 +73,7 @@ func (f fakeAM) ListAlerts(context.Context) ([]alertmanagerModel.Alert, error) {
 func newUsecase(k8s *fakeK8s, am AlertmanagerI, prom PrometheusI) *Usecase {
 	return New(Config{Deadline: 2 * time.Second, Metrics: []snapshotModel.MetricDef{
 		{Id: "cluster_cpu_usage_ratio", PromQL: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`, Direction: "lower_is_better"},
-	}}, nil, nil, fakeWorkload{}, k8s, prom, am, nil,
+	}}, nil, nil, fakeWorkload{}, k8s, prom, am, nil, nil, nil,
 		clusterService.New(clusterService.Config{PendingPodsThreshold: 2}),
 		snapshotService.New(snapshotService.Config{AnomalyThresholdPct: 30}))
 }
@@ -325,6 +325,9 @@ type fakeLogs struct {
 	err    error
 	window time.Duration
 	top    int
+	// ServiceLines
+	lines            []logsModel.Line
+	service, pattern string
 }
 
 func (f *fakeLogs) ClusterErrors(_ context.Context, window time.Duration, top int) (*logsModel.ClusterErrors, error) {
@@ -332,10 +335,15 @@ func (f *fakeLogs) ClusterErrors(_ context.Context, window time.Duration, top in
 	return f.result, f.err
 }
 
+func (f *fakeLogs) ServiceLines(_ context.Context, service, pattern string, _ time.Duration, _ int) ([]logsModel.Line, error) {
+	f.service, f.pattern = service, pattern
+	return f.lines, f.err
+}
+
 func TestHealth_LogErrors(t *testing.T) {
 	logs := &fakeLogs{result: &logsModel.ClusterErrors{Window: time.Hour, Total: 7, ServicesTotal: 1,
 		Services: []logsModel.ServiceErrors{{Service: "payments-api", Namespace: "prod", Count: 7}}}}
-	u := New(Config{Deadline: 2 * time.Second, MaxLogServices: 5}, nil, nil, fakeWorkload{}, &fakeK8s{}, nil, nil, logs,
+	u := New(Config{Deadline: 2 * time.Second, MaxLogServices: 5}, nil, nil, fakeWorkload{}, &fakeK8s{}, nil, nil, logs, nil, nil,
 		clusterService.New(clusterService.Config{}), snapshotService.New(snapshotService.Config{}))
 
 	h, err := u.Health(context.Background(), time.Hour)

@@ -408,6 +408,11 @@ func (a *App) Init() {
 		if alertmanagerService != nil {
 			alertmanagerClient = alertmanagerService
 		}
+		var rutoClient usecaseClusterP.RutoI
+		if rutoService != nil {
+			rutoClient = rutoService
+		}
+		problems := rules.Ruto.Problems
 
 		clusterUsecase = usecaseClusterP.New(
 			usecaseClusterP.Config{
@@ -419,11 +424,23 @@ func (a *App) Init() {
 				Metrics: lo.Map(rules.Cluster.Metrics, func(m config.MetricDef, _ int) domainSnapshotModel.MetricDef {
 					return domainSnapshotModel.MetricDef{Id: m.Id, Title: m.Title, PromQL: m.PromQL, Unit: m.Unit, Direction: m.Direction}
 				}),
+				Public: usecaseClusterP.PublicConfig{
+					GatewayService: rules.Ruto.GatewayService,
+					RequestsMetric: rules.Ruto.RequestsMetric,
+					DurationMetric: rules.Ruto.DurationMetric,
+					MaxApps:        problems.MaxApps,
+				},
 			},
 			svcService, selfReportService, workloadService, k8sService, prometheusClient, alertmanagerClient, logsUsecase,
+			rutoClient, dependencyService,
 			domainClusterServiceP.New(domainClusterServiceP.Config{
 				PendingPodsThreshold: rules.Cluster.PendingPodsThreshold,
 				ProblemPodsThreshold: rules.Cluster.ProblemPodsThreshold,
+				Public: domainClusterServiceP.PublicConfig{
+					MinRequests: problems.MinRequests, MinErrors: problems.MinErrors, ErrorRate: problems.ErrorRate,
+					ErrorFactor: problems.ErrorFactor, SlowP95: problems.SlowP95, SlowFactor: problems.SlowFactor,
+					TrafficMin: problems.TrafficMin, TrafficDrop: problems.TrafficDrop, BackendErrorsMin: problems.BackendErrorsMin,
+				},
 			}),
 			domainSnapshotServiceP.New(domainSnapshotServiceP.Config{AnomalyThresholdPct: rules.Snapshot.AnomalyThresholdPct}),
 		)

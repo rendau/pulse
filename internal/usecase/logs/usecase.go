@@ -232,6 +232,23 @@ func (u *Usecase) TopErrors(ctx context.Context, service *svcModel.Main, workloa
 	return u.patterns.Aggregate(lines, top), nil
 }
 
+// ServiceLines — строки сервиса за окно по регэкспу, все уровни, не больше limit (самые свежие);
+// для разбора чужого формата логов (ошибки gateway в здоровье кластера).
+func (u *Usecase) ServiceLines(ctx context.Context, serviceName, pattern string, win time.Duration, limit int) ([]logsModel.Line, error) {
+	service, err := u.svc.GetOrSuggest(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("svc.GetOrSuggest: %w", err)
+	}
+	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceName: new(service.Name)})
+	if err != nil {
+		return nil, fmt.Errorf("workload.List: %w", err)
+	}
+
+	end := time.Now().UTC()
+	lines, _, _, err := u.collect(ctx, service, u.podGroups(ctx, service, workloads), "", pattern, "", end.Add(-win), end, limit)
+	return lines, err
+}
+
 // collect — строки из Loki, а если он не подключён или не ответил — из Kubernetes API
 // (живые поды сервиса). Возвращает и то, откуда и по какому селектору строки взяты.
 func (u *Usecase) collect(ctx context.Context, service *svcModel.Main, groups []podGroup, prefilter, pattern, level string, start, end time.Time, limit int) ([]logsModel.Line, string, string, error) {

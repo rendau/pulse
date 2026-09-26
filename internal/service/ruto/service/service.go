@@ -183,3 +183,44 @@ func decodeEndpoint(v endpointRep, _ int) rutoModel.Endpoint {
 		GrpcPath: v.Grpc.Path,
 	}
 }
+
+// gatewayErrorsFilter — подстроки сообщений об ошибках gateway (регэксп для логов): backend не
+// ответил (proxy error) и скрипт трансформации не компилируется или падает.
+const gatewayErrorsFilter = `proxy error |transform: (compile|run) failed`
+
+// GatewayErrorsFilter — регэксп строк логов gateway, которые разбирает ParseGatewayError.
+func (s *Service) GatewayErrorsFilter() string {
+	return gatewayErrorsFilter
+}
+
+// gatewayLogLine — строка лога gateway (JSON slog).
+type gatewayLogLine struct {
+	Msg        string `json:"msg"`
+	Reason     string `json:"reason"`
+	Error      string `json:"error"`
+	AppName    string `json:"app_name"`
+	AppId      string `json:"app_id"`
+	EndpointId string `json:"endpoint_id"`
+}
+
+// ParseGatewayError — ошибка gateway из строки его лога; не та строка — false. Отмена запроса
+// клиентом — не ошибка backend'а.
+func (s *Service) ParseGatewayError(line string) (*rutoModel.GatewayError, bool) {
+	var v gatewayLogLine
+	if json.Unmarshal([]byte(line), &v) != nil {
+		return nil, false
+	}
+	switch {
+	case strings.HasPrefix(v.Msg, "proxy error ") && v.AppName != "" && v.Reason != "client canceled request":
+		return &rutoModel.GatewayError{
+			Kind: rutoModel.GatewayErrorProxy, AppName: v.AppName,
+			Reason: lo.CoalesceOrEmpty(v.Reason, "backend request failed"), Error: v.Error,
+		}, true
+	case strings.Contains(v.Msg, "transform: ") && strings.HasSuffix(v.Msg, " failed") && v.AppId != "":
+		return &rutoModel.GatewayError{
+			Kind: rutoModel.GatewayErrorScript, AppId: v.AppId, EndpointId: v.EndpointId,
+			Reason: v.Msg, Error: v.Error,
+		}, true
+	}
+	return nil, false
+}

@@ -104,6 +104,20 @@ type Rules struct {
 		// Deadline — дедлайн get_public_api; MaxEndpoints — потолок маршрутов в ответе
 		Deadline     time.Duration `yaml:"deadline"`
 		MaxEndpoints int           `yaml:"max_endpoints"`
+		// Problems — проблемы публичных приложений в get_cluster_health (пороги за окно);
+		// нулевые поля — дефолты домена (domain/cluster/service/public.go)
+		Problems struct {
+			MinRequests      float64       `yaml:"min_requests"`
+			MinErrors        float64       `yaml:"min_errors"`
+			ErrorRate        float64       `yaml:"error_rate"`
+			ErrorFactor      float64       `yaml:"error_factor"`
+			SlowP95          time.Duration `yaml:"slow_p95"`
+			SlowFactor       float64       `yaml:"slow_factor"`
+			TrafficMin       float64       `yaml:"traffic_min"`
+			TrafficDrop      float64       `yaml:"traffic_drop"`
+			BackendErrorsMin int           `yaml:"backend_errors_min"`
+			MaxApps          int           `yaml:"max_apps"`
+		} `yaml:"problems"`
 	} `yaml:"ruto"`
 
 	// Manifest — манифест сервиса (docs/service-manifest.md)

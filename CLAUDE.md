@@ -75,7 +75,14 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
   `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
   метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`,
-  сервисы, которые сами сообщают о проблеме, — `self_reported`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
+  сервисы, которые сами сообщают о проблеме, — `self_reported`; публичные приложения gateway ruto с
+  проблемой — `public_apps`, `cluster/public.go`: всплеск 5xx против доли за сутки до окна, backend
+  не ответил gateway (строки `proxy error` в логах gateway, `logs.ServiceLines`) или у него нет готовых
+  подов, скрипт трансформации не компилируется/падает (`transform: … failed`, маршрут — по id из
+  снапшота ruto), p95 против того же окна вчера (p95 за сутки по 11k серий бакетов — слишком тяжело),
+  трафик пропал (≤2% от меньшего из «окном раньше» и «вчера», оба ≥300); формат логов gateway знает
+  только `service/ruto` (`GatewayErrorsFilter`/`ParseGatewayError`), пороги — `ruto.problems`,
+  правила — `domain/cluster/service/public.go`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
   индексера, маршруты из снапшота ruto, трафик из метрик gateway). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать

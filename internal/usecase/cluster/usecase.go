@@ -35,6 +35,7 @@ type Config struct {
 	MaxInfraAlerts  int
 	MaxLogServices  int
 	Metrics         []snapshotModel.MetricDef
+	Public          PublicConfig
 }
 
 type Usecase struct {
@@ -47,11 +48,13 @@ type Usecase struct {
 	prometheus   PrometheusI
 	alertmanager AlertmanagerI
 	logs         LogsI
+	ruto         RutoI
+	depend       dependencyServiceI
 	rules        rulesServiceI
 	baseline     baselineServiceI
 }
 
-func New(conf Config, svc svcServiceI, self SelfReportI, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, logs LogsI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
+func New(conf Config, svc svcServiceI, self SelfReportI, workload workloadServiceI, k8s k8sClientI, prometheus PrometheusI, alertmanager AlertmanagerI, logs LogsI, ruto RutoI, depend dependencyServiceI, rules rulesServiceI, baseline baselineServiceI) *Usecase {
 	if conf.Deadline <= 0 {
 		conf.Deadline = time.Minute
 	}
@@ -67,7 +70,13 @@ func New(conf Config, svc svcServiceI, self SelfReportI, workload workloadServic
 	if conf.MaxLogServices <= 0 {
 		conf.MaxLogServices = 10
 	}
-	return &Usecase{conf: conf, svc: svc, self: self, workload: workload, k8s: k8s, prometheus: prometheus, alertmanager: alertmanager, logs: logs, rules: rules, baseline: baseline}
+	if conf.Public.MaxApps <= 0 {
+		conf.Public.MaxApps = 20
+	}
+	if conf.Public.LogLines <= 0 {
+		conf.Public.LogLines = 1000
+	}
+	return &Usecase{conf: conf, svc: svc, self: self, workload: workload, k8s: k8s, prometheus: prometheus, alertmanager: alertmanager, logs: logs, ruto: ruto, depend: depend, rules: rules, baseline: baseline}
 }
 
 const pendingGrace = 2 * time.Minute
@@ -103,7 +112,15 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 	eg.Go(func() error { c.metrics(egCtx); return nil })
 	eg.Go(func() error { c.logErrors(egCtx); return nil })
 	eg.Go(func() error { c.selfReports(egCtx); return nil })
+	if c.publicEnabled() {
+		eg.Go(func() error { c.publicTraffic(egCtx); return nil })
+		eg.Go(func() error { c.gatewayErrors(egCtx); return nil })
+		eg.Go(func() error { c.publicRoutes(egCtx); return nil })
+	}
 	_ = eg.Wait()
+	if c.publicEnabled() {
+		c.publicApps(c.readyPods)
+	}
 
 	c.h.Errors = lo.UniqBy(c.h.Errors, func(e snapshotModel.SourceError) string { return e.Source })
 	c.h.Health = u.rules.ComputeHealth(c.h, c.nodesUnavailable)
@@ -121,6 +138,10 @@ type collector struct {
 
 	// podServices — сервис каждого пода по namespace (заполняет pods, читает events)
 	podServices map[string]map[string]string
+	// readyPods — готовых подов по сервису (заполняет pods; nil — поды недоступны)
+	readyPods map[string]int
+	// public — сырьё для проблем публичных приложений gateway (public.go)
+	public public
 
 	mu               sync.Mutex
 	nodesUnavailable bool
@@ -177,6 +198,7 @@ func (c *collector) pods(ctx context.Context) {
 	result := clusterModel.Pods{Total: len(pods)}
 	since := c.now.Add(-c.h.Window)
 	podServices := make(map[string]map[string]string, 16)
+	readyPods := make(map[string]int, 64)
 	for _, pod := range pods {
 		switch pod.Phase {
 		case "Running":
@@ -194,6 +216,9 @@ func (c *collector) pods(ctx context.Context) {
 			podServices[pod.Namespace] = map[string]string{}
 		}
 		podServices[pod.Namespace][pod.Name] = service
+		if pod.Ready && service != "" {
+			readyPods[service]++
+		}
 
 		add := func(reason, message, image string, at time.Time) {
 			result.ProblemsTotal++
@@ -246,6 +271,7 @@ func (c *collector) pods(ctx context.Context) {
 	c.mu.Lock()
 	c.h.Pods = result
 	c.podServices = podServices
+	c.readyPods = readyPods
 	c.mu.Unlock()
 }
 
