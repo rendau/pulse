@@ -159,6 +159,7 @@ type ManifestEndpoint struct {
 	Title       string                   `json:"title"`
 	Description string                   `json:"description"`
 	Path        string                   `json:"path"`
+	Audience    string                   `json:"audience"`
 	Params      map[string]ManifestParam `json:"params"`
 	TimeoutMs   int                      `json:"timeout_ms"`
 	Response    *ManifestSchema          `json:"response"`
@@ -471,8 +472,12 @@ func parseEndpoint(e ManifestEndpoint) (*svcModel.Endpoint, error) {
 		return nil, fmt.Errorf("path %q: абсолютный путь без .. и query", e.Path)
 	case len(e.Params) > maxParams:
 		return nil, fmt.Errorf("параметров %d, максимум %d", len(e.Params), maxParams)
-	case e.Response == nil:
+	case e.Audience != "" && e.Audience != svcModel.AudienceHuman:
+		return nil, fmt.Errorf("audience %q: ожидается %q или пусто", e.Audience, svcModel.AudienceHuman)
+	case e.Response == nil && e.Audience != svcModel.AudienceHuman:
 		return nil, fmt.Errorf("нет схемы ответа (response): без неё pulse ничего не пропустит")
+	case e.Response == nil && e.RowsPath != "":
+		return nil, fmt.Errorf("rows_path без схемы ответа: списку не на что указать")
 	}
 
 	endpoint := &svcModel.Endpoint{
@@ -480,6 +485,7 @@ func parseEndpoint(e ManifestEndpoint) (*svcModel.Endpoint, error) {
 		Title:       clip(e.Title, maxTitleChars),
 		Description: clip(e.Description, maxEndpointDescChars),
 		Path:        e.Path,
+		Audience:    e.Audience,
 		Params:      make(map[string]svcModel.EndpointParam, len(e.Params)),
 		RowsPath:    e.RowsPath,
 		MaxRows:     lo.Clamp(lo.CoalesceOrEmpty(e.MaxRows, defaultMaxRows), 1, maxMaxRows),
@@ -502,6 +508,9 @@ func parseEndpoint(e ManifestEndpoint) (*svcModel.Endpoint, error) {
 		endpoint.Params[name] = *param
 	}
 
+	if e.Response == nil {
+		return endpoint, nil
+	}
 	schema, err := parseSchema(e.Response, "response", 1)
 	if err != nil {
 		return nil, err

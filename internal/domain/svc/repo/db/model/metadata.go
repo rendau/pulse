@@ -90,6 +90,7 @@ type endpointJSON struct {
 	Description string                       `json:"description,omitempty"`
 	Path        string                       `json:"path"`
 	Workload    *workloadRefJSON             `json:"workload,omitempty"`
+	Audience    string                       `json:"audience,omitempty"`
 	Params      map[string]endpointParamJSON `json:"params,omitempty"`
 	Response    *schemaJSON                  `json:"response,omitempty"`
 	RowsPath    string                       `json:"rows_path,omitempty"`
@@ -191,6 +192,7 @@ func encodeEndpoint(v endpointJSON, _ int) domainModel.Endpoint {
 		Title:       v.Title,
 		Description: v.Description,
 		Path:        v.Path,
+		Audience:    v.Audience,
 		Params: lo.MapValues(v.Params, func(p endpointParamJSON, _ string) domainModel.EndpointParam {
 			return domainModel.EndpointParam{
 				Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required,
@@ -285,6 +287,7 @@ func decodeEndpoint(v domainModel.Endpoint, _ int) endpointJSON {
 		Title:       v.Title,
 		Description: v.Description,
 		Path:        v.Path,
+		Audience:    v.Audience,
 		Params: lo.MapValues(v.Params, func(p domainModel.EndpointParam, _ string) endpointParamJSON {
 			return endpointParamJSON{
 				Type: p.Type, Default: p.Default, Max: p.Max, Min: p.Min, Required: p.Required,

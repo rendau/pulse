@@ -17,9 +17,9 @@ var Conf = struct {
 	SystemHttpPort string `env:"SYSTEM_HTTP_PORT" envDefault:"3003"` // healthcheck, readiness, metrics, docs
 
 	// MCP
-	// bearer-токены: MCP_AUTH_TOKEN — бота pulse_bot (ходит изнутри кластера),
-	// MCP_EXTERNAL_TOKENS — внешних клиентов (агенты, люди) через запятую, у каждого свой;
-	// оба пусты — без проверки (локальная разработка)
+	// bearer-токены: MCP_AUTH_TOKEN — агента pulse_agent (ходит изнутри кластера; только ему —
+	// ответы ручек для человека, audience: human), MCP_EXTERNAL_TOKENS — внешних клиентов
+	// (агенты, люди) через запятую, у каждого свой; оба пусты — без проверки (локальная разработка)
 	MCPAuthToken      string   `env:"MCP_AUTH_TOKEN"`
 	MCPExternalTokens []string `env:"MCP_EXTERNAL_TOKENS" envSeparator:","`
 	MCPPath           string   `env:"MCP_PATH" envDefault:"/mcp"`

@@ -1,6 +1,7 @@
 package pulsekit
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -44,4 +45,22 @@ func TestManifest_PassesPulseValidation(t *testing.T) {
 	assert.Equal(t, "order_status", parsed.Metadata.Domain.Questions[0].Endpoint)
 
 	assert.Contains(t, string(raw), `"default":20`, "default числового параметра — числом")
+}
+
+// Ручка для человека проходит проверку pulse без схемы ответа.
+func TestManifest_HumanEndpoint(t *testing.T) {
+	k := newKit()
+	Handle(k, Endpoint{
+		Id: "order_raw", Title: "Заказ как есть", Description: "когда просят показать заказ целиком, как есть",
+		Path: "/diag/order/{number}/raw", Params: map[string]Param{"number": {Pattern: "[0-9]{5,12}"}}, Human: true,
+	}, func(context.Context, map[string]string) (any, error) { return nil, nil })
+	raw, err := json.Marshal(k.Manifest())
+	require.NoError(t, err)
+
+	parsed, err := indexerModel.ParseManifest(raw)
+	require.NoError(t, err)
+	assert.Empty(t, parsed.Problems)
+	require.Len(t, parsed.Metadata.Endpoints, 2)
+	assert.Equal(t, "human", parsed.Metadata.Endpoints[1].Audience)
+	assert.Nil(t, parsed.Metadata.Endpoints[1].Response)
 }

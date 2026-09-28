@@ -16,6 +16,12 @@ func TestMetadata_RoundTrip(t *testing.T) {
 	in := domainModel.Metadata{
 		Source:       domainModel.MetadataSourceManifest,
 		Dependencies: []domainModel.Dependency{{Id: "pg", Kind: "postgres", Target: "caravan-pg", Critical: true, Affects: "весь сервис"}},
+		Endpoints: []domainModel.Endpoint{{
+			Id: "delivery_raw", Title: "Доставка как есть", Path: "/diag/delivery/{id}", Audience: domainModel.AudienceHuman,
+			Workload: &domainModel.WorkloadRef{Namespace: "default", Kind: "Deployment", Name: "caravan"},
+			Params:   map[string]domainModel.EndpointParam{"id": {Type: "string", Pattern: "[0-9]{7}", Required: true}},
+			MaxRows:  50, Timeout: 5 * time.Second,
+		}},
 		Domain: &domainModel.Domain{
 			Responsibilities: []string{"Назначает курьера на доставку"},
 			NotResponsible:   []domainModel.Boundary{{What: "оплата", Service: "payments"}},
@@ -35,6 +41,7 @@ func TestMetadata_RoundTrip(t *testing.T) {
 
 	assert.Equal(t, in.Domain, out.Domain)
 	assert.Equal(t, in.Dependencies, out.Dependencies)
+	assert.Equal(t, in.Endpoints, out.Endpoints, "ручка для человека — с audience и без схемы")
 
 	assert.Nil(t, encodeMetadata(decodeMetadata(&domainModel.Metadata{})).Domain, "не описан — nil")
 }

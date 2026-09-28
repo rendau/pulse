@@ -31,7 +31,7 @@ func TestMCPServer_Ping(t *testing.T) {
 
 	// токен бота и внешних клиентов; пустые игнорируются
 	const token, externalToken = "secret-token", "external-token"
-	httpServer := MCPHttpServerCreate("0", "/mcp", []string{token, externalToken, ""}, server)
+	httpServer := MCPHttpServerCreate("0", "/mcp", token, []string{externalToken, ""}, server)
 	ts := httptest.NewServer(httpServer.Handler)
 	defer ts.Close()
 
@@ -129,4 +129,46 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+t.token)
 	return http.DefaultTransport.RoundTrip(req)
+}
+
+// Право на ответы ручек для человека — только у внутреннего токена (агент pulse).
+func TestMCPServer_HumanScope(t *testing.T) {
+	ctx := context.Background()
+
+	server := MCPServerCreate(func(server *mcp.Server) {
+		mcp.AddTool(server, &mcp.Tool{Name: "whoami"}, func(_ context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, struct {
+			Scopes []string `json:"scopes"`
+		}, error) {
+			var out struct {
+				Scopes []string `json:"scopes"`
+			}
+			if req.Extra != nil && req.Extra.TokenInfo != nil {
+				out.Scopes = req.Extra.TokenInfo.Scopes
+			}
+			return nil, out, nil
+		})
+	})
+	const internalToken, externalToken = "internal-token", "external-token"
+	ts := httptest.NewServer(MCPHttpServerCreate("0", "/mcp", internalToken, []string{externalToken}, server).Handler)
+	defer ts.Close()
+
+	for token, want := range map[string][]string{internalToken: {constant.ScopeHuman}, externalToken: nil} {
+		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+			Endpoint:   ts.URL + "/mcp",
+			HTTPClient: &http.Client{Transport: &bearerTransport{token: token}},
+		}, nil)
+		require.NoError(t, err)
+
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "whoami"})
+		require.NoError(t, err)
+		var out struct {
+			Scopes []string `json:"scopes"`
+		}
+		raw, err := json.Marshal(res.StructuredContent)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(raw, &out))
+		assert.Equal(t, want, out.Scopes, token)
+		_ = session.Close()
+	}
 }

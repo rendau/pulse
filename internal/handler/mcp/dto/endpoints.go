@@ -16,6 +16,7 @@ type EndpointDef struct {
 	Id          string                   `json:"id"`
 	Title       string                   `json:"title,omitempty"`
 	Description string                   `json:"description,omitempty" jsonschema:"когда вызывать — от владельца сервиса"`
+	Audience    string                   `json:"audience,omitempty" jsonschema:"human — ответ только для человека: агент pulse пересылает его как есть, модель его не видит"`
 	Params      map[string]EndpointParam `json:"params,omitempty"`
 	Fields      []string                 `json:"fields,omitempty" jsonschema:"поля ответа верхнего уровня; (personal: вид) — персональные данные"`
 	MaxRows     int                      `json:"max_rows,omitempty"`
@@ -39,6 +40,7 @@ func EncodeEndpointDef(v svcModel.Endpoint, _ int) EndpointDef {
 		Id:          v.Id,
 		Title:       v.Title,
 		Description: v.Description,
+		Audience:    v.Audience,
 		Params: lo.MapValues(v.Params, func(p svcModel.EndpointParam, _ string) EndpointParam {
 			return EndpointParam{
 				Type: p.Type, Default: p.Default, Min: p.Min, Max: p.Max, Required: p.Required,
@@ -110,6 +112,7 @@ type CallServiceEndpointRep struct {
 	Service    string   `json:"service"`
 	EndpointId string   `json:"endpoint_id"`
 	Title      string   `json:"title,omitempty"`
+	Audience   string   `json:"audience,omitempty" jsonschema:"human — ответ только для человека, как есть (data без проекции на схему): не показывай его модели, перешли человеку"`
 	StatusCode int      `json:"status_code"`
 	DurationMs int64    `json:"duration_ms"`
 	Data       any      `json:"data" jsonschema:"ответ ручки: только поля из схемы манифеста; ошибка ручки — {error}"`
@@ -121,6 +124,7 @@ type CallServiceEndpointRep struct {
 	PersonalFields map[string]string `json:"personal_fields,omitempty" jsonschema:"персональные поля ответа: путь (history[].phone; [] — элементы массива, {} — значения словаря) → вид (phone, email, iin, customer_id, name, address, document, other)"`
 	RequestId      string            `json:"request_id,omitempty" jsonschema:"X-Pulse-Request-Id вызова: по нему вызов находится в логах сервиса"`
 	Dropped        int               `json:"dropped_fields,omitempty" jsonschema:"сколько полей ответа вырезано — их нет в схеме манифеста"`
+	Masked         int               `json:"masked_fields,omitempty" jsonschema:"ручка для человека: сколько значений полей с именем секрета заменено маской"`
 }
 
 func EncodeCallServiceEndpointRep(v *usecaseEndpointsModel.CallResult) CallServiceEndpointRep {
@@ -128,6 +132,7 @@ func EncodeCallServiceEndpointRep(v *usecaseEndpointsModel.CallResult) CallServi
 		Service:        v.Service,
 		EndpointId:     v.EndpointId,
 		Title:          v.Title,
+		Audience:       v.Audience,
 		StatusCode:     v.StatusCode,
 		DurationMs:     v.Duration.Milliseconds(),
 		Data:           v.Data,
@@ -138,5 +143,6 @@ func EncodeCallServiceEndpointRep(v *usecaseEndpointsModel.CallResult) CallServi
 		PersonalFields: v.PersonalFields,
 		RequestId:      v.RequestId,
 		Dropped:        v.DroppedFields,
+		Masked:         v.MaskedFields,
 	}
 }

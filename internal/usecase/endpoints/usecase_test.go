@@ -104,6 +104,10 @@ func service() *svcModel.Main {
 				"items": {Type: "array", Items: &svcModel.Schema{Type: "object", Properties: map[string]*svcModel.Schema{"number": str()}}},
 			}},
 		},
+		{
+			Id: "order_raw", Title: "Заказ как есть", Path: "/diag/order/{number}/raw", Workload: ref, Audience: svcModel.AudienceHuman,
+			Params: map[string]svcModel.EndpointParam{"number": {Type: "string", Pattern: "[0-9]{5,12}", Required: true}},
+		},
 		{Id: "legacy_yaml", Path: "/x"}, // не из манифеста
 	}
 	return s
@@ -198,4 +202,40 @@ func TestCall_ErrorsAndNotJson(t *testing.T) {
 	_, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "99999"}})
 	require.ErrorIs(t, err, errs.ServiceNA)
 	assert.Contains(t, err.Error(), "ocenter-a")
+}
+
+// Ручка для человека: ИИ-клиенту — отказ, агенту — ответ как есть (без проекции на схему), но
+// без секретов и карт.
+func TestCall_Human(t *testing.T) {
+	caller := &fakeCaller{status: 200, body: `{
+		"number": "234115", "customer_phone": "+7 701 123 45 67", "comment": "оплата картой 4111 1111 1111 1111",
+		"internal": {"api_token": "abc", "retries": 3, "notes": ["позвонить в 18:00"]}
+	}`}
+	u := newUsecase(caller)
+
+	_, err := u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_raw", Params: map[string]any{"number": "234115"}})
+	full, ok := errors.AsType[errs.ErrFull](err)
+	require.True(t, ok)
+	assert.ErrorIs(t, full.Err, errs.NoPermission)
+	assert.Contains(t, full.Desc, "humans only")
+	assert.Empty(t, caller.path, "ИИ-клиенту ручка даже не вызывается")
+
+	result, err := u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_raw", Params: map[string]any{"number": "234115"}, Human: true})
+	require.NoError(t, err)
+	assert.Equal(t, "/diag/order/234115/raw", caller.path)
+	assert.Equal(t, svcModel.AudienceHuman, result.Audience)
+	assert.Equal(t, map[string]any{
+		"number": "234115", "customer_phone": "+7 701 123 45 67", "comment": "оплата картой ***1111",
+		"internal": map[string]any{"api_token": "***", "retries": float64(3), "notes": []any{"позвонить в 18:00"}},
+	}, result.Data)
+	assert.Equal(t, 1, result.MaskedFields)
+	assert.Zero(t, result.DroppedFields)
+	assert.Empty(t, result.PersonalFields)
+
+	// ручка для разбора ИИ — по-прежнему проекция и тому, кому можно ручки для человека
+	caller.body = `{"number": "234115", "secret_field": "x"}`
+	result, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "234115"}, Human: true})
+	require.NoError(t, err)
+	assert.Empty(t, result.Audience)
+	assert.Equal(t, 1, result.DroppedFields)
 }

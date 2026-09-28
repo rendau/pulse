@@ -1,7 +1,9 @@
 // Package endpoints — вызов диагностических ручек сервиса из его манифеста
 // (docs/service-manifest.md). Самая рискованная часть: allowlist по id, только объявленные
 // параметры (строки — по pattern, enum или виду персональных данных), только GET прямо в под,
-// к агенту доходят только поля из схемы ответа, персональные — с отметкой вида.
+// к агенту доходят только поля из схемы ответа, персональные — с отметкой вида. Ручка для
+// человека (audience: human) — только клиенту, которому это разрешено (req.Human), ответ как
+// есть: без проекции, но без секретов и карт.
 package endpoints
 
 import (
@@ -77,8 +79,13 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		return nil, errs.ErrFull{Err: errs.ObjectNotFound, Desc: fmt.Sprintf("unknown endpoint_id %q for %s; declared: %s (see get_service_info)",
 			req.EndpointId, service.Name, strings.Join(ids, ", "))}
 	}
-	if endpoint.Workload == nil || endpoint.Response == nil {
+	human := endpoint.Audience == svcModel.AudienceHuman
+	if endpoint.Workload == nil || (endpoint.Response == nil && !human) {
 		return nil, fmt.Errorf("%w: endpoint %s is not declared in the service manifest", errs.InvalidConfig, endpoint.Id)
+	}
+	if human && !req.Human {
+		return nil, errs.ErrFull{Err: errs.NoPermission, Desc: fmt.Sprintf("endpoint %s of %s is for humans only (audience: human): "+
+			"its answer is never given to AI clients — a person gets it through the pulse agent (bot)", endpoint.Id, service.Name)}
 	}
 	if !strings.HasPrefix(endpoint.Path, "/") || strings.Contains(endpoint.Path, "..") {
 		return nil, fmt.Errorf("%w: endpoint %s has invalid path %q", errs.InvalidConfig, endpoint.Id, endpoint.Path)
@@ -120,6 +127,7 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		Service:    service.Name,
 		EndpointId: endpoint.Id,
 		Title:      endpoint.Title,
+		Audience:   endpoint.Audience,
 		RequestId:  requestId,
 		StatusCode: resp.StatusCode,
 		Duration:   time.Since(started),
@@ -140,11 +148,18 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 		return nil, fmt.Errorf("%w: endpoint %s answered not JSON — the service violates the manifest standard", errs.ServiceNA, endpoint.Id)
 	}
 
-	// 5. проекция на схему: только объявленные поля, персональные — с отметкой вида, строки — по длине
-	p := &projector{pii: u.pii, personal: map[string]string{}}
-	result.Data = p.value(data, endpoint.Response, "")
-	result.DroppedFields = p.dropped
-	result.PersonalFields = p.personal
+	// 5. проекция на схему: только объявленные поля, персональные — с отметкой вида, строки — по
+	// длине; ручка для человека — как есть, без секретов и карт
+	if human {
+		h := &humanSanitizer{pii: u.pii}
+		result.Data = h.value(data)
+		result.MaskedFields = h.masked
+	} else {
+		p := &projector{pii: u.pii, personal: map[string]string{}}
+		result.Data = p.value(data, endpoint.Response, "")
+		result.DroppedFields = p.dropped
+		result.PersonalFields = p.personal
+	}
 
 	// 6. лимит строк: список по rows_path или сам ответ-массив
 	maxRows := lo.Clamp(lo.CoalesceOrEmpty(endpoint.MaxRows, u.conf.MaxRows), 1, u.conf.MaxRows)

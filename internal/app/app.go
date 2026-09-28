@@ -451,7 +451,7 @@ func (a *App) Init() {
 		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath,
-			append([]string{config.Conf.MCPAuthToken}, config.Conf.MCPExternalTokens...), a.mcpServer)
+			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, a.mcpServer)
 	}
 
 	// system http server (healthcheck, readiness, docs, metrics)

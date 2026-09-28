@@ -161,13 +161,21 @@ type Endpoint struct {
 	// Workload — workload, объявивший ручку в манифесте: вызов — прямо в его под, на порт манифеста
 	Workload *WorkloadRef
 	Params   map[string]EndpointParam
-	// Response — схема ответа из манифеста: к агенту доходят только объявленные поля
+	// Audience — кому ответ: пусто — для разбора ИИ; AudienceHuman — только человеку: ответ
+	// отдаётся как есть (без проекции) и только клиенту, которому можно его получить (агент
+	// пересылает его человеку мимо модели)
+	Audience string
+	// Response — схема ответа из манифеста: к агенту доходят только объявленные поля; у ручки
+	// для человека — необязательна (только описание)
 	Response *Schema
 	// RowsPath — где в ответе список (для лимита строк); пусто — сам ответ, если это массив
 	RowsPath string
 	MaxRows  int
 	Timeout  time.Duration
 }
+
+// AudienceHuman — ответ ручки только для человека, не для ИИ.
+const AudienceHuman = "human"
 
 // WorkloadRef — workload, который обслуживает ручку.
 type WorkloadRef struct {

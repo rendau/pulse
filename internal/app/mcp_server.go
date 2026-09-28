@@ -1,12 +1,15 @@
 package app
 
 import (
+	"context"
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samber/lo"
 
@@ -47,16 +50,16 @@ func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {
 
 // MCPHttpServerCreate строит HTTP-сервер с MCP streamable-транспортом на path.
 // Режим stateless: нет сессий, каждый запрос самодостаточен — сервис можно масштабировать
-// горизонтально без sticky-сессий. authTokens — допустимые bearer-токены (пустые
-// игнорируются).
-func MCPHttpServerCreate(port, path string, authTokens []string, server *mcp.Server) *http.Server {
+// горизонтально без sticky-сессий. internalToken — внутреннего клиента (агент pulse: ему —
+// ответы ручек для человека), externalTokens — внешних; пустые игнорируются.
+func MCPHttpServerCreate(port, path, internalToken string, externalTokens []string, server *mcp.Server) *http.Server {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, Logger: slog.Default()},
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(path, authMiddleware(authTokens, handler))
+	mux.Handle(path, authMiddleware(internalToken, externalTokens, handler))
 
 	return &http.Server{
 		Addr:              ":" + port,
@@ -67,28 +70,34 @@ func MCPHttpServerCreate(port, path string, authTokens []string, server *mcp.Ser
 	}
 }
 
-// authMiddleware проверяет bearer-токен: подходит любой из tokens. Нет ни одного
-// непустого — проверка отключена (локальная разработка); в этом случае в лог пишется
-// предупреждение при старте.
-func authMiddleware(tokens []string, next http.Handler) http.Handler {
-	expected := lo.FilterMap(tokens, func(t string, _ int) ([]byte, bool) {
+// authMiddleware проверяет bearer-токен: подходит любой из токенов. Внутренний токен получает
+// право constant.ScopeHuman (инструменты видят его в req.Extra.TokenInfo). Нет ни одного
+// непустого — проверка отключена (локальная разработка), ручки для человека недоступны; в этом
+// случае в лог пишется предупреждение при старте.
+func authMiddleware(internalToken string, externalTokens []string, next http.Handler) http.Handler {
+	nonEmpty := func(t string, _ int) ([]byte, bool) {
 		t = strings.TrimSpace(t)
 		return []byte(t), t != ""
-	})
+	}
+	internal := lo.FilterMap([]string{internalToken}, nonEmpty)
+	expected := append(slices.Clone(internal), lo.FilterMap(externalTokens, nonEmpty)...)
 	if len(expected) == 0 {
 		slog.Warn("MCP_AUTH_TOKEN and MCP_EXTERNAL_TOKENS are empty: mcp endpoint is unauthenticated")
 		return next
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || !tokenMatch([]byte(got), expected) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="mcp"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+	verify := func(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
+		got := []byte(token)
+		if !tokenMatch(got, expected) {
+			return nil, auth.ErrInvalidToken
 		}
-		next.ServeHTTP(w, r)
-	})
+		info := &auth.TokenInfo{}
+		if tokenMatch(got, internal) {
+			info.Scopes = []string{constant.ScopeHuman}
+		}
+		return info, nil
+	}
+	return auth.RequireBearerToken(verify, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(next)
 }
 
 // tokenMatch сравнивает со всеми токенами за постоянное время — без раннего выхода,

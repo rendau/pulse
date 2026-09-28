@@ -147,6 +147,16 @@ func TestParseManifest_Partial(t *testing.T) {
 			e["id"] = "j"
 			e["rows_path"] = "status"
 		}),
+		"неизвестный audience": endpoint(func(e map[string]any) {
+			e["id"] = "k"
+			e["audience"] = "admin"
+		}),
+		"rows_path без схемы": endpoint(func(e map[string]any) {
+			e["id"] = "l"
+			e["audience"] = "human"
+			e["rows_path"] = "items"
+			delete(e, "response")
+		}),
 	}
 	accepted := []any{
 		endpoint(func(e map[string]any) {
@@ -159,6 +169,12 @@ func TestParseManifest_Partial(t *testing.T) {
 				"items":    map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"number": map[string]any{"type": "string"}}}},
 				"by_state": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
 			}}
+		}),
+		// ручка для человека: схема ответа необязательна
+		endpoint(func(e map[string]any) {
+			e["id"] = "order_raw"
+			e["audience"] = "human"
+			delete(e, "response")
 		}),
 	}
 
@@ -175,18 +191,22 @@ func TestParseManifest_Partial(t *testing.T) {
 
 	m, err := ParseManifest(raw)
 	require.NoError(t, err)
-	require.Len(t, m.Metadata.Endpoints, 1, m.Problems)
+	require.Len(t, m.Metadata.Endpoints, 2, m.Problems)
 	e := m.Metadata.Endpoints[0]
 	assert.Equal(t, "orders_by_phone", e.Id)
+	assert.Empty(t, e.Audience)
 	assert.Equal(t, "phone", e.Params["phone"].Personal)
 	assert.Equal(t, "integer", e.Response.Properties["by_state"].Values.Type)
+	human := m.Metadata.Endpoints[1]
+	assert.Equal(t, "human", human.Audience)
+	assert.Nil(t, human.Response)
 
 	assert.Equal(t, []string{"@logistics"}, m.OwnerContacts, "телефон в контактах не принят")
 	require.Len(t, m.Metadata.Dependencies, 1)
 	assert.Equal(t, "pg", m.Metadata.Dependencies[0].Id)
 	assert.Empty(t, m.Commit)
 	assert.Contains(t, m.Problems, "endpoints.orders_by_phone.description: 1001 символов, лимит 1000 — обрезано", "обрезка — не молча")
-	// 10 ручек + телефон + 2 зависимости + коммит + длинное описание
+	// 12 ручек + телефон + 2 зависимости + коммит + длинное описание
 	assert.Len(t, m.Problems, len(rejected)+5, m.Problems)
 }
 

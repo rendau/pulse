@@ -71,7 +71,11 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   к одному виду через `pii.Normalize`), ответ — проекция на схему манифеста (`projection.go`: необъявленное и
   не того типа вырезается — `dropped_fields`; x-personal — как есть с отметкой `personal_fields` путь → вид;
   строки по maxLength, массивы по maxItems/max_rows), ошибка ручки — только `error`, `request_id` =
-  `X-Pulse-Request-Id`), `cluster` (get_cluster_health: ноды, поды
+  `X-Pulse-Request-Id`; ручка `audience: human` — только клиенту с правом `constant.ScopeHuman`
+  (внутренний токен `MCP_AUTH_TOKEN` — агент pulse, `app/mcp_server.go` → `req.Extra.TokenInfo`),
+  остальным — отказ; ответ как есть без проекции (`human.go`: значения полей с именем секрета,
+  карты и учётные данные в адресах — маской), схема необязательна; агент пересылает его человеку
+  мимо модели), `cluster` (get_cluster_health: ноды, поды
   по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
   `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
   метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`,

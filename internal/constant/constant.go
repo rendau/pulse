@@ -6,6 +6,10 @@ const (
 	MaxPageSize = 1000
 )
 
+// ScopeHuman — клиент MCP получает ответы ручек для человека (audience: human): только
+// внутренний клиент (MCP_AUTH_TOKEN, агент pulse) — он пересылает их человеку мимо модели.
+const ScopeHuman = "human"
+
 // Version, Commit, BuiltAt подставляются при сборке: -ldflags "-X .../internal/constant.Version=<ver>"
 // (Commit — полный SHA: манифест сервиса, build.commit).
 var (
