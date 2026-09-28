@@ -232,6 +232,14 @@ func TestCall_Human(t *testing.T) {
 	assert.Zero(t, result.DroppedFields)
 	assert.Empty(t, result.PersonalFields)
 
+	// ошибка ручки для человека — тоже с отметкой: агент не отдаст её текст модели
+	caller.status, caller.body = 404, `{"error":"заказ 234115 не найден"}`
+	result, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_raw", Params: map[string]any{"number": "234115"}, Human: true})
+	require.NoError(t, err)
+	assert.Equal(t, svcModel.AudienceHuman, result.Audience)
+	assert.Equal(t, map[string]any{"error": "заказ 234115 не найден"}, result.Data)
+	caller.status = 200
+
 	// ручка для разбора ИИ — по-прежнему проекция и тому, кому можно ручки для человека
 	caller.body = `{"number": "234115", "secret_field": "x"}`
 	result, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "234115"}, Human: true})
