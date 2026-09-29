@@ -11,7 +11,9 @@ import (
 
 	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
 	dependencyService "github.com/rendau/pulse/internal/domain/dependency/service"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 	indexerModel "github.com/rendau/pulse/internal/service/indexer/model"
+	localModel "github.com/rendau/pulse/internal/service/indexer/service/model"
 	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 )
@@ -108,6 +110,47 @@ func TestRecordDependencies(t *testing.T) {
 	assert.NotContains(t, byKey, "DB_DSN", "секрет не читается")
 	assert.NotContains(t, byKey, "HTTP_CORS")
 	assert.NotContains(t, byKey, "LOG_LEVEL")
+}
+
+// Зависимости манифеста — с сервисом каталога за target, как хосты графа: k8s Service по селектору,
+// имя workload'а, полное имя с namespace. Внешний хост, IP, свой workload и не найденное — без соседа.
+func TestDependencyServices(t *testing.T) {
+	k8s := &fakeK8sDeps{services: []k8sModel.Service{
+		{Namespace: "prod", Name: "shop-gw", Selector: map[string]string{"app": "onec-gateway"}},
+	}}
+	s := &Service{conf: indexerModel.Config{Cluster: "zeon"}, k8s: k8s, depend: &fakeDepend{Service: dependencyService.New(nil)}}
+
+	seller := draft("prod", "cart-seller", "seller", nil)
+	seller.manifest = &localModel.ParsedManifest{}
+	drafts := []*workloadDraft{
+		seller,
+		draft("prod", "cart-seller-redis", "seller", nil),
+		draft("prod", "onec-proxy", "onec-proxy", nil),
+		draft("prod", "onec-gateway", "1c_gw", nil),
+		draft("infra", "kafka", "kafka", nil),
+	}
+	declared := []svcModel.Dependency{
+		{Id: "onec", Target: "onec-proxy"},
+		{Id: "shop", Target: "shop-gw"},
+		{Id: "kafka", Target: "kafka.infra.svc.cluster.local"},
+		{Id: "redis", Target: "cart-seller-redis"},
+		{Id: "bank", Target: "api.bank.kz"},
+		{Id: "site", Target: "10.200.200.202"},
+		{Id: "lost", Target: "nowhere"},
+	}
+	edit := &svcModel.Edit{Name: new("seller"), Metadata: &svcModel.Metadata{Dependencies: declared}}
+
+	topo := s.loadTopology(context.Background(), drafts, time.Now())
+	topo.dependencyServices(edit, drafts)
+
+	services := lo.SliceToMap(edit.Metadata.Dependencies, func(d svcModel.Dependency) (string, string) { return d.Id, d.Service })
+	assert.Equal(t, map[string]string{
+		"onec": "onec-proxy", "shop": "1c_gw", "kafka": "kafka",
+		"redis": "", "bank": "", "site": "", "lost": "",
+	}, services)
+	assert.Empty(t, declared[0].Service, "разобранный манифест черновика не меняется")
+
+	topo.dependencyServices(&svcModel.Edit{Name: new("seller")}, drafts) // метаданных нет — не падает
 }
 
 type fakeRuto struct{ snapshot *rutoModel.Snapshot }

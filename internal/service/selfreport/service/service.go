@@ -102,7 +102,7 @@ func (s *Service) Report(ctx context.Context, service *svcModel.Main, workloads 
 func selfDependencies(declared []svcModel.Dependency, reported []selfstatusModel.Dependency) []snapshotModel.SelfDependency {
 	byId := lo.SliceToMap(reported, func(d selfstatusModel.Dependency) (string, selfstatusModel.Dependency) { return d.Id, d })
 	return lo.Map(declared, func(d svcModel.Dependency, _ int) snapshotModel.SelfDependency {
-		dep := snapshotModel.SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Affects: d.Affects}
+		dep := snapshotModel.SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Service: d.Service, Critical: d.Critical, Affects: d.Affects}
 		if r, ok := byId[d.Id]; ok {
 			dep.Status, dep.LatencyMs, dep.Message = r.Status, r.LatencyMs, r.Message
 		}

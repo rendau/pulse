@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	dependencyModel "github.com/rendau/pulse/internal/domain/dependency/model"
+	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 )
 
@@ -57,6 +58,28 @@ func (t *topology) clusterNames(service string, drafts []*workloadDraft) []strin
 	names = lo.Uniq(lo.Without(names, service, ""))
 	slices.Sort(names)
 	return names
+}
+
+// dependencyServices — сервис каталога за каждой зависимостью манифеста: target резолвится, как
+// хосты графа связей (k8s Service → workload, иначе имя workload'а), в namespace workload'ов
+// сервиса с манифестом. Внешний хост, не найденный или сам сервис — пусто. По этому имени агент
+// заходит к соседу за подробностями сбоя зависимости.
+func (t *topology) dependencyServices(edit *svcModel.Edit, drafts []*workloadDraft) {
+	if edit.Metadata == nil || len(edit.Metadata.Dependencies) == 0 {
+		return
+	}
+	namespaces := lo.Uniq(lo.FilterMap(drafts, func(d *workloadDraft, _ int) (string, bool) {
+		return d.Namespace, d.serviceKey == *edit.Name && d.manifest != nil
+	}))
+	// новый срез: зависимости делят массив с разобранным манифестом черновика
+	edit.Metadata.Dependencies = lo.Map(edit.Metadata.Dependencies, func(dep svcModel.Dependency, _ int) svcModel.Dependency {
+		service := lo.FirstOrEmpty(lo.FilterMap(namespaces, func(ns string, _ int) (string, bool) {
+			found := t.resolver.resolve(dep.Target, ns)
+			return found, found != ""
+		}))
+		dep.Service = lo.Ternary(service == *edit.Name, "", service)
+		return dep
+	})
 }
 
 // recordDependencies строит рёбра «сервис → хост» из env контейнеров: inline-значения и

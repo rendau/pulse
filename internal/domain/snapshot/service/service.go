@@ -194,6 +194,10 @@ func selfHints(self *model.SelfReport, now time.Time) []string {
 		if d.Affects != "" {
 			hint += "; ломает: " + d.Affects
 		}
+		// сосед из каталога: у него — какие именно объекты, базы или запросы сбоят
+		if d.Service != "" {
+			hint += "; подробности — у сервиса " + d.Service
+		}
 		hints = append(hints, hint)
 	}
 	for _, g := range self.Gauges {

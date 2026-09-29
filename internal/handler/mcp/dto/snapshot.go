@@ -244,6 +244,7 @@ type SelfDependency struct {
 	Id        string `json:"id"`
 	Kind      string `json:"kind"`
 	Target    string `json:"target"`
+	Service   string `json:"service,omitempty" jsonschema:"сервис каталога за зависимостью: причину её сбоя смотри у него (снапшот, ручки); пусто — внешний хост"`
 	Critical  bool   `json:"critical,omitempty"`
 	Affects   string `json:"affects,omitempty" jsonschema:"что ломается, когда она недоступна (со слов владельца)"`
 	Status    string `json:"status,omitempty" jsonschema:"пусто — сервис не прислал состояние этой зависимости"`
@@ -267,7 +268,7 @@ func encodeSelfReport(v *snapshotModel.SelfReport) *SelfReport {
 	rep := &SelfReport{
 		Status: v.Status, Pods: v.Answers, Stale: v.Stale,
 		Dependencies: lo.Map(v.Dependencies, func(d snapshotModel.SelfDependency, _ int) SelfDependency {
-			return SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Affects: d.Affects, Status: d.Status, LatencyMs: d.LatencyMs, Message: d.Message}
+			return SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Service: d.Service, Critical: d.Critical, Affects: d.Affects, Status: d.Status, LatencyMs: d.LatencyMs, Message: d.Message}
 		}),
 		Gauges: lo.Map(v.Gauges, func(g snapshotModel.SelfGauge, _ int) SelfGauge {
 			gauge := SelfGauge{Id: g.Id, Title: g.Title, Value: g.Value, Unit: g.Unit, Status: g.Status}

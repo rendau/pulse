@@ -150,6 +150,7 @@ type SelfDependency struct {
 	Id        string
 	Kind      string
 	Target    string
+	Service   string // сервис каталога за Target (сосед, у которого смотреть причину); пусто — внешний
 	Critical  bool
 	Affects   string // что ломается, когда она недоступна (со слов владельца)
 	Status    string

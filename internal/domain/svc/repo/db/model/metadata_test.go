@@ -15,7 +15,7 @@ import (
 func TestMetadata_RoundTrip(t *testing.T) {
 	in := domainModel.Metadata{
 		Source:       domainModel.MetadataSourceManifest,
-		Dependencies: []domainModel.Dependency{{Id: "pg", Kind: "postgres", Target: "caravan-pg", Critical: true, Affects: "весь сервис"}},
+		Dependencies: []domainModel.Dependency{{Id: "pg", Kind: "postgres", Target: "caravan-pg", Service: "caravan-pg", Critical: true, Affects: "весь сервис"}},
 		Endpoints: []domainModel.Endpoint{{
 			Id: "delivery_raw", Title: "Доставка как есть", Path: "/diag/delivery/{id}", Audience: domainModel.AudienceHuman,
 			Workload: &domainModel.WorkloadRef{Namespace: "default", Kind: "Deployment", Name: "caravan"},

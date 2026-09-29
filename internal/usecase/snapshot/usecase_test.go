@@ -301,6 +301,7 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	svc.service.Metadata = svcModel.Metadata{Source: svcModel.MetadataSourceManifest, Dependencies: []svcModel.Dependency{
 		{Id: "pg", Kind: "postgres", Target: "payments-pg", Critical: true},
 		{Id: "bank", Kind: "http", Target: "api.bank.kz", Affects: "онлайн-оплата"},
+		{Id: "billing", Kind: "grpc", Target: "billing-core", Service: "billing-core", Affects: "счета"},
 	}, Domain: &svcModel.Domain{Entities: []svcModel.Entity{{Name: "платёж", Statuses: []svcModel.EntityStatus{
 		{Name: "pending", Meaning: "ждёт ответа банка", StuckAfter: 30 * time.Minute},
 	}}}}}
@@ -323,6 +324,7 @@ func TestSnapshot_SelfReport(t *testing.T) {
 		"payments-worker": {Status: "degraded", CheckedAt: now, Dependencies: []selfstatusModel.Dependency{
 			{Id: "pg", Status: "ok"},
 			{Id: "bank", Status: "degraded", LatencyMs: new(int64(4200)), Message: "ответ дольше 2 с"},
+			{Id: "billing", Status: "down"},
 			{Id: "undeclared", Status: "down"},
 		}, Entities: []selfstatusModel.Entity{
 			{Name: "платёж", Status: "degraded", Statuses: []selfstatusModel.EntityStatus{{Name: "pending", Count: 42, Stuck: 12, Oldest: 90 * time.Minute}}},
@@ -349,10 +351,12 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	require.NotNil(t, snap.Self)
 	assert.Equal(t, "degraded", snap.Self.Status, "показан худший ответ")
 	assert.Equal(t, 2, snap.Self.Answers, "у payments-legacy ручки состояния нет")
-	require.Len(t, snap.Self.Dependencies, 2, "только объявленные в манифесте")
+	require.Len(t, snap.Self.Dependencies, 3, "только объявленные в манифесте")
 	assert.Equal(t, "api.bank.kz", snap.Self.Dependencies[1].Target)
+	assert.Equal(t, "billing-core", snap.Self.Dependencies[2].Service, "сосед из каталога")
 	assert.Equal(t, snapshotModel.HealthDegraded, snap.Health)
 	assert.Contains(t, snap.SummaryHints, "сервис сообщает: зависимость bank (http → api.bank.kz) — degraded, 4200 мс: ответ дольше 2 с; ломает: онлайн-оплата")
+	assert.Contains(t, snap.SummaryHints, "сервис сообщает: зависимость billing (grpc → billing-core) — down; ломает: счета; подробности — у сервиса billing-core")
 	require.Len(t, snap.Self.Entities, 1, "только объекты из domain манифеста")
 	assert.Equal(t, 30*time.Minute, snap.Self.Entities[0].Statuses[0].StuckAfter)
 	assert.Contains(t, snap.SummaryHints, "сервис сообщает: застряло 12 из 42 «платёж» в статусе pending (ждёт ответа банка) — дольше 30 мин, самый старый — 90 мин")

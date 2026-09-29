@@ -42,7 +42,7 @@ type fakeSelfReport struct{}
 func (fakeSelfReport) Report(_ context.Context, s *svcModel.Main, _ []*workloadModel.Main) (*snapshotModel.SelfReport, []snapshotModel.SourceError) {
 	if s.Name == "caravan" {
 		return &snapshotModel.SelfReport{Status: "degraded", CheckedAt: time.Now(), Dependencies: []snapshotModel.SelfDependency{
-			{Id: "onec", Kind: "grpc", Target: "onec-proxy", Status: "down", Affects: "уведомления 1С"},
+			{Id: "onec", Kind: "grpc", Target: "onec-proxy", Service: "onec-proxy", Status: "down", Affects: "уведомления 1С"},
 		}}, nil
 	}
 	return &snapshotModel.SelfReport{Status: "ok", CheckedAt: time.Now()}, nil
@@ -59,5 +59,5 @@ func TestSelfReported(t *testing.T) {
 	require.Len(t, h.SelfReported, 1, "ok — не показываем")
 	assert.Equal(t, "caravan", h.SelfReported[0].Service)
 	assert.Contains(t, h.SelfReported[0].Hints[0], "зависимость onec (grpc → onec-proxy) — down; ломает: уведомления 1С")
-	assert.Contains(t, h.SummaryHints, "caravan сообщает о себе: degraded — зависимость onec (grpc → onec-proxy) — down; ломает: уведомления 1С")
+	assert.Contains(t, h.SummaryHints, "caravan сообщает о себе: degraded — зависимость onec (grpc → onec-proxy) — down; ломает: уведомления 1С; подробности — у сервиса onec-proxy")
 }

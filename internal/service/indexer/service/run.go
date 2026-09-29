@@ -82,8 +82,12 @@ func (s *Service) Run(ctx context.Context) error {
 	services := s.buildServices(ctx, drafts, metadata, now)
 	stats.Services = len(services)
 
-	// k8s Services и маршруты ruto — для графа связей и имён сервисов в кластере
+	// k8s Services и маршруты ruto — для графа связей, имён сервисов в кластере и соседей за
+	// зависимостями манифестов
 	topo := s.loadTopology(ctx, drafts, now)
+	for _, edit := range services {
+		topo.dependencyServices(edit, drafts)
+	}
 	if topo.complete {
 		for _, edit := range services {
 			edit.ClusterNames = new(lo.CoalesceSliceOrEmpty(topo.clusterNames(*edit.Name, drafts)))
