@@ -65,7 +65,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII — с тестами; `redact.Text` — телефоны,
   email, карты в свободном тексте; `redact.ReplacePII` — те же правила поиска с своей заменой: строки
   логов при чтении из Loki и Kubernetes идут через `pii.Text` — карты маской, до паттернов и ответа;
-  значение явного поля `"card":"…"` — целиком, с пробелами).
+  значение явного поля `"card":"…"` — целиком, с пробелами), `neterr` (вид сетевой ошибки словами:
+  таймаут, соединение отклонено, DNS, нет готовых подов — «нет ответа (таймаут)» в `tried` манифеста).
 - `internal/usecase/` — usecase-слой (валидация, оркестрация сервисов и доменных сервисов):
   `system` (ping), `catalog` (resolve/list/info), `snapshot` (fan-out снапшота, query_metrics),
   `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
@@ -119,6 +120,11 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   email — без регистра; правила поиска PII — общие с `redact.ReplacePII`),
   `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
   `svcproxy` (GET через k8s Service по DNS-имени `<service>.<namespace>.svc`, без редиректов;
+  свой Service — чей селектор совпал с лейблами своего пода (`k8s.SelfPod`: имя — hostname,
+  namespace — из ServiceAccount) — через `127.0.0.1:<targetPort>`: hairpin (под → VIP своего
+  Service → этот же под) проходит не во всех сетях, в yc-zeon (kube-proxy iptables без
+  Calico/Cilium) соединение висит до таймаута; карта своих Service — кэш 10 мин, на вызов — только
+  поиск по ней; вне кластера своих Service нет;
   локально — `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGetService`),
   `indexer` (фоновый обход кластера → каталог + история деплоев), `selfreport` (самоотчёт сервиса:
   ручка состояния через k8s Service каждого workload'а с манифестом (запрос на Service, отвечает
@@ -197,8 +203,10 @@ domain service → repo
   списка Service или готовых подов — прошлый результат. Встроенные golden signals не считают
   запросы pulse к `manifest.path*` у метрик с лейблом `path_name`. Результат — в колонках
   `workload.manifest_*` (статус ok/partial/invalid/absent/unreachable, причины, `manifest_service`
-  и `manifest_port` — куда ходить за ручками, `Manifest.Callable()`, опробованное, сам манифест как
-  получен — разбирается каждый цикл). Разбор и проверка по стандарту —
+  и `manifest_port` — куда ходить за ручками, `Manifest.Callable()`, опробованное — «нет ответа» с
+  видом ошибки (`util/neterr`), сам манифест как получен — разбирается каждый цикл). Манифест,
+  ручку состояния и ручки самого pulse индексер, снапшот и call_service_endpoint берут через тот же
+  Service, но `svcproxy` отправляет их на localhost (hairpin, см. `svcproxy`). Разбор и проверка по стандарту —
   `indexer/service/model/manifest.go` (`ParseManifest`: invalid — ошибка, partial — `Problems`);
   `200` без `pulse_manifest` — не манифест (`IsManifest`). Манифест важнее `service.yaml`
   (`metadata.source`), коммит сборки из манифеста — первым. `ENDPOINT_CALL_MODE=k8s-proxy` — через
@@ -460,4 +468,13 @@ gofmt  →  go vet ./...  →  go test ./...  →  golangci-lint run  →  за�
   `nomanifest-demo` — только `http` (итог — `absent`, запросов к нему нет); pulse с
   `ENDPOINT_CALL_MODE=k8s-proxy`; итог — `get_service_info orders-center`
   (`metadata_source: manifest`, `workloads[].manifest.service: ocenter-demo`). Убрать: `kubectl --context docker-desktop delete ns pulse-test`.
+- pulse внутри docker-desktop (вызов своего Service через localhost): namespace `pulse-self`,
+  ServiceAccount + ClusterRole как в чарте, Service `pulse` (http 80, system 3003), `PG_DSN` —
+  `host.docker.internal:5440`. Образ — через временный registry (`docker run --rm -d --name
+  pulse-registry -p 5001:5000 registry:2`, `localhost:5001/pulse-local:<tag>`, `imagePullPolicy:
+  Always`): у локально собранного образа imageID без digest — индексер считает выкатку
+  незавершённой и манифест не ищет. Итог — лог `svcproxy: own Services are called via localhost`,
+  в поде (`netstat -tn`) соединения `127.0.0.1 → 127.0.0.1:3003`, а не на VIP. Hairpin в
+  docker-desktop работает — сбой прода там не воспроизводится. Убрать: ns `pulse-self`, свои
+  ClusterRole/ClusterRoleBinding, `docker stop pulse-registry`.
 - Живой тест registry-клиента: `REGISTRY_LIVE_IMAGE=ghcr.io/actions/actions-runner:latest go test ./internal/service/registry/... -run TestLive -v`.

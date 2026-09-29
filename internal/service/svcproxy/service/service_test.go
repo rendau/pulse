@@ -22,7 +22,7 @@ func TestServiceUrl(t *testing.T) {
 func TestSendRequest_ErrorWithoutQuery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err := New().sendRequest(ctx, "http://127.0.0.1:1/diag/orders?phone=77011234567", nil, 1024)
+	_, err := New(nil).sendRequest(ctx, "http://127.0.0.1:1/diag/orders?phone=77011234567", nil, 1024)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "77011234567")
 	assert.Contains(t, err.Error(), "127.0.0.1:1/diag/orders")

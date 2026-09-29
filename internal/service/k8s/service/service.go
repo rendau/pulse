@@ -28,6 +28,8 @@ type Service struct {
 	clientset         kubernetes.Interface
 	initErr           error
 	excludeNamespaces map[string]struct{}
+	// inCluster — pulse работает в поде кластера (не по kubeconfig): у него есть свой под
+	inCluster bool
 }
 
 // New строит клиент: kubeconfig пустой — in-cluster конфиг, иначе файл kubeconfig
@@ -37,6 +39,7 @@ func New(kubeconfig, kubeContext string, excludeNamespaces []string) *Service {
 		excludeNamespaces: lo.SliceToMap(excludeNamespaces, func(ns string) (string, struct{}) {
 			return ns, struct{}{}
 		}),
+		inCluster: kubeconfig == "",
 	}
 
 	restConf, err := buildRestConfig(kubeconfig, kubeContext)

@@ -20,6 +20,7 @@ import (
 	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 	"github.com/rendau/pulse/internal/util/imageref"
+	"github.com/rendau/pulse/internal/util/neterr"
 )
 
 // Поиск манифеста сервиса через его k8s Service (docs/service-manifest.md, «Как pulse находит
@@ -140,7 +141,7 @@ func (s *Service) probe(ctx context.Context, target svcproxyModel.ServiceTarget)
 	switch {
 	case err != nil:
 		slog.Debug("indexer: manifest probe", "service", target.Namespace+"/"+where, "error", err)
-		result.Tried = []string{where + ": нет ответа"}
+		result.Tried = []string{where + ": " + noAnswer(err)}
 		return result, nil
 	case resp.StatusCode != 200:
 		// HTTP-сервер есть, манифеста нет
@@ -168,6 +169,15 @@ func (s *Service) probe(ctx context.Context, target svcproxyModel.ServiceTarget)
 		result.Status = workloadModel.ManifestPartial
 	}
 	return result, parsed
+}
+
+// noAnswer — «нет ответа» с видом ошибки: по нему видно, где искать причину (таймаут — сеть
+// или сервис висит, отклонено — порт не слушается, DNS — нет такого Service).
+func noAnswer(err error) string {
+	if reason := neterr.Reason(err); reason != "" {
+		return "нет ответа (" + reason + ")"
+	}
+	return "нет ответа"
 }
 
 // readyPods — готовые поды workload'а с адресом, по имени (детерминированно): по ним находится

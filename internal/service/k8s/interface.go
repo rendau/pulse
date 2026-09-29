@@ -18,6 +18,8 @@ type Client interface {
 	ListConfigMaps(ctx context.Context, namespace string) ([]k8sModel.ConfigMap, error)
 	// ListServices возвращает k8s Services (пусто — все namespace'ы).
 	ListServices(ctx context.Context, namespace string) ([]k8sModel.Service, error)
+	// SelfPod — под, в котором работает сам pulse; вне кластера (kubeconfig) — nil.
+	SelfPod(ctx context.Context) (*k8sModel.Pod, error)
 	// ListNodes возвращает ноды кластера с условиями готовности и давления.
 	ListNodes(ctx context.Context) ([]k8sModel.Node, error)
 	// ProxyGetService выполняет GET к k8s Service через API-сервер (services/proxy): статус

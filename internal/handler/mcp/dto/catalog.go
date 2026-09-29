@@ -184,7 +184,7 @@ type Manifest struct {
 	Reasons   []string  `json:"reasons,omitempty" jsonschema:"что отклонено или почему не принят"`
 	Service   string    `json:"service,omitempty" jsonschema:"k8s Service workload'а, через который pulse вызывает манифест и ручки"`
 	Port      int       `json:"port,omitempty" jsonschema:"служебный порт этого Service"`
-	Tried     []string  `json:"tried,omitempty" jsonschema:"куда стучались и что там было"`
+	Tried     []string  `json:"tried,omitempty" jsonschema:"куда стучались и что там было; нет ответа — с видом ошибки: таймаут, соединение отклонено, DNS, нет готовых подов"`
 	CheckedAt time.Time `json:"checked_at"`
 }
 

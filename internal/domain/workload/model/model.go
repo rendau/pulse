@@ -48,7 +48,7 @@ type Manifest struct {
 	// Пусто — у workload'а нет Service со служебным портом
 	Service string
 	Port    int
-	// Tried — куда стучались и что там было («caravan:3003: 404», «caravan:3003: нет ответа»)
+	// Tried — куда стучались и что там было («caravan:3003: 404», «caravan:3003: нет ответа (таймаут)»)
 	Tried []string
 	// Digest — образ, на котором искали: сменился — ищем заново
 	Digest    string

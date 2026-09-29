@@ -204,11 +204,12 @@ func (a *App) Init() {
 	// event (нормализация событий)
 	eventService := domainEventServiceP.New()
 
-	// caller: вызовы ручек сервисов через их k8s Service — прямо или через API-сервер (локально)
+	// caller: вызовы ручек сервисов через их k8s Service — прямо (свой Service — через localhost)
+	// или через API-сервер (локально)
 	var caller interface {
 		usecaseEndpointsP.CallerI
 		serviceIndexerServiceP.ServiceGetterI
-	} = serviceSvcproxyServiceP.New()
+	} = serviceSvcproxyServiceP.New(k8sService)
 	if config.Conf.EndpointCallMode == "k8s-proxy" {
 		caller = k8sProxyCaller{k8sService}
 		slog.Info("service calls go through kubernetes API proxy (services/proxy)")

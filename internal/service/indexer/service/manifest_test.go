@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,10 +26,12 @@ var manifestConf = indexerModel.ManifestConfig{
 	Path: "/.well-known/pulse", ServicePort: "system", RefreshAfter: 24 * time.Hour, RetryAfter: time.Hour,
 }
 
-// fakeCaller — Service отвечают по «service:port»: код ответа и тело; нет ключа — не отвечает.
+// fakeCaller — Service отвечают по «service:port»: код ответа и тело; нет ключа — не отвечает
+// (err; по умолчанию — порт не слушается).
 type fakeCaller struct {
 	mu      sync.Mutex
 	answers map[string]*svcproxyModel.Response
+	err     error
 	calls   []string
 }
 
@@ -41,7 +45,10 @@ func (f *fakeCaller) GetService(_ context.Context, t svcproxyModel.ServiceTarget
 	if resp, ok := f.answers[fmt.Sprintf("%s:%d", t.Service, t.Port)]; ok {
 		return resp, nil
 	}
-	return nil, errors.New("connection refused")
+	if f.err != nil {
+		return nil, f.err
+	}
+	return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
 }
 
 // fakeServices — k8s Service кластера для поиска манифеста.
@@ -169,11 +176,20 @@ func TestProbe(t *testing.T) {
 	assert.NotEmpty(t, result.Reasons)
 	assert.Empty(t, result.Raw)
 
-	// Service не ответил
+	// Service не ответил — в tried вид ошибки: по нему видно, где искать причину
 	delete(caller.answers, "ocenter:3003")
 	result, _ = s.probe(context.Background(), target)
 	assert.Equal(t, workloadModel.ManifestUnreachable, result.Status)
-	assert.Equal(t, []string{"ocenter:3003: нет ответа"}, result.Tried)
+	assert.Equal(t, []string{"ocenter:3003: нет ответа (соединение отклонено)"}, result.Tried)
+
+	caller.err = fmt.Errorf("service_not_available: ocenter.prod.svc:3003/.well-known/pulse: %w",
+		&net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded})
+	result, _ = s.probe(context.Background(), target)
+	assert.Equal(t, []string{"ocenter:3003: нет ответа (таймаут)"}, result.Tried, "соединение висит (hairpin, сеть)")
+
+	caller.err = errors.New("tls: handshake failure")
+	result, _ = s.probe(context.Background(), target)
+	assert.Equal(t, []string{"ocenter:3003: нет ответа"}, result.Tried, "вид не распознан")
 }
 
 // Цикл индексера: манифест — только через Service с портом system; во время выкатки и без
