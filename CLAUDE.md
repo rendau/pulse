@@ -25,6 +25,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/` — бизнес-логика и инфраструктура (закрытые пакеты).
 - `migrations/` — SQL миграции Postgres (единый `000001_init` до первого деплоя).
 - `conf.example.yml` — пример yaml-правил (`RULES_PATH`, по умолчанию `./conf.yml`).
+- `docs/service-manifest.md` — стандарт манифеста для команд (раздел «Для агента» — порядок
+  внедрения); `docs/connect-service.md` — короткое задание агенту сервиса, стартовый промпт — одна
+  фраза со ссылкой на него (README, «Подключить сервис»). Уроки внедрений — в «Для агента», общими
+  словами, без специфики конкретного сервиса.
 - `Dockerfile`, `Makefile` — сборка (`make build` подставляет версию через ldflags).
 - `.env.example` — пример окружения.
 

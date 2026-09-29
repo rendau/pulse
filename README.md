@@ -22,6 +22,15 @@ MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTT
 `MCP_EXTERNAL_TOKENS` (внешние клиенты, через запятую).
 Служебные ручки на `SYSTEM_HTTP_PORT`: `/healthcheck`, `/readiness`, `/metrics`.
 
+## Подключить сервис
+
+Стандарт — [docs/service-manifest.md](docs/service-manifest.md). Агенту (Claude Code и т. п.) в
+репозитории сервиса достаточно одной фразы — остальное в [docs/connect-service.md](docs/connect-service.md):
+
+```
+Подключи сервис к pulse по инструкции https://raw.githubusercontent.com/rendau/pulse/master/docs/connect-service.md
+```
+
 ## Инструменты
 
 | Инструмент | Назначение |
