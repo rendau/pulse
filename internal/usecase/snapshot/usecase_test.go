@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -280,16 +281,20 @@ func TestMetricDefs_PublicMetrics(t *testing.T) {
 }
 
 type fakeSelf struct {
-	statuses map[string]*selfstatusModel.Status // под → отчёт
-	targets  []svcproxyModel.PodTarget
+	mu       sync.Mutex
+	statuses map[string]*selfstatusModel.Status // Service → отчёт
+	targets  []svcproxyModel.ServiceTarget
 }
 
-func (f *fakeSelf) Get(_ context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error) {
+func (f *fakeSelf) Get(_ context.Context, target svcproxyModel.ServiceTarget) (*selfstatusModel.Status, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.targets = append(f.targets, target)
-	return f.statuses[target.Pod], nil
+	return f.statuses[target.Service], nil
 }
 
-// Сервис сам сообщает о деградации зависимости: худший под, зависимости — из манифеста.
+// Сервис сам сообщает о деградации зависимости: через k8s Service каждого workload'а (один
+// запрос на Service), показан худший ответ, зависимости — из манифеста.
 func TestSnapshot_SelfReport(t *testing.T) {
 	now := time.Now()
 	svc, wl := fixtures()
@@ -299,17 +304,23 @@ func TestSnapshot_SelfReport(t *testing.T) {
 	}, Domain: &svcModel.Domain{Entities: []svcModel.Entity{{Name: "платёж", Statuses: []svcModel.EntityStatus{
 		{Name: "pending", Meaning: "ждёт ответа банка", StuckAfter: 30 * time.Minute},
 	}}}}}
-	wl.items[0].Manifest = workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003}
+	manifest := func(service string) workloadModel.Manifest {
+		return workloadModel.Manifest{Status: workloadModel.ManifestOk, Service: service, Port: 3003}
+	}
+	workload := func(name string, m workloadModel.Manifest) *workloadModel.Main {
+		return &workloadModel.Main{Cluster: "zeon", Namespace: "prod", Kind: constant.WorkloadKindDeployment, Name: name, Selector: "app=" + name, Manifest: m}
+	}
+	wl.items[0].Manifest = manifest("payments-api")
+	wl.items = append(wl.items,
+		workload("payments-api-canary", manifest("payments-api")),
+		workload("payments-worker", manifest("payments-worker")),
+		workload("payments-legacy", manifest("payments-legacy")),
+		workload("payments-cron", workloadModel.Manifest{Status: workloadModel.ManifestAbsent}),
+	)
 
-	k8s := &fakeK8s{pods: []k8sModel.Pod{
-		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4b", IP: "10.0.0.1", Ready: true, Phase: "Running"},
-		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4c", IP: "10.0.0.2", Ready: true, Phase: "Running"},
-		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4d", IP: "10.0.0.3", Ready: true, Phase: "Running"},
-		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4f", IP: "10.0.0.4", Ready: true, Phase: "Running"},
-	}}
 	self := &fakeSelf{statuses: map[string]*selfstatusModel.Status{
-		"payments-api-7d9f8b6c5-x2k4b": {Status: "ok", CheckedAt: now},
-		"payments-api-7d9f8b6c5-x2k4c": {Status: "degraded", CheckedAt: now, Dependencies: []selfstatusModel.Dependency{
+		"payments-api": {Status: "ok", CheckedAt: now},
+		"payments-worker": {Status: "degraded", CheckedAt: now, Dependencies: []selfstatusModel.Dependency{
 			{Id: "pg", Status: "ok"},
 			{Id: "bank", Status: "degraded", LatencyMs: new(int64(4200)), Message: "ответ дольше 2 с"},
 			{Id: "undeclared", Status: "down"},
@@ -319,17 +330,25 @@ func TestSnapshot_SelfReport(t *testing.T) {
 		}},
 	}}
 
+	// поды готовы: health — по словам сервиса
+	k8s := &fakeK8s{pods: []k8sModel.Pod{
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4b", IP: "10.0.0.1", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4c", IP: "10.0.0.2", Ready: true, Phase: "Running"},
+		{Namespace: "prod", Name: "payments-api-7d9f8b6c5-x2k4d", IP: "10.0.0.3", Ready: true, Phase: "Running"},
+	}}
 	u := New(Config{Deadline: 2 * time.Second, DefaultMetrics: []snapshotModel.MetricDef{{Id: "rps", PromQL: "x"}}}, svc, wl, &fakeDepend{}, k8s,
-		nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}), selfreportService.New(k8s, self))
+		nil, nil, nil, eventService.New(), snapshotService.New(snapshotService.Config{}), selfreportService.New(self))
 	snap, err := u.Snapshot(context.Background(), "payments-api", time.Hour)
 	require.NoError(t, err)
 
-	assert.Len(t, self.targets, 3, "опрошено не больше трёх подов")
-	assert.Equal(t, 3003, self.targets[0].Port, "порт манифеста")
+	assert.ElementsMatch(t, []svcproxyModel.ServiceTarget{
+		{Namespace: "prod", Service: "payments-api", Port: 3003},
+		{Namespace: "prod", Service: "payments-worker", Port: 3003},
+		{Namespace: "prod", Service: "payments-legacy", Port: 3003},
+	}, self.targets, "один запрос на Service; без принятого манифеста — не спрашиваем")
 	require.NotNil(t, snap.Self)
-	assert.Equal(t, "degraded", snap.Self.Status)
-	assert.Equal(t, "payments-api-7d9f8b6c5-x2k4c", snap.Self.Pod, "показан худший под")
-	assert.Equal(t, 2, snap.Self.Pods, "у третьего пода ручки состояния нет")
+	assert.Equal(t, "degraded", snap.Self.Status, "показан худший ответ")
+	assert.Equal(t, 2, snap.Self.Answers, "у payments-legacy ручки состояния нет")
 	require.Len(t, snap.Self.Dependencies, 2, "только объявленные в манифесте")
 	assert.Equal(t, "api.bank.kz", snap.Self.Dependencies[1].Target)
 	assert.Equal(t, snapshotModel.HealthDegraded, snap.Health)

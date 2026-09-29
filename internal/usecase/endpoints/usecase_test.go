@@ -13,7 +13,6 @@ import (
 	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
 	"github.com/rendau/pulse/internal/errs"
-	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	piiServiceP "github.com/rendau/pulse/internal/service/pii/service"
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 	"github.com/rendau/pulse/internal/usecase/endpoints/model"
@@ -28,22 +27,12 @@ type fakeWorkload struct{}
 func (fakeWorkload) List(context.Context, *workloadModel.ListReq) ([]*workloadModel.Main, int64, error) {
 	return []*workloadModel.Main{{
 		Namespace: "prod", Kind: "Deployment", Name: "ocenter", ServiceName: "orders-center", Selector: "app=ocenter",
-		Manifest: workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003},
+		Manifest: workloadModel.Manifest{Status: workloadModel.ManifestOk, Service: "ocenter-api", Port: 3003},
 	}}, 1, nil
 }
 
-type fakeK8s struct{}
-
-func (fakeK8s) ListPods(context.Context, string, string) ([]k8sModel.Pod, error) {
-	return []k8sModel.Pod{
-		{Namespace: "prod", Name: "ocenter-b", IP: "10.0.0.2", Ready: true},
-		{Namespace: "prod", Name: "ocenter-a", IP: "10.0.0.1", Ready: true},
-		{Namespace: "prod", Name: "ocenter-0", IP: "10.0.0.9", Ready: false},
-	}, nil
-}
-
 type fakeCaller struct {
-	target  svcproxyModel.PodTarget
+	target  svcproxyModel.ServiceTarget
 	path    string
 	query   map[string]string
 	headers map[string]string
@@ -52,7 +41,7 @@ type fakeCaller struct {
 	err     error
 }
 
-func (f *fakeCaller) GetPod(_ context.Context, target svcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error) {
+func (f *fakeCaller) GetService(_ context.Context, target svcproxyModel.ServiceTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error) {
 	f.target, f.path, f.query, f.headers = target, path, query, headers
 	if f.err != nil {
 		return nil, f.err
@@ -114,7 +103,7 @@ func service() *svcModel.Main {
 }
 
 func newUsecase(caller *fakeCaller) *Usecase {
-	return New(Config{MaxRows: 100, MaxBodyBytes: 1 << 20, MaxTimeout: 10 * time.Second}, fakeSvc{service()}, fakeWorkload{}, fakeK8s{}, caller, pii)
+	return New(Config{MaxRows: 100, MaxBodyBytes: 1 << 20, MaxTimeout: 10 * time.Second}, fakeSvc{service()}, fakeWorkload{}, caller, pii)
 }
 
 // Ответ проецируется на схему: необъявленное вырезано, персональные поля — как есть с отметкой
@@ -131,7 +120,7 @@ func TestCall_Projection(t *testing.T) {
 	res, err := newUsecase(caller).Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "234115"}})
 	require.NoError(t, err)
 
-	assert.Equal(t, svcproxyModel.PodTarget{Namespace: "prod", Pod: "ocenter-a", IP: "10.0.0.1", Port: 3003}, caller.target, "готовый под, порт манифеста")
+	assert.Equal(t, svcproxyModel.ServiceTarget{Namespace: "prod", Service: "ocenter-api", Port: 3003}, caller.target, "k8s Service workload'а, его служебный порт")
 	assert.Equal(t, "/diag/order/234115", caller.path)
 	assert.True(t, strings.HasPrefix(caller.headers["X-Pulse-Request-Id"], "pulse-"))
 	assert.Equal(t, caller.headers["X-Pulse-Request-Id"], res.RequestId)
@@ -198,10 +187,10 @@ func TestCall_ErrorsAndNotJson(t *testing.T) {
 	_, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "99999"}})
 	require.ErrorIs(t, err, errs.ServiceNA, "не JSON — нарушение стандарта")
 
-	caller.err = errors.New("dial tcp 10.0.0.1:3003: connection refused")
+	caller.err = errors.New("dial tcp 10.96.0.12:3003: connection refused")
 	_, err = u.Call(context.Background(), &model.CallReq{Service: "orders-center", EndpointId: "order_status", Params: map[string]any{"number": "99999"}})
 	require.ErrorIs(t, err, errs.ServiceNA)
-	assert.Contains(t, err.Error(), "ocenter-a")
+	assert.Contains(t, err.Error(), "prod/ocenter-api:3003")
 }
 
 // Ручка для человека: ИИ-клиенту — отказ, агенту — ответ как есть (без проекции на схему), но

@@ -179,10 +179,11 @@ type WorkloadInfo struct {
 }
 
 type Manifest struct {
-	Status    string    `json:"status" jsonschema:"ok | partial (часть отклонена) | invalid | absent (порт отвечает, манифеста нет) | unreachable"`
+	Status    string    `json:"status" jsonschema:"ok | partial (часть отклонена) | invalid | absent (манифеста нет или нет служебного порта в k8s Service — см. reasons) | unreachable (Service не ответил)"`
 	Reasons   []string  `json:"reasons,omitempty" jsonschema:"что отклонено или почему не принят"`
-	Port      int       `json:"port,omitempty"`
-	Tried     []string  `json:"tried,omitempty" jsonschema:"какие порты пробовали и что там было"`
+	Service   string    `json:"service,omitempty" jsonschema:"k8s Service workload'а, через который pulse вызывает манифест и ручки"`
+	Port      int       `json:"port,omitempty" jsonschema:"служебный порт этого Service"`
+	Tried     []string  `json:"tried,omitempty" jsonschema:"куда стучались и что там было"`
 	CheckedAt time.Time `json:"checked_at"`
 }
 
@@ -256,7 +257,7 @@ func encodeManifest(v workloadModel.Manifest) *Manifest {
 	if v.Status == "" {
 		return nil
 	}
-	return &Manifest{Status: v.Status, Reasons: v.Reasons, Port: v.Port, Tried: v.Tried, CheckedAt: tz.In(v.CheckedAt)}
+	return &Manifest{Status: v.Status, Reasons: v.Reasons, Service: v.Service, Port: v.Port, Tried: v.Tried, CheckedAt: tz.In(v.CheckedAt)}
 }
 
 func encodePodsState(v *catalogModel.PodsState) *PodsState {

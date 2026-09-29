@@ -38,20 +38,29 @@ const (
 	ManifestUnreachable = "unreachable"
 )
 
-// Manifest — результат поиска манифеста на подах workload'а. Status пуст — ещё не искали.
+// Manifest — результат поиска манифеста через k8s Service workload'а. Status пуст — ещё не искали.
 type Manifest struct {
 	Status string
-	// Reasons — что отклонено (partial) или почему не принят (invalid, unreachable)
+	// Reasons — что отклонено (partial) или почему не принят (invalid, absent, unreachable)
 	Reasons []string
-	// Port — порт, на котором найден манифест (0 — не найден)
-	Port int
-	// Tried — какие порты пробовали и что там было («3003: 404», «8080: нет ответа»)
+	// Service и Port — k8s Service workload'а и его служебный порт: через них pulse вызывает
+	// манифест, ручку состояния и диагностические ручки (отвечает любой под за Service).
+	// Пусто — у workload'а нет Service со служебным портом
+	Service string
+	Port    int
+	// Tried — куда стучались и что там было («caravan:3003: 404», «caravan:3003: нет ответа»)
 	Tried []string
 	// Digest — образ, на котором искали: сменился — ищем заново
 	Digest    string
 	CheckedAt time.Time
 	// Raw — принятый манифест как получен (JSON); разбирается индексером каждый цикл
 	Raw []byte
+}
+
+// Callable — манифест принят (ok, partial) и известен Service, через который вызываются его
+// ручки и ручка состояния.
+func (m Manifest) Callable() bool {
+	return m.Service != "" && m.Port > 0 && (m.Status == ManifestOk || m.Status == ManifestPartial)
 }
 
 // Key — составной первичный ключ.

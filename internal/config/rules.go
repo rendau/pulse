@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -124,15 +126,12 @@ type Rules struct {
 	Manifest struct {
 		// Path — путь манифеста; ручка состояния — Path/status
 		Path string `yaml:"path"`
-		// DefaultPorts — порты, если нет аннотации, цели Prometheus и портов с именами system/http
-		DefaultPorts []int `yaml:"default_ports"`
-		// AnnotationPrefix — префикс аннотаций пода (<prefix>port, <prefix>path)
-		AnnotationPrefix string `yaml:"annotation_prefix"`
+		// ServicePort — имя порта k8s Service workload'а, через который pulse вызывает манифест,
+		// ручку состояния и диагностические ручки (отвечает любой под за Service)
+		ServicePort string `yaml:"service_port"`
 		// RefreshAfter — перечитать принятый манифест без выкатки; RetryAfter — повтор после неудачи
 		RefreshAfter time.Duration `yaml:"refresh_after"`
 		RetryAfter   time.Duration `yaml:"retry_after"`
-		// SkipPorts — заведомо не-HTTP порты: при переборе портов пода не трогаются
-		SkipPorts []int `yaml:"skip_ports"`
 		// StatusCache — сколько держать ответ ручки состояния пода
 		StatusCache time.Duration `yaml:"status_cache"`
 		// PhoneCountryCode — код страны для приведения телефонов (параметры ручек, поиск в логах; 8… → 7…)
@@ -189,6 +188,9 @@ func LoadRules(path string) (*Rules, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
+	// встроенные метрики собираются из других настроек (путь манифеста, метрики gateway):
+	// без своих в файле они строятся заново по настройкам из файла
+	rules.Snapshot.DefaultMetrics, rules.Snapshot.PublicMetrics = nil, nil
 	if err = yaml.Unmarshal(raw, rules); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -208,11 +210,8 @@ func (r *Rules) applyDefaults() {
 	if r.Manifest.Path == "" {
 		r.Manifest.Path = "/.well-known/pulse"
 	}
-	if len(r.Manifest.DefaultPorts) == 0 {
-		r.Manifest.DefaultPorts = []int{3003}
-	}
-	if r.Manifest.AnnotationPrefix == "" {
-		r.Manifest.AnnotationPrefix = "pulse/"
+	if r.Manifest.ServicePort == "" {
+		r.Manifest.ServicePort = "system"
 	}
 	if r.Manifest.RefreshAfter <= 0 {
 		r.Manifest.RefreshAfter = 24 * time.Hour
@@ -225,11 +224,6 @@ func (r *Rules) applyDefaults() {
 	}
 	if r.Manifest.StatusCache <= 0 {
 		r.Manifest.StatusCache = 15 * time.Second
-	}
-	if r.Manifest.SkipPorts == nil {
-		// Postgres, MySQL, Redis, Kafka, ZooKeeper, RabbitMQ (AMQP и кластер), MongoDB,
-		// ClickHouse native, Elasticsearch transport, Memcached, NATS, etcd, gRPC по соглашению
-		r.Manifest.SkipPorts = []int{5432, 6432, 3306, 6379, 26379, 9092, 9093, 2181, 5672, 25672, 4369, 27017, 9000, 9300, 11211, 4222, 2379, 2380}
 	}
 	if r.Indexer.StaleAfter <= 0 {
 		r.Indexer.StaleAfter = time.Hour
@@ -247,7 +241,7 @@ func (r *Rules) applyDefaults() {
 		r.Snapshot.MaxAlerts = 50
 	}
 	if len(r.Snapshot.DefaultMetrics) == 0 {
-		r.Snapshot.DefaultMetrics = defaultMetrics()
+		r.Snapshot.DefaultMetrics = defaultMetrics(r.Manifest.Path)
 	}
 	if r.Ruto.GatewayService == "" {
 		r.Ruto.GatewayService = "ruto-gateway"
@@ -381,17 +375,24 @@ func defaultRules() *Rules {
 // отбрасывает имя, и ряды с одинаковыми лейблами дают «vector cannot contain metrics with the
 // same labelset». Поэтому имя копируется в лейбл metric (label_replace) и rate берётся по
 // подзапросу [5m:30s] — label_replace работает только с мгновенным вектором.
+//
+// Запросы самого pulse к манифесту и ручке состояния (manifestPath и глубже) — не трафик
+// сервиса: у метрик, где путь запроса пишется в лейбл path_name, они не считаются. Иначе, когда
+// служебный порт Service ведёт на основной порт сервиса, 404 поиска манифеста дал бы error_rate,
+// которого у сервиса нет. У ряда без лейбла path_name условие выполняется всегда.
+//
 // failureCodes — коды ошибок ответа go-шаблона (лейбл code), которые значат сбой сервиса, а не
 // отказ по делу; пустой код — метрика без лейбла (старый шаблон), считается как раньше.
 const failureCodes = `|service_not_available|not_implemented|invalid_config`
 
-func defaultMetrics() []MetricDef {
-	const (
-		requests = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}`
-		errors   = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status=~"error|5..", code=~"` + failureCodes + `"}`
-		rejected = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", status="error", code!~"` + failureCodes + `"}`
-		withCode = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", code!=""}`
-		buckets  = `{__name__=~".+_response_duration_seconds_bucket", namespace="{namespace}", pod=~"{pod_regex}"}`
+func defaultMetrics(manifestPath string) []MetricDef {
+	notPulse := `path_name!~` + strconv.Quote(regexp.QuoteMeta(manifestPath)+`(/.*)?`)
+	var (
+		requests = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", ` + notPulse + `}`
+		errors   = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", ` + notPulse + `, status=~"error|5..", code=~"` + failureCodes + `"}`
+		rejected = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", ` + notPulse + `, status="error", code!~"` + failureCodes + `"}`
+		withCode = `{__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", ` + notPulse + `, code!=""}`
+		buckets  = `{__name__=~".+_response_duration_seconds_bucket", namespace="{namespace}", pod=~"{pod_regex}", ` + notPulse + `}`
 	)
 	rate := func(selector string) string {
 		return `rate(label_replace(` + selector + `, "metric", "$1", "__name__", "(.+)")[5m:30s])`

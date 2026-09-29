@@ -23,8 +23,7 @@ type Service struct {
 	deploy   deployServiceI
 	depend   dependencyServiceI
 	ruto     RutoI
-	pods     PodGetterI
-	prom     PrometheusI
+	caller   ServiceGetterI
 
 	mapper *imageMapper
 	wg     sync.WaitGroup
@@ -43,8 +42,7 @@ func New(
 	deploy deployServiceI,
 	depend dependencyServiceI,
 	ruto RutoI,
-	pods PodGetterI,
-	prom PrometheusI,
+	caller ServiceGetterI,
 ) *Service {
 	return &Service{
 		conf:     conf,
@@ -56,8 +54,7 @@ func New(
 		deploy:   deploy,
 		depend:   depend,
 		ruto:     ruto,
-		pods:     pods,
-		prom:     prom,
+		caller:   caller,
 		mapper:   newImageMapper(conf.ImageMapping),
 	}
 }

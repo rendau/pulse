@@ -204,14 +204,14 @@ func (a *App) Init() {
 	// event (нормализация событий)
 	eventService := domainEventServiceP.New()
 
-	// caller: вызовы ручек сервисов внутри кластера — прямо или через API-сервер (локально)
+	// caller: вызовы ручек сервисов через их k8s Service — прямо или через API-сервер (локально)
 	var caller interface {
 		usecaseEndpointsP.CallerI
-		serviceIndexerServiceP.PodGetterI
+		serviceIndexerServiceP.ServiceGetterI
 	} = serviceSvcproxyServiceP.New()
 	if config.Conf.EndpointCallMode == "k8s-proxy" {
 		caller = k8sProxyCaller{k8sService}
-		slog.Info("service calls go through kubernetes API proxy (pods/proxy)")
+		slog.Info("service calls go through kubernetes API proxy (services/proxy)")
 	}
 
 	// pii (карты и учётные данные вырезаются; телефоны и email от модели прячет агент)
@@ -222,8 +222,8 @@ func (a *App) Init() {
 		serviceSelfstatusServiceP.Config{Path: rules.Manifest.Path + "/status", CacheTtl: rules.Manifest.StatusCache},
 		caller, piiService,
 	)
-	// self report (самоотчёт сервиса: худший под, объявленные зависимости и объекты) — снапшоту и кластеру
-	selfReportService := serviceSelfreportServiceP.New(k8sService, selfStatusService)
+	// self report (самоотчёт сервиса через k8s Service: объявленные зависимости и объекты) — снапшоту и кластеру
+	selfReportService := serviceSelfreportServiceP.New(selfStatusService)
 
 	// indexer
 	if config.Conf.IndexerEnabled {
@@ -231,10 +231,6 @@ func (a *App) Init() {
 		var rutoClient serviceIndexerServiceP.RutoI
 		if rutoService != nil {
 			rutoClient = rutoService
-		}
-		var prometheusClient serviceIndexerServiceP.PrometheusI
-		if prometheusService != nil {
-			prometheusClient = prometheusService
 		}
 
 		a.indexer = serviceIndexerServiceP.New(
@@ -247,16 +243,14 @@ func (a *App) Init() {
 				}),
 				RutoGatewayService: rules.Ruto.GatewayService,
 				Manifest: serviceIndexerModel.ManifestConfig{
-					Path:             rules.Manifest.Path,
-					DefaultPorts:     rules.Manifest.DefaultPorts,
-					AnnotationPrefix: rules.Manifest.AnnotationPrefix,
-					RefreshAfter:     rules.Manifest.RefreshAfter,
-					RetryAfter:       rules.Manifest.RetryAfter,
-					SkipPorts:        rules.Manifest.SkipPorts,
+					Path:         rules.Manifest.Path,
+					ServicePort:  rules.Manifest.ServicePort,
+					RefreshAfter: rules.Manifest.RefreshAfter,
+					RetryAfter:   rules.Manifest.RetryAfter,
 				},
 			},
 			k8sService, githubService, registryService, svcService, workloadService, deployService, dependencyService, rutoClient,
-			caller, prometheusClient,
+			caller,
 		)
 	}
 
@@ -393,7 +387,7 @@ func (a *App) Init() {
 				MaxBodyBytes: rules.Endpoints.MaxBodyBytes,
 				MaxTimeout:   rules.Endpoints.MaxTimeout,
 			},
-			svcService, workloadService, k8sService, caller, piiService,
+			svcService, workloadService, caller, piiService,
 		)
 	}
 
@@ -556,13 +550,13 @@ func (a *App) Exit() {
 	os.Exit(a.exitCode)
 }
 
-// k8sProxyCaller адаптирует ProxyGetPod клиента k8s под вызов в под (локальная разработка).
+// k8sProxyCaller адаптирует ProxyGetService клиента k8s под вызов через Service (локальная разработка).
 type k8sProxyCaller struct {
 	k8s *serviceK8sServiceP.Service
 }
 
-func (c k8sProxyCaller) GetPod(ctx context.Context, target serviceSvcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*serviceSvcproxyModel.Response, error) {
-	status, body, err := c.k8s.ProxyGetPod(ctx, target.Namespace, target.Pod, target.Port, path, query, headers, maxBytes+1)
+func (c k8sProxyCaller) GetService(ctx context.Context, target serviceSvcproxyModel.ServiceTarget, path string, query, headers map[string]string, maxBytes int64) (*serviceSvcproxyModel.Response, error) {
+	status, body, err := c.k8s.ProxyGetService(ctx, target.Namespace, target.Service, target.Port, path, query, headers, maxBytes+1)
 	if err != nil {
 		return nil, err
 	}

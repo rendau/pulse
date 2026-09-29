@@ -1,6 +1,6 @@
 // Package endpoints — вызов диагностических ручек сервиса из его манифеста
 // (docs/service-manifest.md). Самая рискованная часть: allowlist по id, только объявленные
-// параметры (строки — по pattern, enum или виду персональных данных), только GET прямо в под,
+// параметры (строки — по pattern, enum или виду персональных данных), только GET через k8s Service,
 // к агенту доходят только поля из схемы ответа, персональные — с отметкой вида. Ручка для
 // человека (audience: human) — только клиенту, которому это разрешено (req.Human), ответ как
 // есть: без проекции, но без секретов и карт.
@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
 	"github.com/rendau/pulse/internal/errs"
-	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 	"github.com/rendau/pulse/internal/usecase/endpoints/model"
 )
@@ -43,12 +41,11 @@ type Usecase struct {
 
 	svc      svcServiceI
 	workload workloadServiceI
-	k8s      k8sClientI
 	caller   CallerI
 	pii      PiiI
 }
 
-func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI, caller CallerI, pii PiiI) *Usecase {
+func New(conf Config, svc svcServiceI, workload workloadServiceI, caller CallerI, pii PiiI) *Usecase {
 	if conf.MaxRows <= 0 {
 		conf.MaxRows = 100
 	}
@@ -58,7 +55,7 @@ func New(conf Config, svc svcServiceI, workload workloadServiceI, k8s k8sClientI
 	if conf.MaxTimeout <= 0 {
 		conf.MaxTimeout = 10 * time.Second
 	}
-	return &Usecase{conf: conf, svc: svc, workload: workload, k8s: k8s, caller: caller, pii: pii}
+	return &Usecase{conf: conf, svc: svc, workload: workload, caller: caller, pii: pii}
 }
 
 var pathParamRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
@@ -98,7 +95,7 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 	}
 	path, query := bindParams(endpoint.Path, values)
 
-	// 3. готовый под workload'а, объявившего ручку, на порту манифеста
+	// 3. k8s Service workload'а, объявившего ручку, — на его служебном порту
 	target, err := u.target(ctx, service, endpoint)
 	if err != nil {
 		return nil, err
@@ -113,14 +110,14 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 
 	requestId := newRequestId()
 	started := time.Now()
-	resp, err := u.caller.GetPod(ctx, target, path, query, map[string]string{
+	resp, err := u.caller.GetService(ctx, target, path, query, map[string]string{
 		"User-Agent":         constant.ServiceName + "/" + constant.Version,
 		"X-Pulse-Request-Id": requestId,
 	}, u.conf.MaxBodyBytes)
 	if err != nil {
 		// недоступность цели — внятная ошибка, а не таймаут всего вызова
-		return nil, fmt.Errorf("%w: endpoint %s of %s (pod %s/%s:%d) is unreachable: %s", errs.ServiceNA,
-			endpoint.Id, service.Name, target.Namespace, target.Pod, target.Port, compactError(err))
+		return nil, fmt.Errorf("%w: endpoint %s of %s (service %s/%s:%d) is unreachable: %s", errs.ServiceNA,
+			endpoint.Id, service.Name, target.Namespace, target.Service, target.Port, compactError(err))
 	}
 
 	result := &model.CallResult{
@@ -168,31 +165,21 @@ func (u *Usecase) Call(ctx context.Context, req *model.CallReq) (*model.CallResu
 	return result, nil
 }
 
-// target — готовый под workload'а, объявившего ручку (детерминированно — первый по имени).
-func (u *Usecase) target(ctx context.Context, service *svcModel.Main, endpoint svcModel.Endpoint) (svcproxyModel.PodTarget, error) {
+// target — k8s Service workload'а, объявившего ручку: отвечает любой под за ним.
+func (u *Usecase) target(ctx context.Context, service *svcModel.Main, endpoint svcModel.Endpoint) (svcproxyModel.ServiceTarget, error) {
 	ref := endpoint.Workload
 	workloads, _, err := u.workload.List(ctx, &workloadModel.ListReq{ServiceName: new(service.Name)})
 	if err != nil {
-		return svcproxyModel.PodTarget{}, fmt.Errorf("workload.List: %w", err)
+		return svcproxyModel.ServiceTarget{}, fmt.Errorf("workload.List: %w", err)
 	}
 	w, ok := lo.Find(workloads, func(w *workloadModel.Main) bool {
 		return w.Namespace == ref.Namespace && w.Kind == ref.Kind && w.Name == ref.Name
 	})
-	if !ok || w.Manifest.Port == 0 || w.Selector == "" {
-		return svcproxyModel.PodTarget{}, fmt.Errorf("%w: workload %s/%s of %s is gone or has no manifest port, nowhere to call", errs.ServiceNA, ref.Namespace, ref.Name, service.Name)
+	if !ok || !w.Manifest.Callable() {
+		return svcproxyModel.ServiceTarget{}, fmt.Errorf("%w: workload %s/%s of %s is gone or its manifest is not reachable through a k8s Service, nowhere to call",
+			errs.ServiceNA, ref.Namespace, ref.Name, service.Name)
 	}
-
-	pods, err := u.k8s.ListPods(ctx, w.Namespace, w.Selector)
-	if err != nil {
-		return svcproxyModel.PodTarget{}, fmt.Errorf("k8s.ListPods: %w", err)
-	}
-	ready := lo.Filter(pods, func(p k8sModel.Pod, _ int) bool { return p.Ready && p.IP != "" })
-	if len(ready) == 0 {
-		return svcproxyModel.PodTarget{}, fmt.Errorf("%w: %s/%s has no ready pods", errs.ServiceNA, w.Namespace, w.Name)
-	}
-	sort.Slice(ready, func(i, j int) bool { return ready[i].Name < ready[j].Name })
-
-	return svcproxyModel.PodTarget{Namespace: ready[0].Namespace, Pod: ready[0].Name, IP: ready[0].IP, Port: w.Manifest.Port}, nil
+	return svcproxyModel.ServiceTarget{Namespace: w.Namespace, Service: w.Manifest.Service, Port: w.Manifest.Port}, nil
 }
 
 // errorText — {"error": "…"} из тела ответа с ошибкой; не тот формат — только статус.

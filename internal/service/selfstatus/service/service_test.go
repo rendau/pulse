@@ -12,18 +12,18 @@ import (
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
-type fakePods struct {
+type fakeServices struct {
 	resp  *svcproxyModel.Response
 	calls int
 }
 
-func (f *fakePods) GetPod(_ context.Context, _ svcproxyModel.PodTarget, path string, _, _ map[string]string, _ int64) (*svcproxyModel.Response, error) {
+func (f *fakeServices) GetService(_ context.Context, _ svcproxyModel.ServiceTarget, path string, _, _ map[string]string, _ int64) (*svcproxyModel.Response, error) {
 	f.calls++
 	return f.resp, nil
 }
 
 func TestGet(t *testing.T) {
-	pods := &fakePods{resp: &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{
+	services := &fakeServices{resp: &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{
 	  "status": "degraded",
 	  "checked_at": "2026-09-25T19:07:40+05:00",
 	  "dependencies": [
@@ -45,8 +45,8 @@ func TestGet(t *testing.T) {
 	  ]
 	}`)}}
 	pii := piiServiceP.New(piiServiceP.Config{})
-	s := New(Config{Path: "/.well-known/pulse/status", CacheTtl: time.Minute}, pods, pii)
-	target := svcproxyModel.PodTarget{Namespace: "prod", Pod: "ocenter-1", IP: "10.0.0.5", Port: 3003}
+	s := New(Config{Path: "/.well-known/pulse/status", CacheTtl: time.Minute}, services, pii)
+	target := svcproxyModel.ServiceTarget{Namespace: "prod", Service: "ocenter", Port: 3003}
 
 	status, err := s.Get(context.Background(), target)
 	require.NoError(t, err)
@@ -69,16 +69,16 @@ func TestGet(t *testing.T) {
 
 	_, err = s.Get(context.Background(), target)
 	require.NoError(t, err)
-	assert.Equal(t, 1, pods.calls, "второй раз — из кэша")
+	assert.Equal(t, 1, services.calls, "второй раз — из кэша")
 
 	// ручки состояния нет
-	pods.resp = &svcproxyModel.Response{StatusCode: 404}
-	status, err = New(Config{Path: "/s"}, pods, pii).Get(context.Background(), target)
+	services.resp = &svcproxyModel.Response{StatusCode: 404}
+	status, err = New(Config{Path: "/s"}, services, pii).Get(context.Background(), target)
 	require.NoError(t, err)
 	assert.Nil(t, status)
 
 	// не по стандарту
-	pods.resp = &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{"status":"fine"}`)}
-	_, err = New(Config{Path: "/s"}, pods, pii).Get(context.Background(), target)
+	services.resp = &svcproxyModel.Response{StatusCode: 200, Body: []byte(`{"status":"fine"}`)}
+	_, err = New(Config{Path: "/s"}, services, pii).Get(context.Background(), target)
 	assert.Error(t, err)
 }

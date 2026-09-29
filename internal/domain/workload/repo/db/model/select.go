@@ -23,6 +23,7 @@ type Select struct {
 
 	ManifestStatus    string
 	ManifestReasons   []string
+	ManifestService   string
 	ManifestPort      int
 	ManifestTried     []string
 	ManifestDigest    string
@@ -48,6 +49,7 @@ func (m *Select) ListColumnMap() map[string]any {
 		"config_refs":         &m.ConfigRefs,
 		"manifest_status":     &m.ManifestStatus,
 		"manifest_reasons":    &m.ManifestReasons,
+		"manifest_service":    &m.ManifestService,
 		"manifest_port":       &m.ManifestPort,
 		"manifest_tried":      &m.ManifestTried,
 		"manifest_digest":     &m.ManifestDigest,
@@ -89,6 +91,7 @@ func EncodeSelect(v *Select, _ int) *domainModel.Main {
 		Manifest: domainModel.Manifest{
 			Status:    v.ManifestStatus,
 			Reasons:   v.ManifestReasons,
+			Service:   v.ManifestService,
 			Port:      v.ManifestPort,
 			Tried:     v.ManifestTried,
 			Digest:    v.ManifestDigest,

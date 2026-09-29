@@ -11,7 +11,7 @@ type Config struct {
 	ImageMapping []ImageMapping
 	// RutoGatewayService — сервис каталога gateway ruto: источник рёбер «gateway → backend приложения»
 	RutoGatewayService string
-	// Manifest — поиск манифеста сервиса на подах (docs/service-manifest.md)
+	// Manifest — поиск манифеста сервиса через его k8s Service (docs/service-manifest.md)
 	Manifest ManifestConfig
 }
 
@@ -19,15 +19,11 @@ type Config struct {
 type ManifestConfig struct {
 	// Path — путь манифеста (ручка состояния — Path/status)
 	Path string
-	// DefaultPorts — порты, если нет аннотации, цели Prometheus и портов с именами system/http
-	DefaultPorts []int
-	// AnnotationPrefix — префикс аннотаций пода: <prefix>port, <prefix>path
-	AnnotationPrefix string
+	// ServicePort — имя порта k8s Service workload'а, через который pulse вызывает манифест
+	ServicePort string
 	// RefreshAfter — перечитать принятый манифест без выкатки; RetryAfter — повтор после неудачи
 	RefreshAfter time.Duration
 	RetryAfter   time.Duration
-	// SkipPorts — заведомо не-HTTP порты: при переборе остальных портов пода не трогаются
-	SkipPorts []int
 }
 
 type ImageMapping struct {

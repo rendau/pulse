@@ -1,11 +1,10 @@
-// Package service — самоотчёт сервиса: ручка состояния (манифест) на готовых подах его
-// workload'ов, худший под, зависимости — только объявленные в манифесте, объекты — только из
-// domain. Общий для снапшота сервиса и здоровья кластера.
+// Package service — самоотчёт сервиса: ручка состояния (манифест) через k8s Service каждого его
+// workload'а (отвечает любой под за Service), худший из ответов, зависимости — только объявленные
+// в манифесте, объекты — только из domain. Общий для снапшота сервиса и здоровья кластера.
 package service
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -17,74 +16,44 @@ import (
 	snapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
 	svcModel "github.com/rendau/pulse/internal/domain/svc/model"
 	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
-	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
 	selfstatusModel "github.com/rendau/pulse/internal/service/selfstatus/model"
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
 
-const (
-	// podsLimit — сколько готовых подов опрашивать: состояние у каждого пода своё
-	podsLimit = 3
-	// staleAfter — отчёт старше: фоновая проверка в сервисе, похоже, остановилась
-	staleAfter = 5 * time.Minute
-)
+// staleAfter — отчёт старше: фоновая проверка в сервисе, похоже, остановилась
+const staleAfter = 5 * time.Minute
 
 // statusRank — чем больше, тем хуже.
 var statusRank = map[string]int{selfstatusModel.StatusOk: 0, selfstatusModel.StatusDegraded: 1, selfstatusModel.StatusDown: 2}
 
-type k8sI interface {
-	ListPods(ctx context.Context, namespace, selector string) ([]k8sModel.Pod, error)
-}
-
 type selfStatusI interface {
-	Get(ctx context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error)
+	Get(ctx context.Context, target svcproxyModel.ServiceTarget) (*selfstatusModel.Status, error)
 }
 
 type Service struct {
-	k8s  k8sI
 	self selfStatusI
 	now  func() time.Time
 }
 
-func New(k8s k8sI, self selfStatusI) *Service {
-	return &Service{k8s: k8s, self: self, now: time.Now}
+func New(self selfStatusI) *Service {
+	return &Service{self: self, now: time.Now}
 }
 
-// Report — самоотчёт сервиса (nil — у его workload'ов нет манифеста или ни один под не ответил) и
+// Report — самоотчёт сервиса (nil — у его workload'ов нет манифеста или никто не ответил) и
 // ошибки источников по ходу.
 func (s *Service) Report(ctx context.Context, service *svcModel.Main, workloads []*workloadModel.Main) (*snapshotModel.SelfReport, []snapshotModel.SourceError) {
-	withManifest := lo.Filter(workloads, func(w *workloadModel.Main, _ int) bool {
-		return w.Selector != "" && w.Manifest.Port > 0 &&
-			(w.Manifest.Status == workloadModel.ManifestOk || w.Manifest.Status == workloadModel.ManifestPartial)
-	})
-	if len(withManifest) == 0 {
+	// один запрос на Service: два workload'а за одним Service — один и тот же ответ
+	targets := lo.Uniq(lo.FilterMap(workloads, func(w *workloadModel.Main, _ int) (svcproxyModel.ServiceTarget, bool) {
+		return svcproxyModel.ServiceTarget{Namespace: w.Namespace, Service: w.Manifest.Service, Port: w.Manifest.Port}, w.Manifest.Callable()
+	}))
+	if len(targets) == 0 {
 		return nil, nil
 	}
 
 	var mu sync.Mutex
 	var failures []snapshotModel.SourceError
-	fail := func(source string, err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		failures = append(failures, snapshotModel.SourceError{Source: source, Message: err.Error()})
-	}
-
-	var targets []svcproxyModel.PodTarget
-	for _, w := range withManifest {
-		pods, err := s.k8s.ListPods(ctx, w.Namespace, w.Selector)
-		if err != nil {
-			fail(constant.SourceK8s, fmt.Errorf("pods %s/%s: %w", w.Namespace, w.Name, err))
-			continue
-		}
-		pods = lo.Filter(pods, func(p k8sModel.Pod, _ int) bool { return p.Ready && p.IP != "" })
-		sort.Slice(pods, func(i, j int) bool { return pods[i].Name < pods[j].Name })
-		for _, p := range lo.Slice(pods, 0, podsLimit) {
-			targets = append(targets, svcproxyModel.PodTarget{Namespace: p.Namespace, Pod: p.Name, IP: p.IP, Port: w.Manifest.Port})
-		}
-	}
-
 	type answer struct {
-		pod    string
+		target svcproxyModel.ServiceTarget
 		status *selfstatusModel.Status
 	}
 	var answers []answer
@@ -92,13 +61,13 @@ func (s *Service) Report(ctx context.Context, service *svcModel.Main, workloads 
 	for _, target := range targets {
 		eg.Go(func() error {
 			status, err := s.self.Get(egCtx, target)
+			mu.Lock()
+			defer mu.Unlock()
 			switch {
 			case err != nil:
-				fail(constant.SourceServiceStatus, err)
+				failures = append(failures, snapshotModel.SourceError{Source: constant.SourceServiceStatus, Message: err.Error()})
 			case status != nil:
-				mu.Lock()
-				answers = append(answers, answer{pod: target.Pod, status: status})
-				mu.Unlock()
+				answers = append(answers, answer{target: target, status: status})
 			}
 			return nil
 		})
@@ -108,24 +77,23 @@ func (s *Service) Report(ctx context.Context, service *svcModel.Main, workloads 
 		return nil, failures
 	}
 
-	// худший под; при равенстве — по имени (детерминированно)
+	// худший ответ; при равенстве — по имени Service (детерминированно)
 	sort.Slice(answers, func(i, j int) bool {
 		ri, rj := statusRank[answers[i].status.Status], statusRank[answers[j].status.Status]
-		return ri > rj || (ri == rj && answers[i].pod < answers[j].pod)
+		return ri > rj || (ri == rj && answers[i].target.Service < answers[j].target.Service)
 	})
-	worst := answers[0]
+	worst := answers[0].status
 
 	return &snapshotModel.SelfReport{
-		Status:       worst.status.Status,
-		Pod:          worst.pod,
-		Pods:         len(answers),
-		CheckedAt:    worst.status.CheckedAt,
-		Stale:        !worst.status.CheckedAt.IsZero() && s.now().Sub(worst.status.CheckedAt) > staleAfter,
-		Dependencies: selfDependencies(service.Metadata.Dependencies, worst.status.Dependencies),
-		Gauges: lo.Map(worst.status.Gauges, func(g selfstatusModel.Gauge, _ int) snapshotModel.SelfGauge {
+		Status:       worst.Status,
+		Answers:      len(answers),
+		CheckedAt:    worst.CheckedAt,
+		Stale:        !worst.CheckedAt.IsZero() && s.now().Sub(worst.CheckedAt) > staleAfter,
+		Dependencies: selfDependencies(service.Metadata.Dependencies, worst.Dependencies),
+		Gauges: lo.Map(worst.Gauges, func(g selfstatusModel.Gauge, _ int) snapshotModel.SelfGauge {
 			return snapshotModel.SelfGauge{Id: g.Id, Title: g.Title, Value: g.Value, Time: g.Time, Unit: g.Unit, Status: g.Status}
 		}),
-		Entities: selfEntities(service.Metadata.Domain, worst.status.Entities),
+		Entities: selfEntities(service.Metadata.Domain, worst.Entities),
 	}, failures
 }
 

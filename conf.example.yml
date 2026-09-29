@@ -33,12 +33,14 @@ snapshot:
   # Без секции берётся встроенный набор (rps, error_rate, latency_p95, cpu_cores, memory_bytes,
   # restarts_1h): метрики go-шаблона ищутся по имени регэкспом, т.к. в кластере они с префиксом
   # (mechta_caravan_request_total, у старых сервисов *_request_count) и статусом ok|error.
+  # Запросы самого pulse к манифесту (manifest.path и глубже) встроенный набор не считает — у
+  # метрик, где путь запроса в лейбле path_name: 404 поиска манифеста — не ошибка сервиса.
   # default_metrics:
   #   - id: rps
   #     title: Запросов в секунду
   #     # label_replace + подзапрос: под регэксп попадает несколько метрик, а rate() без имени
   #     # дал бы ряды с одинаковыми лейблами («vector cannot contain metrics with the same labelset»)
-  #     promql: 'sum(rate(label_replace({__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}"}, "metric", "$1", "__name__", "(.+)")[5m:30s]))'
+  #     promql: 'sum(rate(label_replace({__name__=~".+_request_(total|count)", namespace="{namespace}", pod=~"{pod_regex}", path_name!~"/\\.well-known/pulse(/.*)?"}, "metric", "$1", "__name__", "(.+)")[5m:30s]))'
   #     unit: rps
   # внешние метрики через gateway ruto — для сервисов с приложениями ruto; плейсхолдер {ruto_apps}.
   # Без секции — public_rps, public_error_rate, public_latency_p95 по метрикам из секции ruto.
@@ -113,20 +115,16 @@ ruto:
 manifest:
   # манифест сервиса (docs/service-manifest.md): путь; ручка состояния — <path>/status
   path: /.well-known/pulse
-  # порты, если у пода нет аннотации, цели Prometheus и портов с именами system/http
-  default_ports: [3003]
-  # аннотации пода: pulse/port, pulse/path
-  annotation_prefix: "pulse/"
+  # имя порта k8s Service workload'а, через который pulse вызывает манифест, ручку состояния и
+  # диагностические ручки (отвечает любой под за Service); нет такого порта — pulse туда не ходит
+  service_port: system
   # перечитать принятый манифест без выкатки; повтор после неудачи (нет манифеста, ошибки)
   refresh_after: 24h
   retry_after: 1h
-  # сколько держать ответ ручки состояния пода (снапшоты подряд не нагружают сервис)
+  # сколько держать ответ ручки состояния (снапшоты подряд не нагружают сервис)
   status_cache: 15s
   # код страны для телефонов (параметры ручек, поиск номера в логах): 8… и 10 цифр → 7…
   phone_country_code: "7"
-  # заведомо не-HTTP порты: при переборе портов пода (раз после выкатки) не трогаются;
-  # без ключа — встроенный список (postgres, redis, kafka, rabbitmq, mongodb…)
-  # skip_ports: [5432, 6379, 9092]
 
 endpoints:
   # жёсткие потолки для call_service_endpoint поверх декларации ручки в манифесте

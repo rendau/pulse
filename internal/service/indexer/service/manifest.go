@@ -5,11 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"slices"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -25,31 +22,28 @@ import (
 	"github.com/rendau/pulse/internal/util/imageref"
 )
 
-// Поиск манифеста сервиса на подах (docs/service-manifest.md, «Как pulse находит манифест»).
+// Поиск манифеста сервиса через его k8s Service (docs/service-manifest.md, «Как pulse находит
+// манифест»): порт Service с именем manifest.service_port (system), отвечает любой под за Service.
 
 const (
 	manifestConcurrency = 8
-	// таймаут на порт: известные кандидаты — 2 с, перебор остальных портов — 1 с
-	probeTimeout         = 2 * time.Second
-	fallbackProbeTimeout = time.Second
+	// таймаут запроса манифеста: по стандарту манифест отдаётся за ≤ 2 с
+	probeTimeout = 2 * time.Second
 )
 
-// probeManifests ищет манифест у workload'ов, которым пора: сменился образ, принятый манифест
-// старше RefreshAfter, неудача старше RetryAfter. Остальным — прошлый результат из каталога.
-// Итог — в draft.manifest (действующий манифест) и draft.manifestProbe (новый результат поиска).
+// probeManifests ищет манифест у workload'ов, которым пора: сменился образ или Service
+// workload'а, принятый манифест старше RefreshAfter, неудача старше RetryAfter. Остальным —
+// прошлый результат из каталога. Итог — в draft.manifest (действующий манифест) и
+// draft.manifestProbe (новый результат поиска).
 func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, pods []k8sModel.Pod, previous map[workloadModel.Key]*workloadModel.Main, now time.Time) {
-	if s.pods == nil || s.conf.Manifest.Path == "" || previous == nil {
+	if s.caller == nil || s.k8s == nil || s.conf.Manifest.Path == "" || previous == nil {
 		return
 	}
 
-	scrapePorts := s.scrapePorts(ctx)
-	// именованные порты k8s Service: system/http* бывает только у Service, а не у контейнера
-	var services []k8sModel.Service
-	if s.k8s != nil {
-		var err error
-		if services, err = s.k8s.ListServices(ctx, ""); err != nil {
-			slog.Warn("indexer: k8s services are unavailable for manifest discovery", "error", err)
-		}
+	// Service — единственный путь к манифесту: без их списка остаются прошлые результаты
+	services, servicesErr := s.k8s.ListServices(ctx, "")
+	if servicesErr != nil {
+		slog.Warn("indexer: k8s services are unavailable, manifests will not be updated", "error", servicesErr)
 	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -62,8 +56,10 @@ func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, p
 		}
 
 		ready := readyPods(pods, d)
-		// выкатка: новые поды ещё не запустились, а старые отдадут манифест прошлой сборки
-		if len(ready) == 0 || d.rolling || !s.probeDue(prevManifest, d.digest, now) {
+		target, found := s.manifestTarget(ready, services)
+		// выкатка: пока за Service есть поды прошлой сборки, ответить могут они — с её манифестом
+		// и коммитом; подов нет — Service ответить некому
+		if servicesErr != nil || len(ready) == 0 || d.rolling || !settled(ready, d) || !s.probeDue(prevManifest, d.digest, target, now) {
 			// прошлый результат: манифест разбирается заново — правила проверки могли поменяться
 			if prevManifest != nil {
 				d.manifest = parseStored(prevManifest)
@@ -75,10 +71,14 @@ func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, p
 			continue
 		}
 
-		// перебор остальных портов пода — только раз после выкатки (или при первом поиске)
-		deployed := prevManifest == nil || prevManifest.Digest != d.digest
+		if !found {
+			d.manifestProbe = &workloadModel.Manifest{Status: workloadModel.ManifestAbsent, Digest: d.digest, CheckedAt: now,
+				Reasons: []string{fmt.Sprintf("нет k8s Service с портом %s, который ведёт на поды workload'а", s.conf.Manifest.ServicePort)}}
+			d.manifest = nil
+			continue
+		}
 		eg.Go(func() error {
-			probe, parsed := s.probe(egCtx, ready[0], scrapePorts[ready[0].Namespace+"/"+ready[0].Name], servicePorts(ready[0], services), deployed)
+			probe, parsed := s.probe(egCtx, target)
 			probe.Digest, probe.CheckedAt = d.digest, now
 			d.manifestProbe, d.manifest = probe, parsed
 			return nil
@@ -88,11 +88,14 @@ func (s *Service) probeManifests(ctx context.Context, drafts []*workloadDraft, p
 }
 
 // probeDue — пора ли искать манифест заново.
-func (s *Service) probeDue(prev *workloadModel.Manifest, digest string, now time.Time) bool {
+func (s *Service) probeDue(prev *workloadModel.Manifest, digest string, target svcproxyModel.ServiceTarget, now time.Time) bool {
 	switch {
 	case prev == nil:
 		return true
 	case digest != "" && digest != prev.Digest:
+		return true
+	case prev.Service != target.Service || prev.Port != target.Port:
+		// Service workload'а появился, пропал или сменил порт
 		return true
 	case prev.Status == workloadModel.ManifestOk || prev.Status == workloadModel.ManifestPartial:
 		return now.Sub(prev.CheckedAt) >= s.conf.Manifest.RefreshAfter
@@ -101,174 +104,74 @@ func (s *Service) probeDue(prev *workloadModel.Manifest, digest string, now time
 	}
 }
 
-// probe стучится в порты-кандидаты пода, пока не найдёт манифест.
-func (s *Service) probe(ctx context.Context, pod k8sModel.Pod, scrape []int, named []k8sModel.PodPort, deployed bool) (*workloadModel.Manifest, *localModel.ParsedManifest) {
-	path := s.conf.Manifest.Path
-	if p := strings.TrimSpace(pod.Annotations[s.conf.Manifest.AnnotationPrefix+"path"]); strings.HasPrefix(p, "/") {
-		path = p
+// manifestTarget — k8s Service, который ведёт на поды workload'а (селектор совпал с лейблами
+// пода), с портом manifest.service_port: через него pulse вызывает манифест, ручку состояния и
+// диагностические ручки. Таких несколько — первый по имени.
+func (s *Service) manifestTarget(ready []k8sModel.Pod, services []k8sModel.Service) (svcproxyModel.ServiceTarget, bool) {
+	if len(ready) == 0 {
+		return svcproxyModel.ServiceTarget{}, false
 	}
-
-	known, rest := s.candidatePorts(pod, scrape, named)
-	candidates := known
-	if deployed {
-		candidates = append(candidates, rest...)
+	pod := ready[0]
+	isManifestPort := func(p k8sModel.ServicePort) bool { return p.Name == s.conf.Manifest.ServicePort }
+	matched := lo.Filter(services, func(svc k8sModel.Service, _ int) bool {
+		return svc.Namespace == pod.Namespace && len(svc.Selector) > 0 && slices.ContainsFunc(svc.Ports, isManifestPort) &&
+			labels.SelectorFromSet(svc.Selector).Matches(labels.Set(pod.Labels))
+	})
+	if len(matched) == 0 {
+		return svcproxyModel.ServiceTarget{}, false
 	}
-
-	result := &workloadModel.Manifest{Status: workloadModel.ManifestUnreachable}
-	headers := map[string]string{"User-Agent": constant.ServiceName + "/" + constant.Version, "X-Pulse-Request-Id": "indexer"}
-
-	for i, port := range candidates {
-		timeout := lo.Ternary(i < len(known), probeTimeout, fallbackProbeTimeout)
-		probeCtx, cancel := context.WithTimeout(ctx, timeout)
-		resp, err := s.pods.GetPod(probeCtx, svcproxyModel.PodTarget{Namespace: pod.Namespace, Pod: pod.Name, IP: pod.IP, Port: port},
-			path, nil, headers, localModel.ManifestMaxBytes)
-		cancel()
-
-		switch {
-		case err != nil:
-			slog.Debug("indexer: manifest probe", "pod", pod.Namespace+"/"+pod.Name, "port", port, "error", err)
-			result.Tried = append(result.Tried, fmt.Sprintf("%d: нет ответа", port))
-			continue
-		case resp.StatusCode != 200:
-			result.Tried = append(result.Tried, fmt.Sprintf("%d: %d", port, resp.StatusCode))
-			result.Status = workloadModel.ManifestAbsent // HTTP-сервер есть, манифеста нет
-			continue
-		case resp.Truncated && !localModel.LooksLikeManifest(resp.Body), !resp.Truncated && !localModel.IsManifest(resp.Body):
-			// 200 на любой путь (SPA, catch-all) — манифеста здесь нет
-			result.Tried = append(result.Tried, fmt.Sprintf("%d: 200, не манифест", port))
-			result.Status = workloadModel.ManifestAbsent
-			continue
-		}
-
-		result.Tried = append(result.Tried, fmt.Sprintf("%d: манифест", port))
-		result.Port = port
-		if resp.Truncated {
-			result.Status, result.Reasons = workloadModel.ManifestInvalid, []string{fmt.Sprintf("манифест больше %d KB", localModel.ManifestMaxBytes>>10)}
-			return result, nil
-		}
-		parsed, err := localModel.ParseManifest(resp.Body)
-		if err != nil {
-			result.Status, result.Reasons = workloadModel.ManifestInvalid, []string{err.Error()}
-			return result, nil
-		}
-		result.Raw = resp.Body
-		result.Status, result.Reasons = workloadModel.ManifestOk, parsed.Problems
-		if len(parsed.Problems) > 0 {
-			result.Status = workloadModel.ManifestPartial
-		}
-		return result, parsed
-	}
-
-	if len(candidates) == 0 {
-		result.Reasons = []string{"у пода нет портов-кандидатов: задайте аннотацию " + s.conf.Manifest.AnnotationPrefix + "port"}
-	}
-	return result, nil
+	svc := lo.MinBy(matched, func(a, b k8sModel.Service) bool { return a.Name < b.Name })
+	port, _ := lo.Find(svc.Ports, isManifestPort)
+	return svcproxyModel.ServiceTarget{Namespace: svc.Namespace, Service: svc.Name, Port: int(port.Port)}, true
 }
 
-// candidatePorts — порты по порядку стандарта: аннотация, порт /metrics (цели Prometheus),
-// порты с именами system и http*, порты по умолчанию; rest — остальные TCP-порты пода, кроме
-// заведомо не-HTTP (перебираются только после выкатки).
-func (s *Service) candidatePorts(pod k8sModel.Pod, scrape []int, servicePorts []k8sModel.PodPort) (known, rest []int) {
-	add := func(list *[]int, port int) {
-		if port > 0 && port < 65536 && !slices.Contains(known, port) && !slices.Contains(rest, port) {
-			*list = append(*list, port)
-		}
+// probe запрашивает манифест через Service workload'а.
+func (s *Service) probe(ctx context.Context, target svcproxyModel.ServiceTarget) (*workloadModel.Manifest, *localModel.ParsedManifest) {
+	where := fmt.Sprintf("%s:%d", target.Service, target.Port)
+	result := &workloadModel.Manifest{Status: workloadModel.ManifestUnreachable, Service: target.Service, Port: target.Port}
+
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	resp, err := s.caller.GetService(ctx, target, s.conf.Manifest.Path, nil, map[string]string{
+		"User-Agent":         constant.ServiceName + "/" + constant.Version,
+		"X-Pulse-Request-Id": "indexer",
+	}, localModel.ManifestMaxBytes)
+
+	switch {
+	case err != nil:
+		slog.Debug("indexer: manifest probe", "service", target.Namespace+"/"+where, "error", err)
+		result.Tried = []string{where + ": нет ответа"}
+		return result, nil
+	case resp.StatusCode != 200:
+		// HTTP-сервер есть, манифеста нет
+		result.Status, result.Tried = workloadModel.ManifestAbsent, []string{fmt.Sprintf("%s: %d", where, resp.StatusCode)}
+		return result, nil
+	case resp.Truncated && !localModel.LooksLikeManifest(resp.Body), !resp.Truncated && !localModel.IsManifest(resp.Body):
+		// 200 на любой путь (SPA, catch-all) — манифеста здесь нет
+		result.Status, result.Tried = workloadModel.ManifestAbsent, []string{where + ": 200, не манифест"}
+		return result, nil
 	}
 
-	if port, err := strconv.Atoi(strings.TrimSpace(pod.Annotations[s.conf.Manifest.AnnotationPrefix+"port"])); err == nil {
-		add(&known, port)
+	result.Tried = []string{where + ": манифест"}
+	if resp.Truncated {
+		result.Status, result.Reasons = workloadModel.ManifestInvalid, []string{fmt.Sprintf("манифест больше %d KB", localModel.ManifestMaxBytes>>10)}
+		return result, nil
 	}
-	for _, port := range scrape {
-		add(&known, port)
-	}
-	tcp := lo.Filter(pod.Ports, func(p k8sModel.PodPort, _ int) bool { return p.Protocol == "" || p.Protocol == "TCP" })
-	// имена — у порта контейнера или у порта k8s Service, который ведёт на под
-	named := append(append([]k8sModel.PodPort{}, tcp...), servicePorts...)
-	for _, p := range named {
-		if p.Name == "system" {
-			add(&known, int(p.Port))
-		}
-	}
-	for _, p := range named {
-		if p.Name == "http" || strings.HasPrefix(p.Name, "http-") {
-			add(&known, int(p.Port))
-		}
-	}
-	for _, port := range s.conf.Manifest.DefaultPorts {
-		add(&known, port)
-	}
-	for _, p := range tcp {
-		if !slices.Contains(s.conf.Manifest.SkipPorts, int(p.Port)) {
-			add(&rest, int(p.Port))
-		}
-	}
-	return known, rest
-}
-
-// servicePorts — порты k8s Service, выбирающих под (селектор совпал с лейблами), с именами
-// system и http*: имя — как у порта Service, номер — порт контейнера (targetPort числом, по
-// имени порта контейнера или, если не задан, — порт самого Service).
-func servicePorts(pod k8sModel.Pod, services []k8sModel.Service) []k8sModel.PodPort {
-	var result []k8sModel.PodPort
-	for _, svc := range services {
-		if svc.Namespace != pod.Namespace || len(svc.Selector) == 0 || !labels.SelectorFromSet(svc.Selector).Matches(labels.Set(pod.Labels)) {
-			continue
-		}
-		for _, sp := range svc.Ports {
-			if sp.Name != "system" && sp.Name != "http" && !strings.HasPrefix(sp.Name, "http-") {
-				continue
-			}
-			port := sp.Port
-			switch n, err := strconv.Atoi(sp.TargetPort); {
-			case err == nil:
-				port = int32(n)
-			case sp.TargetPort != "":
-				p, ok := lo.Find(pod.Ports, func(p k8sModel.PodPort) bool { return p.Name == sp.TargetPort })
-				if !ok {
-					continue
-				}
-				port = p.Port
-			}
-			result = append(result, k8sModel.PodPort{Container: "service/" + svc.Name, Name: sp.Name, Port: port, Protocol: "TCP"})
-		}
-	}
-	return result
-}
-
-// scrapePorts — порты, с которых Prometheus собирает /metrics, по подам («ns/pod»): манифест
-// живёт на том же служебном порту. Prometheus недоступен — без этого кандидата.
-func (s *Service) scrapePorts(ctx context.Context) map[string][]int {
-	if s.prom == nil {
-		return nil
-	}
-	samples, err := s.prom.Query(ctx, `up{pod!=""}`, time.Time{})
+	parsed, err := localModel.ParseManifest(resp.Body)
 	if err != nil {
-		slog.Warn("indexer: prometheus targets are unavailable for manifest discovery", "error", err)
-		return nil
+		result.Status, result.Reasons = workloadModel.ManifestInvalid, []string{err.Error()}
+		return result, nil
 	}
-	result := make(map[string][]int, len(samples))
-	for _, sample := range samples {
-		_, portStr, err := net.SplitHostPort(sample.Labels["instance"])
-		if err != nil {
-			continue
-		}
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			continue
-		}
-		key := sample.Labels["namespace"] + "/" + sample.Labels["pod"]
-		if !slices.Contains(result[key], port) {
-			result[key] = append(result[key], port)
-		}
+	result.Raw = resp.Body
+	result.Status, result.Reasons = workloadModel.ManifestOk, parsed.Problems
+	if len(parsed.Problems) > 0 {
+		result.Status = workloadModel.ManifestPartial
 	}
-	for key := range result {
-		sort.Ints(result[key])
-	}
-	return result
+	return result, parsed
 }
 
-// readyPods — готовые поды workload'а с адресом, по имени (детерминированно). Digest известен —
-// только поды с ним: во время выкатки старые поды отдали бы манифест прошлой сборки.
+// readyPods — готовые поды workload'а с адресом, по имени (детерминированно): по ним находится
+// Service workload'а и видно, закончилась ли выкатка.
 func readyPods(pods []k8sModel.Pod, d *workloadDraft) []k8sModel.Pod {
 	if d.Selector == "" {
 		return nil
@@ -278,13 +181,20 @@ func readyPods(pods []k8sModel.Pod, d *workloadDraft) []k8sModel.Pod {
 		return nil
 	}
 	result := lo.Filter(pods, func(p k8sModel.Pod, _ int) bool {
-		return p.Namespace == d.Namespace && p.Ready && p.IP != "" && selector.Matches(labels.Set(p.Labels)) &&
-			(d.digest == "" || lo.ContainsBy(p.Containers, func(c k8sModel.PodContainer) bool {
-				return c.Name == d.container && imageref.DigestFromImageID(c.ImageID) == d.digest
-			}))
+		return p.Namespace == d.Namespace && p.Ready && p.IP != "" && selector.Matches(labels.Set(p.Labels))
 	})
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
+}
+
+// settled — выкатка закончилась: все готовые поды workload'а на образе d.digest. Иначе за Service
+// отвечали бы и поды прошлой сборки — с её манифестом и коммитом.
+func settled(ready []k8sModel.Pod, d *workloadDraft) bool {
+	return d.digest == "" || lo.EveryBy(ready, func(p k8sModel.Pod) bool {
+		return lo.ContainsBy(p.Containers, func(c k8sModel.PodContainer) bool {
+			return c.Name == d.container && imageref.DigestFromImageID(c.ImageID) == d.digest
+		})
+	})
 }
 
 // parseStored — прошлый принятый манифест из каталога; разобрать не вышло — как будто его нет.

@@ -67,7 +67,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `logs` (query_logs, top_errors), `timeline` (get_timeline, get_changes), `dependencies`
   (get_dependencies: обход графа в ширину с лимитом узлов, здоровье соседей по подам),
   `endpoints` (call_service_endpoint: ручки только из манифеста сервиса — allowlist по id, только
-  GET прямо в готовый под workload'а на порт манифеста, параметры по pattern/enum/x-personal (значение
+  GET через k8s Service workload'а (порт `system`, отвечает любой под), параметры по pattern/enum/x-personal (значение
   к одному виду через `pii.Normalize`), ответ — проекция на схему манифеста (`projection.go`: необъявленное и
   не того типа вырезается — `dropped_fields`; x-personal — как есть с отметкой `personal_fields` путь → вид;
   строки по maxLength, массивы по maxItems/max_rows), ошибка ручки — только `error`, `request_id` =
@@ -114,13 +114,14 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   `SearchPattern` — телефон с «+» в query_logs → предфильтр и регэксп номера в любом написании,
   email — без регистра; правила поиска PII — общие с `redact.ReplacePII`),
   `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
-  `svcproxy` (GET прямо в под по IP, без редиректов; локально — `ENDPOINT_CALL_MODE=k8s-proxy`
-  через `k8s.ProxyGetPod`),
+  `svcproxy` (GET через k8s Service по DNS-имени `<service>.<namespace>.svc`, без редиректов;
+  локально — `ENDPOINT_CALL_MODE=k8s-proxy` через `k8s.ProxyGetService`),
   `indexer` (фоновый обход кластера → каталог + история деплоев), `selfreport` (самоотчёт сервиса:
-  ручка состояния до 3 готовых подов workload'ов с манифестом, худший под, зависимости — только
+  ручка состояния через k8s Service каждого workload'а с манифестом (запрос на Service, отвечает
+  любой под), худший ответ, зависимости — только
   объявленные, объекты — только из domain; общий для снапшота и `get_cluster_health.self_reported` —
   сервисы, чей самоотчёт не ok или устарел, с подсказками), `selfstatus` (ручка состояния
-  сервиса `<manifest.path>/status` прямо с пода: проверка по стандарту, тексты через
+  сервиса `<manifest.path>/status` через его k8s Service: проверка по стандарту, тексты через
   `pii.Text` — учётные данные вырезаны, карты маской, кэш `manifest.status_cache`).
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы.
 
@@ -137,7 +138,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   инструментов — лимит исчерпан, новые только объединением с существующими.
 - RBAC индексера и инструментов: get на pods/log (логи без Loki); get/list на nodes, deployments, statefulsets, daemonsets, cronjobs, jobs,
   replicasets, pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy
-  и pods/proxy (локально; в кластере pulse ходит в поды напрямую по IP).
+  (локально; в кластере pulse ходит в Service по DNS-имени).
 - **Usecase** (`internal/usecase/*`):
   - Входной слой от транспортного слоя (запросы от внешних систем).
   - Валидация входных параметров.
@@ -179,21 +180,31 @@ domain service → repo
 - Параметр `window` разбирается `internal/util/window` (дефолт 1h, максимум 7d, понимает `7d`);
   у логов свой потолок `logs.max_window` (24h).
 - Манифест сервиса (`docs/service-manifest.md` — стандарт для команд): сервис на служебном порту
-  отдаёт `/.well-known/pulse`. Индексер ищет его на готовом поде workload'а (`indexer/service/manifest.go`):
-  порты по порядку — аннотация `pulse/port`, порт `/metrics` из целей Prometheus (`up{pod!=""}`),
-  имена `system`/`http*` у контейнера или у k8s Service, выбирающего под (номер — из `targetPort`), `manifest.default_ports`, остальные TCP-порты кроме `skip_ports` (только
-  после выкатки). Искать заново — при смене digest, принятый — раз в `refresh_after`, неудача — раз
-  в `retry_after`. Результат — в колонках `workload.manifest_*` (статус ok/partial/invalid/absent/
-  unreachable, причины, опробованные порты, сам манифест как получен — разбирается каждый цикл).
-  Разбор и проверка по стандарту — `indexer/service/model/manifest.go` (`ParseManifest`: invalid —
-  ошибка, partial — `Problems`); `200` без `pulse_manifest` — не манифест (`IsManifest`). Манифест
-  важнее `service.yaml` (`metadata.source`), коммит сборки из манифеста — первым. Вызов пода —
-  `svcproxy.GetPod` (IP пода; `ENDPOINT_CALL_MODE=k8s-proxy` — через pods/proxy, 503 прокси
-  «error trying to reach service» — «нет ответа», а не HTTP-ответ). `200` на любой путь (SPA,
-  большая страница, обрезанная по лимиту) — тоже не манифест (`LooksLikeManifest`).
-  Снапшот (`snapshot/self.go`) опрашивает ручку состояния до 3 готовых подов workload'ов с
-  манифестом и показывает худший (`self_reported`): зависимости — только объявленные в манифесте;
-  не-ok → health degraded и подсказки «сервис сообщает: …»; отчёт старше 5 мин — `stale`.
+  отдаёт `/.well-known/pulse`. Индексер ищет его **только через k8s Service** workload'а
+  (`indexer/service/manifest.go`): Service, чей селектор совпал с лейблами готового пода, с портом
+  по имени `manifest.service_port` (`system`); несколько — первый по имени. Запрос —
+  `svcproxy.GetService` на `<service>.<namespace>.svc:<порт>`: отвечает любой под за Service (решение
+  2026-09-29; раньше pulse стучался в поды и перебирал их порты, включая основной — 404 на путь
+  манифеста сервис считал ошибкой, ночью это давало ему error_rate до 17%). Порт
+  `system` в Service у ~18 чартов helm-zeon уже есть (ServiceMonitor); нет порта — статус `absent`
+  с причиной, pulse никуда не ходит. Искать заново — при смене digest (только когда выкатка
+  закончилась: все готовые поды на новом digest, иначе ответит старый под — с прошлым коммитом),
+  при смене Service/порта, принятый — раз в `refresh_after`, неудача — раз в `retry_after`; нет
+  списка Service или готовых подов — прошлый результат. Встроенные golden signals не считают
+  запросы pulse к `manifest.path*` у метрик с лейблом `path_name`. Результат — в колонках
+  `workload.manifest_*` (статус ok/partial/invalid/absent/unreachable, причины, `manifest_service`
+  и `manifest_port` — куда ходить за ручками, `Manifest.Callable()`, опробованное, сам манифест как
+  получен — разбирается каждый цикл). Разбор и проверка по стандарту —
+  `indexer/service/model/manifest.go` (`ParseManifest`: invalid — ошибка, partial — `Problems`);
+  `200` без `pulse_manifest` — не манифест (`IsManifest`). Манифест важнее `service.yaml`
+  (`metadata.source`), коммит сборки из манифеста — первым. `ENDPOINT_CALL_MODE=k8s-proxy` — через
+  services/proxy («error trying to reach service» и «no endpoints available» прокси — «нет ответа»,
+  а не HTTP-ответ). `200` на любой путь (SPA, большая страница, обрезанная по лимиту) — тоже не
+  манифест (`LooksLikeManifest`).
+  Снапшот (`snapshot/self.go`) спрашивает ручку состояния через Service каждого workload'а с
+  манифестом (один запрос на Service) и показывает худший ответ (`self_reported`; поле `pod` в
+  ответе больше не заполняется): зависимости — только объявленные в манифесте; не-ok → health
+  degraded и подсказки «сервис сообщает: …»; отчёт старше 5 мин — `stale`.
   Метрики манифеста — добавка к golden signals (service.yaml — замена).
   Раздел `domain` манифеста (бизнес-смысл: ответственность и границы, объекты с форматом номера,
   статусами и `stuck_after`, типичные вопросы) — `Metadata.Domain`, отдаётся в `get_service_info`;
@@ -438,6 +449,8 @@ gofmt  →  go vet ./...  →  go test ./...  →  golangci-lint run  →  за�
   `LOKI_LIVE_URL=http://localhost:3110 go test ./internal/usecase/logs/ -run TestLive -v`.
 - Манифест на локальном кластере: демо-сервисы в namespace `pulse-test` (nginx отдаёт
   `internal/service/indexer/service/model/testdata/manifest.json` на порту `system` 3003 и 404 на
-  `http` 8080), pulse с `ENDPOINT_CALL_MODE=k8s-proxy`; итог — `get_service_info orders-center`
-  (`metadata_source: manifest`, `workloads[].manifest`). Убрать: `kubectl --context docker-desktop delete ns pulse-test`.
+  `http` 8080) и их k8s Service: `ocenter-demo` — порты `http` 80→8080 и `system` 3003,
+  `nomanifest-demo` — только `http` (итог — `absent`, запросов к нему нет); pulse с
+  `ENDPOINT_CALL_MODE=k8s-proxy`; итог — `get_service_info orders-center`
+  (`metadata_source: manifest`, `workloads[].manifest.service: ocenter-demo`). Убрать: `kubectl --context docker-desktop delete ns pulse-test`.
 - Живой тест registry-клиента: `REGISTRY_LIVE_IMAGE=ghcr.io/actions/actions-runner:latest go test ./internal/service/registry/... -run TestLive -v`.

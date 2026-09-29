@@ -10,7 +10,6 @@ import (
 	workloadModel "github.com/rendau/pulse/internal/domain/workload/model"
 	githubModel "github.com/rendau/pulse/internal/service/github/model"
 	k8sModel "github.com/rendau/pulse/internal/service/k8s/model"
-	prometheusModel "github.com/rendau/pulse/internal/service/prometheus/model"
 	rutoModel "github.com/rendau/pulse/internal/service/ruto/model"
 	svcproxyModel "github.com/rendau/pulse/internal/service/svcproxy/model"
 )
@@ -34,14 +33,9 @@ type registryClientI interface {
 	GetImageLabels(ctx context.Context, ref string) (map[string]string, error)
 }
 
-// PodGetterI — GET прямо в под: манифест сервиса (svcproxy или pods/proxy локально).
-type PodGetterI interface {
-	GetPod(ctx context.Context, target svcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error)
-}
-
-// PrometheusI экспортирован: источник опционален (порт /metrics пода — кандидат на манифест).
-type PrometheusI interface {
-	Query(ctx context.Context, promql string, at time.Time) ([]prometheusModel.Sample, error)
+// ServiceGetterI — GET в k8s Service: манифест сервиса (svcproxy или services/proxy локально).
+type ServiceGetterI interface {
+	GetService(ctx context.Context, target svcproxyModel.ServiceTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error)
 }
 
 // RutoI экспортирован: источник опционален, композиционный корень передаёт nil.

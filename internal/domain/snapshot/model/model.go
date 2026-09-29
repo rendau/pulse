@@ -114,11 +114,10 @@ type Snapshot struct {
 }
 
 // SelfReport — состояние, которое сервис сообщает сам: зависимости и показатели. Худший из
-// опрошенных подов.
+// ответов k8s Service его workload'ов (за каждым отвечает любой под).
 type SelfReport struct {
 	Status    string // ok | degraded | down
-	Pod       string // под, чей отчёт показан
-	Pods      int    // сколько подов ответило
+	Answers   int    // сколько workload'ов ответило
 	CheckedAt time.Time
 	// Stale — проверки давно не выполнялись (фоновая проверка в сервисе остановилась)
 	Stale        bool

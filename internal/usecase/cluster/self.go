@@ -25,8 +25,7 @@ func (c *collector) selfReports(ctx context.Context) {
 		return
 	}
 	byService := lo.GroupBy(lo.Filter(c.workloads, func(w *workloadModel.Main, _ int) bool {
-		return w.ServiceName != "" && w.Manifest.Port > 0 &&
-			(w.Manifest.Status == workloadModel.ManifestOk || w.Manifest.Status == workloadModel.ManifestPartial)
+		return w.ServiceName != "" && w.Manifest.Callable()
 	}), func(w *workloadModel.Main) string { return w.ServiceName })
 	if len(byService) == 0 {
 		return

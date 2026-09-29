@@ -8,8 +8,9 @@ import (
 )
 
 // Client — ручка состояния сервиса (docs/service-manifest.md, «Состояние»): что сервис сам
-// сообщает о своих зависимостях. Ответ проверен и очищен; кэш на под — несколько секунд.
+// сообщает о своих зависимостях. Ответ проверен и очищен; кэш на Service — несколько секунд.
 type Client interface {
-	// Get — состояние пода; nil без ошибки — ручки состояния у сервиса нет (404).
-	Get(ctx context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error)
+	// Get — состояние по словам любого пода за k8s Service; nil без ошибки — ручки состояния у
+	// сервиса нет (404).
+	Get(ctx context.Context, target svcproxyModel.ServiceTarget) (*selfstatusModel.Status, error)
 }

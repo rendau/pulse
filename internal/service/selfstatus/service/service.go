@@ -1,4 +1,4 @@
-// Package service — чтение ручки состояния сервиса (<manifest path>/status) прямо с пода.
+// Package service — чтение ручки состояния сервиса (<manifest path>/status) через его k8s Service.
 package service
 
 import (
@@ -37,14 +37,14 @@ var (
 type Config struct {
 	// Path — путь ручки состояния (<путь манифеста>/status)
 	Path string
-	// CacheTtl — сколько держать ответ пода: снапшоты подряд не нагружают сервис
+	// CacheTtl — сколько держать ответ: снапшоты подряд не нагружают сервис
 	CacheTtl time.Duration
 }
 
 type Service struct {
-	conf Config
-	pods PodGetterI
-	pii  PiiI
+	conf     Config
+	services ServiceGetterI
+	pii      PiiI
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -55,12 +55,12 @@ type cached struct {
 	at     time.Time
 }
 
-func New(conf Config, pods PodGetterI, pii PiiI) *Service {
-	return &Service{conf: conf, pods: pods, pii: pii, cache: map[string]cached{}}
+func New(conf Config, services ServiceGetterI, pii PiiI) *Service {
+	return &Service{conf: conf, services: services, pii: pii, cache: map[string]cached{}}
 }
 
-func (s *Service) Get(ctx context.Context, target svcproxyModel.PodTarget) (*selfstatusModel.Status, error) {
-	key := fmt.Sprintf("%s/%s:%d", target.Namespace, target.Pod, target.Port)
+func (s *Service) Get(ctx context.Context, target svcproxyModel.ServiceTarget) (*selfstatusModel.Status, error) {
+	key := fmt.Sprintf("%s/%s:%d", target.Namespace, target.Service, target.Port)
 	s.mu.Lock()
 	if c, ok := s.cache[key]; ok && time.Since(c.at) < s.conf.CacheTtl {
 		s.mu.Unlock()
@@ -68,7 +68,7 @@ func (s *Service) Get(ctx context.Context, target svcproxyModel.PodTarget) (*sel
 	}
 	s.mu.Unlock()
 
-	resp, err := s.pods.GetPod(ctx, target, s.conf.Path, nil, map[string]string{
+	resp, err := s.services.GetService(ctx, target, s.conf.Path, nil, map[string]string{
 		"User-Agent":         constant.ServiceName + "/" + constant.Version,
 		"X-Pulse-Request-Id": "snapshot",
 	}, maxBodyBytes)

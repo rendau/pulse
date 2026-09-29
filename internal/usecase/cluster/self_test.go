@@ -18,7 +18,7 @@ import (
 type manifestWorkloads struct{}
 
 func (manifestWorkloads) List(context.Context, *workloadModel.ListReq) ([]*workloadModel.Main, int64, error) {
-	manifest := workloadModel.Manifest{Status: workloadModel.ManifestOk, Port: 3003}
+	manifest := workloadModel.Manifest{Status: workloadModel.ManifestOk, Service: "svc", Port: 3003}
 	return []*workloadModel.Main{
 		{Namespace: "default", Name: "caravan", ServiceName: "caravan", Selector: "app=caravan", Manifest: manifest},
 		{Namespace: "default", Name: "pulse", ServiceName: "pulse", Selector: "app=pulse", Manifest: manifest},
@@ -41,7 +41,7 @@ type fakeSelfReport struct{}
 
 func (fakeSelfReport) Report(_ context.Context, s *svcModel.Main, _ []*workloadModel.Main) (*snapshotModel.SelfReport, []snapshotModel.SourceError) {
 	if s.Name == "caravan" {
-		return &snapshotModel.SelfReport{Status: "degraded", Pod: "caravan-1", CheckedAt: time.Now(), Dependencies: []snapshotModel.SelfDependency{
+		return &snapshotModel.SelfReport{Status: "degraded", CheckedAt: time.Now(), Dependencies: []snapshotModel.SelfDependency{
 			{Id: "onec", Kind: "grpc", Target: "onec-proxy", Status: "down", Affects: "уведомления 1С"},
 		}}, nil
 	}

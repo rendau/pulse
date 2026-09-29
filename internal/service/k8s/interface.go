@@ -20,9 +20,9 @@ type Client interface {
 	ListServices(ctx context.Context, namespace string) ([]k8sModel.Service, error)
 	// ListNodes возвращает ноды кластера с условиями готовности и давления.
 	ListNodes(ctx context.Context) ([]k8sModel.Node, error)
-	// ProxyGetPod выполняет GET к поду через API-сервер (pods/proxy): статус ответа пода и тело.
-	// Для локальной разработки, когда IP подов недоступны напрямую.
-	ProxyGetPod(ctx context.Context, namespace, pod string, port int, path string, query, headers map[string]string, maxBytes int64) (int, []byte, error)
+	// ProxyGetService выполняет GET к k8s Service через API-сервер (services/proxy): статус
+	// ответа и тело. Для локальной разработки, когда адреса Service недоступны напрямую.
+	ProxyGetService(ctx context.Context, namespace, service string, port int, path string, query, headers map[string]string, maxBytes int64) (int, []byte, error)
 	// ListReplicaSets возвращает ReplicaSet'ы namespace'а по label-селектору (ревизии Deployment'ов).
 	ListReplicaSets(ctx context.Context, namespace, selector string) ([]k8sModel.ReplicaSet, error)
 	// ListEvents возвращает события namespace'а не старше since.

@@ -1,5 +1,5 @@
-// Package service — прямой вызов ручек сервиса в под (IP:порт). Общий таймаут не задан:
-// дедлайн ставит контекст вызова (из декларации ручки с потолком из правил).
+// Package service — вызов ручек сервиса через его k8s Service (DNS-имя внутри кластера). Общий
+// таймаут не задан: дедлайн ставит контекст вызова (из декларации ручки с потолком из правил).
 package service
 
 import (
@@ -28,8 +28,14 @@ func New() *Service {
 	return &Service{httpClient: httpClient}
 }
 
-func (s *Service) GetPod(ctx context.Context, target svcproxyModel.PodTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error) {
-	uri := "http://" + net.JoinHostPort(target.IP, strconv.Itoa(target.Port)) + path
+func (s *Service) GetService(ctx context.Context, target svcproxyModel.ServiceTarget, path string, query, headers map[string]string, maxBytes int64) (*svcproxyModel.Response, error) {
+	return s.sendRequest(ctx, serviceUrl(target, path, query), headers, maxBytes)
+}
+
+// serviceUrl — адрес ручки в Service: <service>.<namespace>.svc — без домена кластера, его
+// дописывает поиск DNS пода (cluster.local или свой домен кластера).
+func serviceUrl(target svcproxyModel.ServiceTarget, path string, query map[string]string) string {
+	uri := "http://" + net.JoinHostPort(target.Service+"."+target.Namespace+".svc", strconv.Itoa(target.Port)) + path
 	if len(query) > 0 {
 		values := url.Values{}
 		for k, v := range query {
@@ -37,8 +43,7 @@ func (s *Service) GetPod(ctx context.Context, target svcproxyModel.PodTarget, pa
 		}
 		uri += "?" + values.Encode()
 	}
-
-	return s.sendRequest(ctx, uri, headers, maxBytes)
+	return uri
 }
 
 // sendRequest — единственная точка отправки: только GET, тело читается с лимитом.

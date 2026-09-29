@@ -59,8 +59,9 @@ var Conf = struct {
 	KusecUrl   string `env:"KUSEC_URL"`
 	KusecToken string `env:"KUSEC_TOKEN"`
 
-	// вызовы в поды сервисов (манифест, ручка состояния, диагностические ручки): direct — по IP
-	// пода (в кластере); k8s-proxy — через API-сервер (локальная разработка, нужен RBAC pods/proxy)
+	// вызовы ручек сервисов через их k8s Service (манифест, ручка состояния, диагностические
+	// ручки): direct — по DNS-имени Service (в кластере); k8s-proxy — через API-сервер (локальная
+	// разработка, нужен RBAC services/proxy)
 	EndpointCallMode string `env:"ENDPOINT_CALL_MODE" envDefault:"direct"`
 
 	// индексер топологии

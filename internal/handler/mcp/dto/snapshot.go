@@ -214,8 +214,8 @@ func EncodeQueryMetricsRep(v *usecaseSnapshotModel.QueryMetricsResult) QueryMetr
 
 type SelfReport struct {
 	Status       string           `json:"status" jsonschema:"ok | degraded | down — по словам сервиса"`
-	Pod          string           `json:"pod" jsonschema:"под, чей отчёт показан (худший из опрошенных)"`
-	Pods         int              `json:"pods" jsonschema:"сколько подов ответило"`
+	Pod          string           `json:"pod" jsonschema:"не заполняется: отчёт идёт через k8s Service, отвечает любой под"`
+	Pods         int              `json:"pods" jsonschema:"сколько workload'ов сервиса ответило (худший из ответов показан)"`
 	CheckedAt    *time.Time       `json:"checked_at,omitempty" jsonschema:"когда сервис выполнял проверки"`
 	Stale        bool             `json:"stale,omitempty" jsonschema:"проверки давно не выполнялись — отчёту верить с осторожностью"`
 	Dependencies []SelfDependency `json:"dependencies,omitempty"`
@@ -265,7 +265,7 @@ func encodeSelfReport(v *snapshotModel.SelfReport) *SelfReport {
 		return nil
 	}
 	rep := &SelfReport{
-		Status: v.Status, Pod: v.Pod, Pods: v.Pods, Stale: v.Stale,
+		Status: v.Status, Pods: v.Answers, Stale: v.Stale,
 		Dependencies: lo.Map(v.Dependencies, func(d snapshotModel.SelfDependency, _ int) SelfDependency {
 			return SelfDependency{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Affects: d.Affects, Status: d.Status, LatencyMs: d.LatencyMs, Message: d.Message}
 		}),

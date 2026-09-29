@@ -120,7 +120,7 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 		Metrics:             lo.Map(v.Metrics, encodeMetric),
 		LogErrors:           encodeLogErrors(v.LogErrors),
 		SelfReported: lo.Map(v.SelfReported, func(s clusterModel.ServiceSelfReport, _ int) ClusterSelf {
-			rep := ClusterSelf{Service: s.Service, Status: s.Report.Status, Stale: s.Report.Stale, Pod: s.Report.Pod, Hints: lo.Ternary(s.Hints == nil, []string{}, s.Hints)}
+			rep := ClusterSelf{Service: s.Service, Status: s.Report.Status, Stale: s.Report.Stale, Hints: lo.Ternary(s.Hints == nil, []string{}, s.Hints)}
 			if !s.Report.CheckedAt.IsZero() {
 				rep.CheckedAt = new(tz.In(s.Report.CheckedAt))
 			}
@@ -216,9 +216,9 @@ func roundPtr(v *float64) *float64 {
 // ClusterSelf — сервис, который сам сообщает о проблеме.
 type ClusterSelf struct {
 	Service   string     `json:"service"`
-	Status    string     `json:"status" jsonschema:"ok | degraded | down — худший под"`
+	Status    string     `json:"status" jsonschema:"ok | degraded | down — худший из workload'ов"`
 	Stale     bool       `json:"stale,omitempty" jsonschema:"отчёт устарел: фоновая проверка в сервисе остановилась"`
-	Pod       string     `json:"pod"`
+	Pod       string     `json:"pod" jsonschema:"не заполняется: отчёт идёт через k8s Service, отвечает любой под"`
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
 	Hints     []string   `json:"hints" jsonschema:"что именно: зависимости, показатели, застрявшие объекты"`
 }

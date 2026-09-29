@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +80,7 @@ func TestRunningDigest(t *testing.T) {
 
 // TestRollout — цикл посреди выкатки со сменой образа не пишет новый образ со старым коммитом
 // и деплой с чужим или пустым digest: каталог держит прошлое, деплой пишет следующий цикл.
+// Манифест (через Service) — когда за Service не осталось подов прошлой сборки.
 func TestRollout(t *testing.T) {
 	now := time.Now()
 	const (
@@ -88,9 +88,11 @@ func TestRollout(t *testing.T) {
 		newImage = "ghcr.io/new/bot:latest"
 	)
 	deploys := &fakeDeploy{}
-	podGetter := &fakePods{}
+	caller := &fakeCaller{}
 	s := &Service{
-		pods:   podGetter,
+		caller: caller,
+		k8s: &fakeServices{services: []k8sModel.Service{{Namespace: "default", Name: "bot", Selector: map[string]string{"app": "bot"},
+			Ports: []k8sModel.ServicePort{{Name: "system", Port: 3003}}}}},
 		conf:   indexerModel.Config{Cluster: "zeon", Manifest: manifestConf},
 		mapper: newImageMapper([]indexerModel.ImageMapping{{Registry: "ghcr.io", RepoTemplate: "https://github.com/{repo}"}}),
 		deploy: deploys,
@@ -116,7 +118,7 @@ func TestRollout(t *testing.T) {
 	assert.Equal(t, oldImage, lo.FromPtr(edit.Image), "в каталоге — то, что работает")
 	assert.Nil(t, edit.ImageDigest, "digest не трогаем")
 	assert.Nil(t, edit.DeployedCommit, "коммит не трогаем")
-	assert.Empty(t, podGetter.calls, "манифест во время выкатки не ищем: старый под отдал бы прошлую сборку")
+	assert.Empty(t, caller.calls, "манифест во время выкатки не ищем: старый под отдал бы прошлую сборку")
 
 	// 2. новый под запущен (старый ещё завершается): деплой с новым digest
 	d, edit, n = cycle([]k8sModel.Pod{rolloutPod("bot-1", oldImage, "sha256:old", now.Add(-time.Hour)), rolloutPod("bot-2", newImage, "sha256:new", now)})
@@ -131,7 +133,11 @@ func TestRollout(t *testing.T) {
 	assert.Equal(t, newImage, lo.FromPtr(edit.Image))
 	assert.Equal(t, "sha256:new", lo.FromPtr(edit.ImageDigest))
 
-	require.NotEmpty(t, podGetter.calls)
-	assert.True(t, lo.EveryBy(podGetter.calls, func(c string) bool { return strings.HasPrefix(c, "10.0.0.2:") }),
-		"манифест — только с пода нового digest'а: %v", podGetter.calls)
+	assert.Empty(t, caller.calls, "старый под ещё за Service — ответить мог бы он")
+
+	// 3. старый под завершился: манифест — через Service
+	prev.Image, prev.ImageDigest = newImage, "sha256:new"
+	_, _, n = cycle([]k8sModel.Pod{rolloutPod("bot-2", newImage, "sha256:new", now)})
+	assert.Zero(t, n)
+	assert.Equal(t, []string{"default/bot:3003/.well-known/pulse"}, caller.calls)
 }

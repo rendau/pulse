@@ -9,11 +9,10 @@ type Response struct {
 	Truncated bool
 }
 
-// PodTarget — под, в который идёт запрос напрямую (манифест сервиса и ручки из него:
-// служебного порта в k8s Service обычно нет, а состояние у каждого пода своё).
-type PodTarget struct {
+// ServiceTarget — k8s Service, через который идёт запрос (манифест сервиса и ручки из него):
+// отвечает любой готовый под за Service. Port — порт Service.
+type ServiceTarget struct {
 	Namespace string
-	Pod       string
-	IP        string
+	Service   string
 	Port      int
 }
