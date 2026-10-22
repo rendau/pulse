@@ -35,8 +35,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 ### Внутренние пакеты (`internal/`)
 - `internal/app/` — сборка приложения: серверы, миграции, метрики, трассировка, HTTP-gateway, DI.
   - `app.go` — граф зависимостей и запуск компонентов.
-  - `mcp_server.go` — MCP-сервер, HTTP-сервер MCP-порта (`MCP_PORT`, дефолт 5060; транспорт на
-    `MCP_PATH`, рядом адреса OAuth), bearer-auth middleware (статические токены и access-токены OAuth
+  - `mcp_server.go` — MCP-сервер, HTTP-сервер MCP-порта (`MCP_PORT`, дефолт 5060; порт свой —
+    транспорт на любом пути, кроме адресов OAuth), bearer-auth middleware (статические токены и access-токены OAuth
     `pso_`; с OAuth 401 несёт `resource_metadata`), проверка конфигурации OAuth на старте;
     `mcp_access_log.go` — журнал запросов MCP-порта (`mcp: request`, вид учётных данных без значений).
   - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
@@ -49,7 +49,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `mcp/` — MCP-инструменты (`handler.go` — регистрация и описания, по файлу на группу).
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
   - `oauth/` — OAuth 2.1 на MCP-порту (`MCP_OAUTH_ENABLED`, README «Вход через OAuth»): метаданные
-    (RFC 9728/8414, под путём `MCP_PUBLIC_URL`, в форме RFC и в корне), регистрация (RFC 7591),
+    (RFC 9728/8414; если `MCP_PUBLIC_URL` с путём — под ним, в форме RFC и в корне), регистрация (RFC 7591),
     `/token`, `/revoke`, страница согласия `/authorize` (html/template; пользователей у pulse нет —
     разрешает ключ доступа из `MCP_EXTERNAL_TOKENS`, не `MCP_AUTH_TOKEN`; неверный ключ — задержка 1 с).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
@@ -465,17 +465,17 @@ gofmt  →  go vet ./...  →  go test ./...  →  golangci-lint run  →  за�
 - Миграции берутся из `./migrations` текущего каталога: бинарник запускать из корня репозитория
   (или рядом с симлинком на `migrations/` pulse) — иначе подхватятся чужие миграции.
 - OAuth для MCP: ещё `MCP_EXTERNAL_TOKENS=extkey MCP_OAUTH_ENABLED=true
-  MCP_PUBLIC_URL=http://localhost:9091/mcp MCP_OAUTH_SECRET=<32+ символов>`. Клиента регистрировать с
-  адресом возврата `http://localhost:18099/callback` (`POST localhost:9091/mcp/register`, loopback
+  MCP_PUBLIC_URL=http://localhost:9091 MCP_OAUTH_SECRET=<32+ символов>`. Клиента регистрировать с
+  адресом возврата `http://localhost:18099/callback` (`POST localhost:9091/register`, loopback
   разрешён по умолчанию; там никто не слушает — код берётся из адреса после «Разрешить»), страница
-  согласия — `http://localhost:9091/mcp/authorize?…`, ключ — `extkey`; дальше `/mcp/token`
-  (`code_verifier`), `tools/call` с `Bearer pso_…`, refresh, `/mcp/revoke`.
+  согласия — `http://localhost:9091/authorize?…`, ключ — `extkey`; дальше `/token`
+  (`code_verifier`), `tools/call` с `Bearer pso_…`, refresh, `/revoke`.
 - Кластер для прогонов индексера — локальный docker-desktop (`KUBECONFIG=$HOME/.kube/config
   KUBE_CONTEXT=docker-desktop CLUSTER_NAME=local`). Прод (`yc-zeon`) — только read-only и только
   по явной просьбе.
 - Вызов инструмента через curl (ответ — SSE, строка `data: {...}`):
   ```
-  curl -s -X POST localhost:9091/mcp -H "Authorization: Bearer devtoken" \
+  curl -s -X POST localhost:9091/ -H "Authorization: Bearer devtoken" \
     -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ping","arguments":{}}}'
   ```

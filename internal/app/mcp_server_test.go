@@ -32,12 +32,12 @@ func TestMCPServer_Ping(t *testing.T) {
 
 	// токен бота и внешних клиентов; пустые игнорируются
 	const token, externalToken = "secret-token", "external-token"
-	httpServer := MCPHttpServerCreate("0", "/mcp", token, []string{externalToken, ""}, nil, server)
+	httpServer := MCPHttpServerCreate("0", token, []string{externalToken, ""}, nil, server)
 	ts := httptest.NewServer(httpServer.Handler)
 	defer ts.Close()
 
 	t.Run("unauthorized without token", func(t *testing.T) {
-		resp, err := http.Post(ts.URL+"/mcp", "application/json", nil)
+		resp, err := http.Post(ts.URL, "application/json", nil)
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
@@ -45,7 +45,7 @@ func TestMCPServer_Ping(t *testing.T) {
 
 	for name, bearer := range map[string]string{"wrong token": "nope", "empty token": ""} {
 		t.Run(name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp", nil)
+			req, err := http.NewRequest(http.MethodPost, ts.URL, nil)
 			require.NoError(t, err)
 			req.Header.Set("Authorization", "Bearer "+bearer)
 			resp, err := http.DefaultClient.Do(req)
@@ -58,7 +58,7 @@ func TestMCPServer_Ping(t *testing.T) {
 	t.Run("external token", func(t *testing.T) {
 		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
 		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
-			Endpoint:   ts.URL + "/mcp",
+			Endpoint:   ts.URL,
 			HTTPClient: &http.Client{Transport: &bearerTransport{token: externalToken}},
 		}, nil)
 		require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestMCPServer_Ping(t *testing.T) {
 	t.Run("tools list and ping call", func(t *testing.T) {
 		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
 		transport := &mcp.StreamableClientTransport{
-			Endpoint:   ts.URL + "/mcp",
+			Endpoint:   ts.URL,
 			HTTPClient: &http.Client{Transport: &bearerTransport{token: token}},
 		}
 		session, err := client.Connect(ctx, transport, nil)
@@ -150,13 +150,13 @@ func TestMCPServer_HumanScope(t *testing.T) {
 		})
 	})
 	const internalToken, externalToken = "internal-token", "external-token"
-	ts := httptest.NewServer(MCPHttpServerCreate("0", "/mcp", internalToken, []string{externalToken}, nil, server).Handler)
+	ts := httptest.NewServer(MCPHttpServerCreate("0", internalToken, []string{externalToken}, nil, server).Handler)
 	defer ts.Close()
 
 	for token, human := range map[string]bool{internalToken: true, externalToken: false} {
 		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
 		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
-			Endpoint:   ts.URL + "/mcp",
+			Endpoint:   ts.URL,
 			HTTPClient: &http.Client{Transport: &bearerTransport{token: token}},
 		}, nil)
 		require.NoError(t, err)

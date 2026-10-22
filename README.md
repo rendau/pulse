@@ -17,9 +17,9 @@ go run ./cmd/
 индексер находит коммит запущенного образа без OCI-label'ов.
 Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.
 
-MCP-эндпоинт: `http://localhost:${MCP_PORT}${MCP_PATH}` (streamable HTTP, stateless; `MCP_PORT` по
-умолчанию `5060`, `MCP_PATH` — `/mcp`). На MCP-порту больше ничего нет, кроме адресов OAuth: наружу
-публикуется только он. Авторизация — `Authorization: Bearer <токен>`: `MCP_AUTH_TOKEN` (агент
+MCP-эндпоинт: `http://localhost:${MCP_PORT}/` (streamable HTTP, stateless; `MCP_PORT` по умолчанию
+`5060`). Порт отдельный, поэтому свой путь MCP не нужен: транспорт отвечает на любом пути, кроме адресов
+OAuth. На MCP-порту больше ничего нет: наружу публикуется только он. Авторизация — `Authorization: Bearer <токен>`: `MCP_AUTH_TOKEN` (агент
 pulse_agent) или любой из `MCP_EXTERNAL_TOKENS` (внешние клиенты, через запятую), а с OAuth — ещё
 access-токен OAuth.
 Служебные ручки на `SYSTEM_HTTP_PORT`: `/healthcheck`, `/readiness`, `/metrics`.
@@ -32,8 +32,8 @@ access-токен OAuth.
 «Разрешить». Пользователей у pulse нет: разрешает тот, кто знает ключ. Статические токены работают
 рядом.
 
-Включение: `MCP_OAUTH_ENABLED=true` + `MCP_PUBLIC_URL` (адрес MCP как его видят клиенты, путь —
-`MCP_PATH`, напр. `https://pulse-mcp.example.com/mcp`) + `MCP_OAUTH_SECRET` (ключ подписи `client_id`,
+Включение: `MCP_OAUTH_ENABLED=true` + `MCP_PUBLIC_URL` (адрес MCP-порта как его видят клиенты,
+напр. `https://pulse-mcp.example.com`) + `MCP_OAUTH_SECRET` (ключ подписи `client_id`,
 ≥32 случайных символов; смена — клиенты подключаются заново) + непустой `MCP_EXTERNAL_TOKENS`.
 Без этого pulse не стартует.
 
@@ -49,13 +49,15 @@ access-токен OAuth.
   только на адреса из `MCP_OAUTH_REDIRECT_URIS` (по умолчанию claude.ai, claude.com и loopback —
   `localhost`/`127.0.0.1` с любым портом для Claude Code). В БД регистрация не пишет: `client_id`
   (`pscl_…`) — подписанные данные клиента.
-- **Адреса на MCP-порту** (под путём `MCP_PUBLIC_URL`): `/.well-known/oauth-protected-resource`,
-  `/.well-known/oauth-authorization-server` (и `openid-configuration`; также в форме RFC
-  `/.well-known/…/mcp` и в корне), `/authorize` (страница согласия), `/register`, `/token`, `/revoke`.
+- **Адреса на MCP-порту:** `/.well-known/oauth-protected-resource`,
+  `/.well-known/oauth-authorization-server` (и `openid-configuration`), `/authorize` (страница
+  согласия), `/register`, `/token`, `/revoke`. Если порт опубликован под путём
+  (`MCP_PUBLIC_URL=https://host/pulse`), адреса живут под этим путём, метаданные — ещё и в форме RFC
+  (`/.well-known/…/pulse`) и в корне.
   401 от MCP несёт `WWW-Authenticate: Bearer resource_metadata=…` — с него клиент начинает вход.
 - **Сеть.** Коннекторы claude.ai ходят в MCP-порт с серверов Anthropic — порт должен быть доступен из
-  интернета, Cloudflare перед ним не должен их блокировать. Ingress не должен срезать путь: запросы
-  приходят в pulse с тем же путём, что в `MCP_PUBLIC_URL`.
+  интернета, Cloudflare перед ним не должен их блокировать. Лучше отдельный поддомен; если под путём —
+  ingress не должен его срезать.
 - **Журнал.** Каждый запрос MCP-порта — строка `mcp: request` (метод, путь, JSON-RPC метод, статус,
   время, вид учётных данных `none`/`static`/`oauth` — без значений, адрес клиента через
   `Cf-Connecting-Ip`/`X-Forwarded-For`/`X-Real-Ip`, `cf_ray`, User-Agent). Отказы — `mcp: credential
@@ -67,13 +69,14 @@ access-токен OAuth.
 `MCP_PUBLIC_URL`. Claude Code — `.mcp.json` без заголовка, вход — `/mcp` → Authenticate:
 
 ```json
-{"mcpServers": {"pulse": {"type": "http", "url": "https://pulse-mcp.example.com/mcp"}}}
+{"mcpServers": {"pulse": {"type": "http", "url": "https://pulse-mcp.example.com/"}}}
 ```
 
 С токеном (агенты, скрипты) — как раньше: `"headers": {"Authorization": "Bearer ${PULSE_MCP_TOKEN}"}`.
 
 **Деплой.** MCP переехал с `HTTP_PORT` на `MCP_PORT`: в чарте `helm-zeon/charts/pulse` порт контейнера и
-Service (порт `http`) — на `MCP_PORT`, `PULSE_MCP_URL` у pulse_agent — на этот порт; для коннекторов —
+Service (порт `http`) — на `MCP_PORT`, `PULSE_MCP_URL` у pulse_agent — на этот порт (путь не важен:
+`http://pulse.default:5060/` или прежний `…/mcp`); для коннекторов —
 ingress на MCP-порт и env OAuth выше.
 
 ## Подключить сервис

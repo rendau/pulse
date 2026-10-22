@@ -65,8 +65,7 @@ func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {
 // mcpOAuthSecretMinLen — ключ подписи client_id: короче — подбираем.
 const mcpOAuthSecretMinLen = 32
 
-// mcpOAuthConfigCheck — OAuth MCP-порта настроен целиком. Путь MCP_PUBLIC_URL — это MCP_PATH:
-// клиент подключается по этому адресу и предъявляет его как resource, адреса OAuth лежат под ним.
+// mcpOAuthConfigCheck — OAuth MCP-порта настроен целиком.
 func mcpOAuthConfigCheck() error {
 	conf := config.Conf
 	if conf.MCPPublicUrl == "" {
@@ -75,9 +74,6 @@ func mcpOAuthConfigCheck() error {
 	parsed, err := url.Parse(conf.MCPPublicUrl)
 	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
 		return fmt.Errorf("MCP_PUBLIC_URL %q must be an absolute http(s) URL", conf.MCPPublicUrl)
-	}
-	if strings.TrimSuffix(parsed.Path, "/") != strings.TrimSuffix(conf.MCPPath, "/") {
-		return fmt.Errorf("path of MCP_PUBLIC_URL %q must be MCP_PATH %q", conf.MCPPublicUrl, conf.MCPPath)
 	}
 	if len(conf.MCPOAuthSecret) < mcpOAuthSecretMinLen {
 		return fmt.Errorf("MCP_OAUTH_ENABLED requires MCP_OAUTH_SECRET of at least %d characters", mcpOAuthSecretMinLen)
@@ -95,18 +91,18 @@ type mcpOAuthI interface {
 	VerifyAccessToken(ctx context.Context, token string) (time.Time, error)
 }
 
-// MCPHttpServerCreate строит HTTP-сервер MCP-порта: streamable-транспорт на path и, с OAuth,
-// адреса OAuth рядом. Режим stateless: нет сессий, каждый запрос самодостаточен — сервис можно
+// MCPHttpServerCreate строит HTTP-сервер MCP-порта: streamable-транспорт на любом пути, кроме
+// адресов OAuth (с OAuth), — порт отдельный, свой путь MCP не нужен. Режим stateless: нет сессий, каждый запрос самодостаточен — сервис можно
 // масштабировать горизонтально без sticky-сессий. internalToken — внутреннего клиента (агент
 // pulse: ему — ответы ручек для человека), externalTokens — внешних; пустые игнорируются.
-func MCPHttpServerCreate(port, path, internalToken string, externalTokens []string, oauth mcpOAuthI, server *mcp.Server) *http.Server {
+func MCPHttpServerCreate(port, internalToken string, externalTokens []string, oauth mcpOAuthI, server *mcp.Server) *http.Server {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, Logger: slog.Default()},
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(path, authMiddleware(internalToken, externalTokens, oauth, handler))
+	mux.Handle("/", authMiddleware(internalToken, externalTokens, oauth, handler))
 	if oauth != nil {
 		oauth.Register(mux)
 	}

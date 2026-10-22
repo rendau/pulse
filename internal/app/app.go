@@ -478,7 +478,7 @@ func (a *App) Init() {
 	{
 		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
-		a.mcpHttpServer = MCPHttpServerCreate(config.Conf.MCPPort, config.Conf.MCPPath,
+		a.mcpHttpServer = MCPHttpServerCreate(config.Conf.MCPPort,
 			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, mcpOAuth, a.mcpServer)
 	}
 
@@ -517,7 +517,7 @@ func (a *App) Start() {
 				errCheck(err, "mcp-http-server stopped")
 			}
 		}()
-		slog.Info("mcp-http-server started "+a.mcpHttpServer.Addr+config.Conf.MCPPath, "oauth", a.oauthUsecase != nil)
+		slog.Info("mcp-http-server started "+a.mcpHttpServer.Addr, "oauth", a.oauthUsecase != nil)
 	}
 
 	// system http server

@@ -86,7 +86,7 @@ type errorOut struct {
 }
 
 // Handler — адреса OAuth на MCP-порту. issuer — публичный адрес MCP-сервера; его путь
-// (MCP_PATH, напр. https://host/mcp) префиксует каждый адрес.
+// (если порт опубликован под путём, напр. https://host/pulse) префиксует каждый адрес.
 type Handler struct {
 	uc       *usecaseOAuth.Usecase
 	issuer   string

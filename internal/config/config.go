@@ -20,13 +20,13 @@ var Conf = struct {
 	// ответы ручек для человека, audience: human), MCP_EXTERNAL_TOKENS — внешних клиентов
 	// (агенты, люди) через запятую, у каждого свой; оба пусты — без проверки (локальная разработка)
 	MCPPort           string   `env:"MCP_PORT" envDefault:"5060"`
-	MCPPath           string   `env:"MCP_PATH" envDefault:"/mcp"`
 	MCPAuthToken      string   `env:"MCP_AUTH_TOKEN"`
 	MCPExternalTokens []string `env:"MCP_EXTERNAL_TOKENS" envSeparator:","`
 
 	// OAuth для MCP-клиентов, подключающихся по адресу (коннекторы Claude); токены выше работают
 	// рядом. Подключение разрешает человек, знающий один из MCP_EXTERNAL_TOKENS, на странице
-	// согласия pulse. MCPPublicUrl — адрес MCP как его видят клиенты, с путём MCP_PATH;
+	// согласия pulse. MCPPublicUrl — адрес MCP-порта как его видят клиенты (с путём, если порт
+	// опубликован под путём);
 	// MCPOAuthSecret — ключ подписи client_id (≥32 символов; смена — клиенты подключаются заново).
 	MCPOAuthEnabled      bool          `env:"MCP_OAUTH_ENABLED" envDefault:"false"`
 	MCPPublicUrl         string        `env:"MCP_PUBLIC_URL"`

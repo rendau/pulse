@@ -57,7 +57,7 @@ func TestMCPServer_OAuth(t *testing.T) {
 	var handler http.Handler
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler.ServeHTTP(w, r) }))
 	defer ts.Close()
-	issuer := ts.URL + "/mcp"
+	issuer := ts.URL
 
 	uc := usecaseOAuthP.New(
 		usecaseOAuthP.Config{
@@ -68,7 +68,7 @@ func TestMCPServer_OAuth(t *testing.T) {
 		domainOAuthServiceP.NewClientCodec(strings.Repeat("s", 32)),
 		noTxm{},
 	)
-	handler = MCPHttpServerCreate("0", "/mcp", internalToken, []string{externalToken}, handlerOAuthP.New(uc), server).Handler
+	handler = MCPHttpServerCreate("0", internalToken, []string{externalToken}, handlerOAuthP.New(uc), server).Handler
 
 	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
@@ -79,7 +79,7 @@ func TestMCPServer_OAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.Contains(t, resp.Header.Get("WWW-Authenticate"), `resource_metadata="`+issuer+`/.well-known/oauth-protected-resource"`)
 
-	for _, path := range []string{"/mcp/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"} {
+	for _, path := range []string{"/.well-known/oauth-protected-resource"} {
 		var meta struct {
 			Resource             string   `json:"resource"`
 			AuthorizationServers []string `json:"authorization_servers"`
@@ -93,7 +93,7 @@ func TestMCPServer_OAuth(t *testing.T) {
 		TokenEndpoint         string `json:"token_endpoint"`
 		RegistrationEndpoint  string `json:"registration_endpoint"`
 	}
-	getJSON(t, ts.URL+"/.well-known/oauth-authorization-server/mcp", &asMeta)
+	getJSON(t, ts.URL+"/.well-known/oauth-authorization-server", &asMeta)
 	assert.Equal(t, issuer+"/authorize", asMeta.AuthorizationEndpoint)
 
 	// регистрация
@@ -219,8 +219,7 @@ func TestMCPOAuthConfigCheck(t *testing.T) {
 	defer func() { config.Conf = saved }()
 
 	valid := func() {
-		config.Conf.MCPPath = "/mcp"
-		config.Conf.MCPPublicUrl = "https://pulse-mcp.example.com/mcp"
+		config.Conf.MCPPublicUrl = "https://pulse-mcp.example.com"
 		config.Conf.MCPOAuthSecret = strings.Repeat("s", 32)
 		config.Conf.MCPExternalTokens = []string{"key"}
 	}
@@ -229,11 +228,10 @@ func TestMCPOAuthConfigCheck(t *testing.T) {
 	require.NoError(t, mcpOAuthConfigCheck())
 
 	for name, spoil := range map[string]func(){
-		"no public url":     func() { config.Conf.MCPPublicUrl = "" },
-		"relative url":      func() { config.Conf.MCPPublicUrl = "/mcp" },
-		"path not MCP_PATH": func() { config.Conf.MCPPublicUrl = "https://pulse-mcp.example.com/" },
-		"short secret":      func() { config.Conf.MCPOAuthSecret = "short" },
-		"no external keys":  func() { config.Conf.MCPExternalTokens = []string{" ", ""} },
+		"no public url":    func() { config.Conf.MCPPublicUrl = "" },
+		"relative url":     func() { config.Conf.MCPPublicUrl = "/mcp" },
+		"short secret":     func() { config.Conf.MCPOAuthSecret = "short" },
+		"no external keys": func() { config.Conf.MCPExternalTokens = []string{" ", ""} },
 	} {
 		valid()
 		spoil()
