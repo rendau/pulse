@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mechta-market/mobone/v2"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samber/lo"
 
@@ -25,6 +26,8 @@ import (
 	domainDeployServiceP "github.com/rendau/pulse/internal/domain/deploy/service"
 	domainEventServiceP "github.com/rendau/pulse/internal/domain/event/service"
 	domainLogsServiceP "github.com/rendau/pulse/internal/domain/logs/service"
+	domainOAuthRepoDbP "github.com/rendau/pulse/internal/domain/oauth/repo/db"
+	domainOAuthServiceP "github.com/rendau/pulse/internal/domain/oauth/service"
 	domainSnapshotModel "github.com/rendau/pulse/internal/domain/snapshot/model"
 	domainSnapshotServiceP "github.com/rendau/pulse/internal/domain/snapshot/service"
 	domainSvcRepoDbP "github.com/rendau/pulse/internal/domain/svc/repo/db"
@@ -32,6 +35,7 @@ import (
 	domainWorkloadRepoDbP "github.com/rendau/pulse/internal/domain/workload/repo/db"
 	domainWorkloadServiceP "github.com/rendau/pulse/internal/domain/workload/service"
 	handlerMcpP "github.com/rendau/pulse/internal/handler/mcp"
+	handlerOAuthP "github.com/rendau/pulse/internal/handler/oauth"
 	"github.com/rendau/pulse/internal/infra/pulsekit"
 	serviceAlertmanagerServiceP "github.com/rendau/pulse/internal/service/alertmanager/service"
 	serviceGithubServiceP "github.com/rendau/pulse/internal/service/github/service"
@@ -53,6 +57,7 @@ import (
 	usecaseDependenciesP "github.com/rendau/pulse/internal/usecase/dependencies"
 	usecaseEndpointsP "github.com/rendau/pulse/internal/usecase/endpoints"
 	usecaseLogsP "github.com/rendau/pulse/internal/usecase/logs"
+	usecaseOAuthP "github.com/rendau/pulse/internal/usecase/oauth"
 	usecasePublicapiP "github.com/rendau/pulse/internal/usecase/publicapi"
 	usecaseSnapshotP "github.com/rendau/pulse/internal/usecase/snapshot"
 	usecaseSystemP "github.com/rendau/pulse/internal/usecase/system"
@@ -66,8 +71,11 @@ type App struct {
 	// pulsekit — манифест и ручка состояния самого pulse (фоновые проверки источников)
 	pulsekit *pulsekit.Kit
 
+	// oauthUsecase — OAuth MCP-порта (фоновая чистка токенов); nil — OAuth выключен
+	oauthUsecase *usecaseOAuthP.Usecase
+
 	mcpServer        *mcp.Server
-	httpServer       *http.Server
+	mcpHttpServer    *http.Server
 	systemHttpServer *http.Server
 
 	ctx       context.Context
@@ -441,12 +449,37 @@ func (a *App) Init() {
 		)
 	}
 
+	// oauth (вход MCP-клиентов по адресу, коннекторы Claude)
+	// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
+	var mcpOAuth mcpOAuthI
+	if config.Conf.MCPOAuthEnabled {
+		errCheck(mcpOAuthConfigCheck(), "mcp oauth config")
+
+		txm := mobone.NewTransactionManager(a.pgpool)
+		oauthRepo := domainOAuthRepoDbP.New(a.pgpool, txm)
+		oauthService := domainOAuthServiceP.New(oauthRepo)
+		a.oauthUsecase = usecaseOAuthP.New(
+			usecaseOAuthP.Config{
+				Enabled:      true,
+				Issuer:       config.Conf.MCPPublicUrl,
+				Keys:         config.Conf.MCPExternalTokens,
+				RedirectUris: config.Conf.MCPOAuthRedirectUris,
+				AccessTTL:    config.Conf.MCPOAuthAccessTTL,
+				RefreshTTL:   config.Conf.MCPOAuthRefreshTTL,
+			},
+			oauthService,
+			domainOAuthServiceP.NewClientCodec(config.Conf.MCPOAuthSecret),
+			txm,
+		)
+		mcpOAuth = handlerOAuthP.New(a.oauthUsecase)
+	}
+
 	// mcp server
 	{
 		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
-		a.httpServer = MCPHttpServerCreate(config.Conf.HttpPort, config.Conf.MCPPath,
-			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, a.mcpServer)
+		a.mcpHttpServer = MCPHttpServerCreate(config.Conf.MCPPort, config.Conf.MCPPath,
+			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, mcpOAuth, a.mcpServer)
 	}
 
 	// system http server (healthcheck, readiness, docs, metrics)
@@ -471,15 +504,20 @@ func (a *App) Start() {
 		slog.Info("indexer started", "interval", config.Conf.IndexerInterval.String())
 	}
 
+	// oauth cleanup
+	if a.oauthUsecase != nil {
+		a.oauthUsecase.Start(a.ctx, time.Hour)
+	}
+
 	// mcp http server
 	{
 		go func() {
-			err := a.httpServer.ListenAndServe()
+			err := a.mcpHttpServer.ListenAndServe()
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errCheck(err, "http-server stopped")
+				errCheck(err, "mcp-http-server stopped")
 			}
 		}()
-		slog.Info("http-server started " + a.httpServer.Addr + config.Conf.MCPPath)
+		slog.Info("mcp-http-server started "+a.mcpHttpServer.Addr+config.Conf.MCPPath, "oauth", a.oauthUsecase != nil)
 	}
 
 	// system http server
@@ -513,8 +551,8 @@ func (a *App) Stop() {
 		ctx, ctxCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer ctxCancel()
 
-		if err := a.httpServer.Shutdown(ctx); err != nil {
-			slog.Error("http-server shutdown error", "error", err)
+		if err := a.mcpHttpServer.Shutdown(ctx); err != nil {
+			slog.Error("mcp-http-server shutdown error", "error", err)
 			a.exitCode = 1
 		}
 	}
@@ -540,6 +578,11 @@ func (a *App) WaitJobs() {
 
 	if a.indexer != nil {
 		a.indexer.Wait()
+	}
+
+	// oauth cleanup
+	if a.oauthUsecase != nil {
+		a.oauthUsecase.Wait()
 	}
 }
 

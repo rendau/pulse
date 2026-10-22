@@ -35,7 +35,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 ### Внутренние пакеты (`internal/`)
 - `internal/app/` — сборка приложения: серверы, миграции, метрики, трассировка, HTTP-gateway, DI.
   - `app.go` — граф зависимостей и запуск компонентов.
-  - `mcp_server.go` — MCP-сервер, HTTP-транспорт на `MCP_PATH`, bearer-auth middleware.
+  - `mcp_server.go` — MCP-сервер, HTTP-сервер MCP-порта (`MCP_PORT`, дефолт 5060; транспорт на
+    `MCP_PATH`, рядом адреса OAuth), bearer-auth middleware (статические токены и access-токены OAuth
+    `pso_`; с OAuth 401 несёт `resource_metadata`), проверка конфигурации OAuth на старте;
+    `mcp_access_log.go` — журнал запросов MCP-порта (`mcp: request`, вид учётных данных без значений).
   - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
     /healthcheck, /readiness, /metrics.
   - `migration.go` — запуск миграций из `migrations/`.
@@ -45,6 +48,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
 - `internal/handler/` — транспортный слой.
   - `mcp/` — MCP-инструменты (`handler.go` — регистрация и описания, по файлу на группу).
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
+  - `oauth/` — OAuth 2.1 на MCP-порту (`MCP_OAUTH_ENABLED`, README «Вход через OAuth»): метаданные
+    (RFC 9728/8414, под путём `MCP_PUBLIC_URL`, в форме RFC и в корне), регистрация (RFC 7591),
+    `/token`, `/revoke`, страница согласия `/authorize` (html/template; пользователей у pulse нет —
+    разрешает ключ доступа из `MCP_EXTERNAL_TOKENS`, не `MCP_AUTH_TOKEN`; неверный ключ — задержка 1 с).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/infra/pulsekit/` — манифест сервиса по стандарту (`docs/service-manifest.md`) для самого pulse:
   `Depend(id, kind, target, critical, check).Affects("…")` — зависимость, что она ломает, и её фоновая
@@ -61,7 +68,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   Тест сверяет манифест с `ParseManifest`. Манифест pulse — `app/manifest.go` (зависимости — источники,
   ручка `indexer_last_cycle`), коммит сборки — `constant.Commit` (Makefile, ldflags). Прообраз модуля
   gotemplate.
-- `internal/util/` — `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение), `podname` (регэксп и владелец подов workload'а по его виду),
+- `internal/util/` — `clientip` (адрес клиента за Cloudflare/ingress), `imageref` (разбор ссылок на образы), `fuzzy` (нечёткое сравнение), `podname` (регэксп и владелец подов workload'а по его виду),
   `window` (разбор окна), `tz` (часовой пояс ответов — Asia/Almaty, база поясов вшита в бинарник; все времена в DTO и в текстах summary/details идут через `tz.In`), `redact` (маскирование конфигурации/секретов/PII — с тестами; `redact.Text` — телефоны,
   email, карты в свободном тексте; `redact.ReplacePII` — те же правила поиска с своей заменой: строки
   логов при чтении из Loki и Kubernetes идут через `pii.Text` — карты маской, до паттернов и ответа;
@@ -105,7 +112,10 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
     запущенного пода образа шаблона; пока поды нового образа не запустились, в каталоге остаются
     прошлые образ/digest/коммит, деплой пишет следующий цикл, манифест не ищется — `indexer/service/run.go`); `dependency` — сконфигурированные
     связи «сервис → хост» (Postgres) и разбор адресов из значений конфигурации (`ParseEndpoints`,
-    `ClusterHost`); `cluster` — правила здоровья кластера и подсказки (фаза 7.1).
+    `ClusterHost`); `cluster` — правила здоровья кластера и подсказки (фаза 7.1); `oauth` —
+    подключения OAuth (`oauth_grant`: sha256 ключа доступа, которым разрешено) и их токены
+    (`oauth_token`, только sha256), stateless `client_id` (`ClientCodec`), PKCE, адреса возврата;
+    `repo/mem` — репозиторий в памяти для тестов.
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
@@ -274,8 +284,9 @@ domain service → repo
   Сервисам, опубликованным в ruto, снапшот добавляет `public_*` по метрикам gateway (`{ruto_apps}`).
 
 ### Хранилища
-- Postgres: только топология и метаданные (`service`, `workload`). Значений метрик, логов и
-  счётчиков в БД быть не должно — всё состояние запрашивается живьём.
+- Postgres: только топология и метаданные (`service`, `workload`) и подключения OAuth MCP
+  (`oauth_grant`, `oauth_token`). Значений метрик, логов и счётчиков в БД быть не должно — всё
+  состояние запрашивается живьём.
 - Домен сущности «сервис каталога» лежит в `internal/domain/svc` (таблица `service`).
 - **Имена таблиц всегда в единственном числе**, без plural: `usr`, `app`, `secret`, `item`
   (не `usrs`, `apps`, `secrets`, `items`). То же значение указывается в `TableName` репозитория.
@@ -415,7 +426,8 @@ domain service → repo
   - pgx pool, миграции (`internal/app/migration.go`),
   - клиенты источников (недоступный источник не мешает старту — виден в `ping`),
   - индексер (`INDEXER_ENABLED`, `INDEXER_INTERVAL`),
-  - MCP HTTP-сервер и системный HTTP-сервер.
+  - чистка OAuth (раз в час, при `MCP_OAUTH_ENABLED`),
+  - MCP HTTP-сервер (`MCP_PORT`) и системный HTTP-сервер.
 
 ### Переменные окружения
 - Описаны в `internal/config/config.go`; пример — `.env.example`.
@@ -449,7 +461,15 @@ gofmt  →  go vet ./...  →  go test ./...  →  golangci-lint run  →  за�
   ```
   DSN: `postgres://postgres:postgres@localhost:5440/pulse?sslmode=disable`.
 - Порт 3003 на машине может быть занят другим проектом — для pulse: `SYSTEM_HTTP_PORT=3013`,
-  `HTTP_PORT=9091`, `MCP_AUTH_TOKEN=devtoken`, `RULES_PATH=./conf.example.yml`.
+  `MCP_PORT=9091`, `MCP_AUTH_TOKEN=devtoken`, `RULES_PATH=./conf.example.yml`.
+- Миграции берутся из `./migrations` текущего каталога: бинарник запускать из корня репозитория
+  (или рядом с симлинком на `migrations/` pulse) — иначе подхватятся чужие миграции.
+- OAuth для MCP: ещё `MCP_EXTERNAL_TOKENS=extkey MCP_OAUTH_ENABLED=true
+  MCP_PUBLIC_URL=http://localhost:9091/mcp MCP_OAUTH_SECRET=<32+ символов>`. Клиента регистрировать с
+  адресом возврата `http://localhost:18099/callback` (`POST localhost:9091/mcp/register`, loopback
+  разрешён по умолчанию; там никто не слушает — код берётся из адреса после «Разрешить»), страница
+  согласия — `http://localhost:9091/mcp/authorize?…`, ключ — `extkey`; дальше `/mcp/token`
+  (`code_verifier`), `tools/call` с `Bearer pso_…`, refresh, `/mcp/revoke`.
 - Кластер для прогонов индексера — локальный docker-desktop (`KUBECONFIG=$HOME/.kube/config
   KUBE_CONTEXT=docker-desktop CLUSTER_NAME=local`). Прод (`yc-zeon`) — только read-only и только
   по явной просьбе.

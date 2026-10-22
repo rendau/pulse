@@ -20,6 +20,10 @@ const (
 	InvalidRequest    = Err("invalid_request")
 	IncorrectPageSize = Err("incorrect_page_size")
 	IdRequired        = Err("id_required")
+
+	OAuthNotEnabled     = Err("oauth_not_enabled")
+	OAuthInvalidRequest = Err("oauth_invalid_request")
+	OAuthInvalidKey     = Err("oauth_invalid_key")
 )
 
 type ErrFull struct {

@@ -3,8 +3,11 @@ package app
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -13,7 +16,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samber/lo"
 
+	"github.com/rendau/pulse/internal/config"
 	"github.com/rendau/pulse/internal/constant"
+	domainOAuthServiceP "github.com/rendau/pulse/internal/domain/oauth/service"
+	"github.com/rendau/pulse/internal/errs"
+	usecaseOAuthP "github.com/rendau/pulse/internal/usecase/oauth"
+	"github.com/rendau/pulse/internal/util/clientip"
 )
 
 const mcpInstructions = `pulse — единая точка доступа к инфраструктурному контексту компании: ` +
@@ -54,56 +62,115 @@ func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {
 	return server
 }
 
-// MCPHttpServerCreate строит HTTP-сервер с MCP streamable-транспортом на path.
-// Режим stateless: нет сессий, каждый запрос самодостаточен — сервис можно масштабировать
-// горизонтально без sticky-сессий. internalToken — внутреннего клиента (агент pulse: ему —
-// ответы ручек для человека), externalTokens — внешних; пустые игнорируются.
-func MCPHttpServerCreate(port, path, internalToken string, externalTokens []string, server *mcp.Server) *http.Server {
+// mcpOAuthSecretMinLen — ключ подписи client_id: короче — подбираем.
+const mcpOAuthSecretMinLen = 32
+
+// mcpOAuthConfigCheck — OAuth MCP-порта настроен целиком. Путь MCP_PUBLIC_URL — это MCP_PATH:
+// клиент подключается по этому адресу и предъявляет его как resource, адреса OAuth лежат под ним.
+func mcpOAuthConfigCheck() error {
+	conf := config.Conf
+	if conf.MCPPublicUrl == "" {
+		return errors.New("MCP_OAUTH_ENABLED requires MCP_PUBLIC_URL")
+	}
+	parsed, err := url.Parse(conf.MCPPublicUrl)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return fmt.Errorf("MCP_PUBLIC_URL %q must be an absolute http(s) URL", conf.MCPPublicUrl)
+	}
+	if strings.TrimSuffix(parsed.Path, "/") != strings.TrimSuffix(conf.MCPPath, "/") {
+		return fmt.Errorf("path of MCP_PUBLIC_URL %q must be MCP_PATH %q", conf.MCPPublicUrl, conf.MCPPath)
+	}
+	if len(conf.MCPOAuthSecret) < mcpOAuthSecretMinLen {
+		return fmt.Errorf("MCP_OAUTH_ENABLED requires MCP_OAUTH_SECRET of at least %d characters", mcpOAuthSecretMinLen)
+	}
+	if !lo.ContainsBy(conf.MCPExternalTokens, func(t string) bool { return strings.TrimSpace(t) != "" }) {
+		return errors.New("MCP_OAUTH_ENABLED requires MCP_EXTERNAL_TOKENS: a connection is approved with one of them")
+	}
+	return nil
+}
+
+// mcpOAuthI — OAuth на MCP-порту (handler/oauth); nil — OAuth выключен.
+type mcpOAuthI interface {
+	Register(mux *http.ServeMux)
+	ResourceMetadataURL() string
+	VerifyAccessToken(ctx context.Context, token string) (time.Time, error)
+}
+
+// MCPHttpServerCreate строит HTTP-сервер MCP-порта: streamable-транспорт на path и, с OAuth,
+// адреса OAuth рядом. Режим stateless: нет сессий, каждый запрос самодостаточен — сервис можно
+// масштабировать горизонтально без sticky-сессий. internalToken — внутреннего клиента (агент
+// pulse: ему — ответы ручек для человека), externalTokens — внешних; пустые игнорируются.
+func MCPHttpServerCreate(port, path, internalToken string, externalTokens []string, oauth mcpOAuthI, server *mcp.Server) *http.Server {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, Logger: slog.Default()},
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(path, authMiddleware(internalToken, externalTokens, handler))
+	mux.Handle(path, authMiddleware(internalToken, externalTokens, oauth, handler))
+	if oauth != nil {
+		oauth.Register(mux)
+	}
 
 	return &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           withAccessLog(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       time.Minute,
 		MaxHeaderBytes:    300 * 1024,
 	}
 }
 
-// authMiddleware проверяет bearer-токен: подходит любой из токенов. Внутренний токен получает
-// право constant.ScopeHuman (инструменты видят его в req.Extra.TokenInfo). Нет ни одного
-// непустого — проверка отключена (локальная разработка), ручки для человека недоступны; в этом
-// случае в лог пишется предупреждение при старте.
-func authMiddleware(internalToken string, externalTokens []string, next http.Handler) http.Handler {
+// authMiddleware проверяет bearer-токен: подходит любой из статических токенов или, с OAuth,
+// access-токен OAuth (pso_). Внутренний токен получает право constant.ScopeHuman (инструменты
+// видят его в req.Extra.TokenInfo); клиенты OAuth — внешние, этого права у них нет. Нет ни
+// одного непустого токена и OAuth выключен — проверка отключена (локальная разработка), ручки
+// для человека недоступны; в этом случае в лог пишется предупреждение при старте. С OAuth 401
+// несёт WWW-Authenticate с адресом метаданных защищаемого ресурса — с него клиент начинает вход.
+func authMiddleware(internalToken string, externalTokens []string, oauth mcpOAuthI, next http.Handler) http.Handler {
 	nonEmpty := func(t string, _ int) ([]byte, bool) {
 		t = strings.TrimSpace(t)
 		return []byte(t), t != ""
 	}
 	internal := lo.FilterMap([]string{internalToken}, nonEmpty)
 	expected := append(slices.Clone(internal), lo.FilterMap(externalTokens, nonEmpty)...)
-	if len(expected) == 0 {
+	if len(expected) == 0 && oauth == nil {
 		slog.Warn("MCP_AUTH_TOKEN and MCP_EXTERNAL_TOKENS are empty: mcp endpoint is unauthenticated")
 		return next
 	}
 
-	verify := func(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
+	verify := func(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
+		if oauth != nil && strings.HasPrefix(token, domainOAuthServiceP.AccessTokenPrefix) {
+			expiresAt, err := oauth.VerifyAccessToken(ctx, token)
+			if err != nil {
+				if errors.Is(err, errs.NotAuthorized) {
+					slog.Warn("mcp: credential rejected", "credential", credentialOAuth, "client_ip", clientip.FromRequest(r))
+					return nil, auth.ErrInvalidToken
+				}
+				slog.Error("mcp: oauth token check failed", "error", err)
+				return nil, fmt.Errorf("oauth.VerifyAccessToken: %w", err)
+			}
+			return &auth.TokenInfo{Scopes: []string{usecaseOAuthP.Scope}, Expiration: expiresAt}, nil
+		}
+
 		got := []byte(token)
 		if !tokenMatch(got, expected) {
+			slog.Warn("mcp: credential rejected", "credential", credentialStatic, "client_ip", clientip.FromRequest(r))
 			return nil, auth.ErrInvalidToken
 		}
-		info := &auth.TokenInfo{}
+		info := &auth.TokenInfo{Scopes: []string{usecaseOAuthP.Scope}}
 		if tokenMatch(got, internal) {
-			info.Scopes = []string{constant.ScopeHuman}
+			info.Scopes = append(info.Scopes, constant.ScopeHuman)
 		}
 		return info, nil
 	}
-	return auth.RequireBearerToken(verify, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(next)
+
+	opts := &auth.RequireBearerTokenOptions{AllowMissingExpiration: true}
+	if oauth != nil {
+		opts.ResourceMetadataURL = oauth.ResourceMetadataURL()
+		// у любого принятого токена есть scope mcp: требование только попадает в WWW-Authenticate
+		opts.Scopes = []string{usecaseOAuthP.Scope}
+	}
+	return auth.RequireBearerToken(verify, opts)(next)
 }
 
 // tokenMatch сравнивает со всеми токенами за постоянное время — без раннего выхода,

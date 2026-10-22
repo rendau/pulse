@@ -13,16 +13,27 @@ var Conf = struct {
 	Debug    bool   `env:"DEBUG" envDefault:"false"`
 	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
 
-	HttpPort       string `env:"HTTP_PORT" envDefault:"80"`
 	SystemHttpPort string `env:"SYSTEM_HTTP_PORT" envDefault:"3003"` // healthcheck, readiness, metrics, docs
 
-	// MCP
+	// MCP — свой порт (наружу публикуется только он)
 	// bearer-токены: MCP_AUTH_TOKEN — агента pulse_agent (ходит изнутри кластера; только ему —
 	// ответы ручек для человека, audience: human), MCP_EXTERNAL_TOKENS — внешних клиентов
 	// (агенты, люди) через запятую, у каждого свой; оба пусты — без проверки (локальная разработка)
+	MCPPort           string   `env:"MCP_PORT" envDefault:"5060"`
+	MCPPath           string   `env:"MCP_PATH" envDefault:"/mcp"`
 	MCPAuthToken      string   `env:"MCP_AUTH_TOKEN"`
 	MCPExternalTokens []string `env:"MCP_EXTERNAL_TOKENS" envSeparator:","`
-	MCPPath           string   `env:"MCP_PATH" envDefault:"/mcp"`
+
+	// OAuth для MCP-клиентов, подключающихся по адресу (коннекторы Claude); токены выше работают
+	// рядом. Подключение разрешает человек, знающий один из MCP_EXTERNAL_TOKENS, на странице
+	// согласия pulse. MCPPublicUrl — адрес MCP как его видят клиенты, с путём MCP_PATH;
+	// MCPOAuthSecret — ключ подписи client_id (≥32 символов; смена — клиенты подключаются заново).
+	MCPOAuthEnabled      bool          `env:"MCP_OAUTH_ENABLED" envDefault:"false"`
+	MCPPublicUrl         string        `env:"MCP_PUBLIC_URL"`
+	MCPOAuthSecret       string        `env:"MCP_OAUTH_SECRET"`
+	MCPOAuthRedirectUris []string      `env:"MCP_OAUTH_REDIRECT_URIS" envSeparator:"," envDefault:"https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback,http://localhost,http://127.0.0.1"`
+	MCPOAuthAccessTTL    time.Duration `env:"MCP_OAUTH_ACCESS_TTL" envDefault:"1h"`
+	MCPOAuthRefreshTTL   time.Duration `env:"MCP_OAUTH_REFRESH_TTL" envDefault:"720h"`
 
 	// путь к yaml с правилами; отсутствие файла — не ошибка, берутся дефолты
 	RulesPath string `env:"RULES_PATH" envDefault:"./conf.yml"`

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -31,7 +32,7 @@ func TestMCPServer_Ping(t *testing.T) {
 
 	// токен бота и внешних клиентов; пустые игнорируются
 	const token, externalToken = "secret-token", "external-token"
-	httpServer := MCPHttpServerCreate("0", "/mcp", token, []string{externalToken, ""}, server)
+	httpServer := MCPHttpServerCreate("0", "/mcp", token, []string{externalToken, ""}, nil, server)
 	ts := httptest.NewServer(httpServer.Handler)
 	defer ts.Close()
 
@@ -149,10 +150,10 @@ func TestMCPServer_HumanScope(t *testing.T) {
 		})
 	})
 	const internalToken, externalToken = "internal-token", "external-token"
-	ts := httptest.NewServer(MCPHttpServerCreate("0", "/mcp", internalToken, []string{externalToken}, server).Handler)
+	ts := httptest.NewServer(MCPHttpServerCreate("0", "/mcp", internalToken, []string{externalToken}, nil, server).Handler)
 	defer ts.Close()
 
-	for token, want := range map[string][]string{internalToken: {constant.ScopeHuman}, externalToken: nil} {
+	for token, human := range map[string]bool{internalToken: true, externalToken: false} {
 		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
 		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 			Endpoint:   ts.URL + "/mcp",
@@ -168,7 +169,7 @@ func TestMCPServer_HumanScope(t *testing.T) {
 		raw, err := json.Marshal(res.StructuredContent)
 		require.NoError(t, err)
 		require.NoError(t, json.Unmarshal(raw, &out))
-		assert.Equal(t, want, out.Scopes, token)
+		assert.Equal(t, human, slices.Contains(out.Scopes, constant.ScopeHuman), token)
 		_ = session.Close()
 	}
 }

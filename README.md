@@ -17,10 +17,64 @@ go run ./cmd/
 индексер находит коммит запущенного образа без OCI-label'ов.
 Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.
 
-MCP-эндпоинт: `http://localhost:${HTTP_PORT}${MCP_PATH}` (streamable HTTP, stateless),
-авторизация — `Authorization: Bearer <токен>`: `MCP_AUTH_TOKEN` (бот pulse_bot) или любой из
-`MCP_EXTERNAL_TOKENS` (внешние клиенты, через запятую).
+MCP-эндпоинт: `http://localhost:${MCP_PORT}${MCP_PATH}` (streamable HTTP, stateless; `MCP_PORT` по
+умолчанию `5060`, `MCP_PATH` — `/mcp`). На MCP-порту больше ничего нет, кроме адресов OAuth: наружу
+публикуется только он. Авторизация — `Authorization: Bearer <токен>`: `MCP_AUTH_TOKEN` (агент
+pulse_agent) или любой из `MCP_EXTERNAL_TOKENS` (внешние клиенты, через запятую), а с OAuth — ещё
+access-токен OAuth.
 Служебные ручки на `SYSTEM_HTTP_PORT`: `/healthcheck`, `/readiness`, `/metrics`.
+
+## Вход через OAuth (коннекторы Claude)
+
+Коннекторы claude.ai / Claude Desktop / мобильного Claude не умеют свой заголовок `Authorization` —
+им нужен OAuth. Человек вписывает в клиент только адрес MCP-сервера, клиент открывает страницу
+согласия pulse, человек вводит **ключ доступа** (один из `MCP_EXTERNAL_TOKENS`) и нажимает
+«Разрешить». Пользователей у pulse нет: разрешает тот, кто знает ключ. Статические токены работают
+рядом.
+
+Включение: `MCP_OAUTH_ENABLED=true` + `MCP_PUBLIC_URL` (адрес MCP как его видят клиенты, путь —
+`MCP_PATH`, напр. `https://pulse-mcp.example.com/mcp`) + `MCP_OAUTH_SECRET` (ключ подписи `client_id`,
+≥32 случайных символов; смена — клиенты подключаются заново) + непустой `MCP_EXTERNAL_TOKENS`.
+Без этого pulse не стартует.
+
+- **Подключение = ключ.** Подключение (таблица `oauth_grant`) помнит sha256 ключа, которым его
+  разрешили; на каждом запросе ключ сверяется с текущим `MCP_EXTERNAL_TOKENS` — убрали ключ из env,
+  его подключения перестают работать. `MCP_AUTH_TOKEN` агента подключение не разрешает, и клиенты
+  OAuth не получают ответов ручек для человека (`audience: human`).
+- **Токены.** Access `pso_…` живёт `MCP_OAUTH_ACCESS_TTL` (1h), refresh `psr_…` — `MCP_OAUTH_REFRESH_TTL`
+  (720h), при обновлении выдаётся новая пара, старый refresh не принимается. Код `psc_…` одноразовый,
+  2 минуты, PKCE S256 обязателен. В БД (`oauth_token`) — только sha256. Отзыв (`/revoke`) удаляет
+  подключение целиком; истёкшее чистится раз в час.
+- **Регистрация клиента** (`POST <MCP_PUBLIC_URL>/register`, RFC 7591) открыта по протоколу; код уходит
+  только на адреса из `MCP_OAUTH_REDIRECT_URIS` (по умолчанию claude.ai, claude.com и loopback —
+  `localhost`/`127.0.0.1` с любым портом для Claude Code). В БД регистрация не пишет: `client_id`
+  (`pscl_…`) — подписанные данные клиента.
+- **Адреса на MCP-порту** (под путём `MCP_PUBLIC_URL`): `/.well-known/oauth-protected-resource`,
+  `/.well-known/oauth-authorization-server` (и `openid-configuration`; также в форме RFC
+  `/.well-known/…/mcp` и в корне), `/authorize` (страница согласия), `/register`, `/token`, `/revoke`.
+  401 от MCP несёт `WWW-Authenticate: Bearer resource_metadata=…` — с него клиент начинает вход.
+- **Сеть.** Коннекторы claude.ai ходят в MCP-порт с серверов Anthropic — порт должен быть доступен из
+  интернета, Cloudflare перед ним не должен их блокировать. Ingress не должен срезать путь: запросы
+  приходят в pulse с тем же путём, что в `MCP_PUBLIC_URL`.
+- **Журнал.** Каждый запрос MCP-порта — строка `mcp: request` (метод, путь, JSON-RPC метод, статус,
+  время, вид учётных данных `none`/`static`/`oauth` — без значений, адрес клиента через
+  `Cf-Connecting-Ip`/`X-Forwarded-For`/`X-Real-Ip`, `cf_ray`, User-Agent). Отказы — `mcp: credential
+  rejected` и `oauth: access token rejected` (неизвестный, истёкший, подключение удалено, ключ убран из
+  env), `mcp oauth: request rejected`, `mcp oauth: wrong access key on the consent page`; шаги — `mcp
+  oauth: client registered`, `oauth: consent`, `oauth: tokens issued`, `oauth: connection revoked by the client`.
+
+Подключение: claude.ai / Claude Desktop — Settings → Connectors → Add custom connector → адрес
+`MCP_PUBLIC_URL`. Claude Code — `.mcp.json` без заголовка, вход — `/mcp` → Authenticate:
+
+```json
+{"mcpServers": {"pulse": {"type": "http", "url": "https://pulse-mcp.example.com/mcp"}}}
+```
+
+С токеном (агенты, скрипты) — как раньше: `"headers": {"Authorization": "Bearer ${PULSE_MCP_TOKEN}"}`.
+
+**Деплой.** MCP переехал с `HTTP_PORT` на `MCP_PORT`: в чарте `helm-zeon/charts/pulse` порт контейнера и
+Service (порт `http`) — на `MCP_PORT`, `PULSE_MCP_URL` у pulse_agent — на этот порт; для коннекторов —
+ingress на MCP-порт и env OAuth выше.
 
 ## Подключить сервис
 
