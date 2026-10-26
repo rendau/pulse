@@ -12,7 +12,7 @@ go run ./cmd/
 ```
 
 Адреса и токены источников — только через env (см. `.env.example`): `PROMETHEUS_URL`/`_TOKEN`/`_ORG_ID`,
-`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `KUSEC_URL`/`_TOKEN`, `RUTO_URL`, `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
+`LOKI_URL`/`_TOKEN`/`_ORG_ID`, `ALERTMANAGER_URL`/`_TOKEN`, `KUSEC_URL`/`_TOKEN`, `RUTO_URL` (служебный порт ruto-core: `http://ruto-core.<namespace>.svc:3003`), `GITHUB_TOKEN`, `REGISTRY_TOKEN`.
 `GITHUB_TOKEN` — на чтение репозиториев, пакетов (`read:packages`) и запусков Actions: по ним
 индексер находит коммит запущенного образа без OCI-label'ов.
 Basic-auth задаётся userinfo в URL (`https://user:pass@host`). Пустой URL — источник выключен.

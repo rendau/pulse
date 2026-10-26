@@ -18,14 +18,17 @@ import (
 )
 
 const (
-	versionPath  = "/api/snapshot/version"
-	snapshotPath = "/api/snapshot"
+	// служебный порт ruto-core (в репозитории ruto — docs/pulse.md): маршруты опубликованной
+	// конфигурации без секретов — ruto копирует в ответ только поля маршрутизации
+	versionPath  = "/routes/version"
+	snapshotPath = "/routes"
 	maxBodyBytes = 32 << 20
 	// versionTTL — как часто сверять версию конфигурации; сам снапшот перечитывается только при её смене
 	versionTTL = 30 * time.Second
 )
 
-// Service — клиент ruto-core. Внутри кластера API снапшота доступен без авторизации.
+// Service — клиент ruto-core: его служебный порт (RUTO_URL=http://ruto-core.<namespace>.svc:3003),
+// только внутри кластера и без авторизации.
 type Service struct {
 	baseUrl    string
 	httpClient *http.Client

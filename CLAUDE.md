@@ -129,7 +129,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   адресах вырезаны, карты — `***` + 4 цифры; `Normalize` — персональный параметр ручки к одному виду;
   `SearchPattern` — телефон с «+» в query_logs → предфильтр и регэксп номера в любом написании,
   email — без регистра; правила поиска PII — общие с `redact.ReplacePII`),
-  `ruto` (снапшот конфигурации gateway ruto-core, кэш по версии; секретные поля не разбираются),
+  `ruto` (маршруты gateway со служебного порта ruto-core: `/routes`, кэш по версии `/routes/version`; секретов ruto туда не отдаёт, а клиент и так разбирает только поля маршрутов),
   `svcproxy` (GET через k8s Service по DNS-имени `<service>.<namespace>.svc`, без редиректов;
   свой Service — чей селектор совпал с лейблами своего пода (`k8s.SelfPod`: имя — hostname,
   namespace — из ServiceAccount) — через `127.0.0.1:<targetPort>`: hairpin (под → VIP своего

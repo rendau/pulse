@@ -63,7 +63,7 @@ var Conf = struct {
 	AlertmanagerUrl   string `env:"ALERTMANAGER_URL"`
 	AlertmanagerToken string `env:"ALERTMANAGER_TOKEN"`
 
-	// ruto-core (API-gateway): опубликованные маршруты; внутри кластера без авторизации
+	// ruto-core (API-gateway): опубликованные маршруты — служебный порт core, http://ruto-core.<ns>.svc:3003
 	RutoUrl string `env:"RUTO_URL"`
 
 	// kusec: configmaps, secrets, env (интеграция после получения проекта kusec)
