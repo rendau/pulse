@@ -7,7 +7,7 @@
 Версия стандарта: **1**.
 
 Стандарт **не зависит от языка и фреймворка**: это несколько HTTP-ручек, отдающих JSON. Go-сервисам
-на gotemplate реализацию даёт готовый модуль шаблона; на любом другом стеке ручки пишутся по
+реализацию даёт готовый пакет `pulsekit` из этого репозитория; на любом другом стеке ручки пишутся по
 этому документу (или выносятся в общую библиотеку своего стека).
 
 > **Если вы агент, которого попросили реализовать это в сервисе**, — начните с раздела
@@ -31,7 +31,7 @@
 вернул, но не описал в схеме ответа в манифесте, pulse вырезает. Подробно — в разделе
 «Конфиденциальность».
 
-Go-сервисам на gotemplate всё это даёт готовый модуль шаблона (см. в конце) — руками пишутся
+Go-сервисам всё это даёт готовый пакет `pulsekit` (см. в конце) — руками пишутся
 только сами диагностические ручки. Остальные стеки реализуют те же ручки сами.
 
 ---
@@ -108,7 +108,7 @@ Go-сервисам на gotemplate всё это даёт готовый мод
 
 ### 3. Реализуй
 
-- Go на gotemplate — через модуль шаблона (раздел «Go: модуль в gotemplate»). Любой другой
+- Go — через пакет `pulsekit` (раздел «Go: пакет pulsekit»). Любой другой
   стек — по разделам ниже, средствами своего фреймворка: второй HTTP-сервер на служебном порту,
   фоновая задача для проверок зависимостей, схема ответа — из тех же типов, что сериализуют
   ответ, если стек это умеет (pydantic, zod, OpenAPI-генераторы), иначе — руками.
@@ -731,8 +731,8 @@ Dockerfile из переменных CI (`GITHUB_SHA`, тег релиза), к�
 данные.
 
 **8. Защита у источника.** Схема строится из тех же типов, которые сериализуют ответ, —
-тогда схема и ответ не расходятся, и необъявленное поле сервис не отдаст вовсе. Модуль
-gotemplate делает это из Go-структуры; в других стеках то же дают pydantic (Python), zod
+тогда схема и ответ не расходятся, и необъявленное поле сервис не отдаст вовсе. Пакет
+`pulsekit` делает это из Go-структуры; в других стеках то же дают pydantic (Python), zod
 (TypeScript), OpenAPI-генераторы. Персональные поля сервис отдаёт **как есть** — токенизирует
 их pulse_agent: для токена нужен ключ, и раздавать его сервисам нельзя. Граница — модель:
 к LLM-провайдеру и в журнал значения не уходят.
@@ -849,21 +849,70 @@ gotemplate делает это из Go-структуры; в других ст�
 
 ---
 
-## Go: модуль в gotemplate
+## Go: пакет pulsekit
 
-**Эталон пакета — gotemplate** (`internal/infra/pulsekit`): в сервис он копируется целиком, со
-всеми тестами, и на месте не правится — замечания и правки идут в шаблон. **Образец** подключения
-(ручка, зависимости, пассивная проверка, показатель, тест ручки) — `internal/infra/pulsekit/example_test.go`:
-это работающие тесты, скопируйте и переименуйте под свой домен. Тест манифеста самого сервиса —
-`internal/app/manifest_test.go` в шаблоне; к нему добавьте `kit.CheckEndpoint` для каждой ручки. Сервисы, созданные из
-gotemplate, получают всё готовым: пакет `internal/infra/pulsekit` отдаёт
-манифест, ручку состояния и диагностические ручки; при генерации cookiecutter спрашивает название,
-описание, команду и критичность (`internal/app/manifest.go`), Postgres уже объявлен зависимостью,
-полный коммит сборки передаётся через ldflags. Старому сервису на gotemplate — перенести пакет
-`internal/infra/pulsekit` и `internal/app/manifest.go` из шаблона и подключить, как ниже.
-Шаблон недоступен — та же копия пакета лежит в открытом репозитории pulse
-(`github.com/rendau/pulse`, `internal/infra/pulsekit`): возьмите все файлы, кроме `pulse_test.go`
-(тестам пакета нужны `testify` и `samber/lo`).
+**Эталон пакета — этот репозиторий** (`github.com/rendau/pulse`, `internal/infra/pulsekit`): в
+сервис он копируется целиком, со всеми тестами, кроме `pulse_test.go` (сверка с парсером самого
+pulse), и на месте не правится — замечания и правки идут сюда. Тестам пакета нужны `testify` и
+`samber/lo`. **Образец** подключения (ручка, зависимости, пассивная проверка, показатель, тест
+ручки) — `internal/infra/pulsekit/example_test.go`: это работающие тесты, скопируйте и
+переименуйте под свой домен. В шаблоне сервисов `gotemplate` пакета нет: интеграция с pulse
+необязательна, сервис подключают отдельно, когда об этом просит разработчик, — по шагам ниже.
+
+**Подключение к сервису на gotemplate.** Пути — от корня сервиса, `<module>` — его Go-модуль.
+
+1. Скопируйте пакет в `internal/infra/pulsekit/` (все файлы, кроме `pulse_test.go`).
+2. Сведения о сервисе — `internal/app/manifest.go`. Название, описание, команду и критичность
+   агент уточняет у разработчика (раздел «Для агента»); сведения о сборке — из
+   `internal/constant` (в gotemplate их уже заполняет Makefile через ldflags):
+
+```go
+package app
+
+import (
+	"<module>/internal/constant"
+	"<module>/internal/infra/pulsekit"
+)
+
+// newPulsekit: service manifest for pulse (github.com/rendau/pulse, docs/service-manifest.md).
+func newPulsekit() *pulsekit.Kit {
+	return pulsekit.New(pulsekit.Config{}, pulsekit.Service{
+		Name:        constant.ServiceName,
+		Title:       "Заказы",
+		Description: "Приём и выдача заказов интернет-магазина",
+		OwnerTeam:   "orders",
+		Criticality: "high", // high, medium или low
+		RepoUrl:     "https://<module>",
+		// Domain: бизнес-смысл для агента — см. pulsekit.ExampleDomain и раздел «domain»
+	}, pulsekit.Build{Version: constant.Version, Commit: constant.Commit, BuiltAt: constant.BuiltAt})
+}
+```
+
+3. Проводка в `internal/app/app.go`: поле `pulsekit *pulsekit.Kit` в `App`; в `Init` —
+   `a.pulsekit = newPulsekit()` до создания клиентов и `Depend` рядом с каждым (ниже); ручки
+   pulse — на системном HTTP-сервере: добавьте в `SystemHttpServerCreate` (`system_http_server.go`)
+   параметр `register func(*http.ServeMux)`, вызовите его на `mux` до остальных ручек и передайте
+   туда `a.pulsekit.Register`; в `Start` —
+   `a.pulsekit.Start(a.ctx)`, в `WaitJobs` — `a.pulsekit.Wait()`.
+4. Тест манифеста — `internal/app/manifest_test.go`; к нему добавьте `kit.CheckEndpoint` для
+   каждой ручки:
+
+```go
+func TestManifest(t *testing.T) {
+	kit := newPulsekit()
+	require.Empty(t, kit.Problems(), "pulse standard violations: these items are not published")
+	for _, w := range kit.Warnings() {
+		t.Log("warning:", w)
+	}
+
+	m := kit.Manifest()
+
+	require.Equal(t, 1, m.PulseManifest)
+	assert.NotEmpty(t, m.Service.Owner.Team)
+	assert.NotEmpty(t, m.Service.Description)
+	assert.Contains(t, []string{"high", "medium", "low"}, m.Service.Criticality)
+}
+```
 
 **Зависимости** сервис объявляет сам — одной строкой рядом с созданием клиента в `app.go`:
 
@@ -1062,8 +1111,10 @@ func TestOrderStatusEndpoint(t *testing.T) {
 
 **Реализация (Go)**
 
-- *Какая копия pulsekit главная?* gotemplate (`internal/infra/pulsekit`): копируется в сервис
-  целиком, со всеми тестами, и на месте не правится.
+- *Какая копия pulsekit главная?* Эта, в pulse (`internal/infra/pulsekit`): копируется в сервис
+  целиком, со всеми тестами, кроме `pulse_test.go`, и на месте не правится.
+- *Почему pulsekit нет в gotemplate?* Интеграция с pulse необязательна: новый сервис создаётся без
+  неё, а подключают его отдельно, когда об этом просит разработчик (раздел «Go: пакет pulsekit»).
 - *Как писать ручку и её тест?* Образец — `internal/infra/pulsekit/example_test.go`: ручка,
   зависимости, пассивная проверка, `kit.CheckEndpoint` в тесте.
 - *Нужно ли писать `X-Pulse-Request-Id` в лог?* pulsekit пишет каждый вызов сам; для своих строк —
