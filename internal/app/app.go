@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/mechta-market/mobone/v2"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/rendau/mobone/v2"
 	"github.com/samber/lo"
 
 	"github.com/rendau/pulse/internal/config"

@@ -10,9 +10,9 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
-	github.com/mechta-market/mobone/v2 v2.2.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/rendau/mobone/v2 v2.2.2
 	github.com/samber/lo v1.53.0
 	github.com/stretchr/testify v1.12.1
 	go.yaml.in/yaml/v3 v3.0.5

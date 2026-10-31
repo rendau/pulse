@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/mechta-market/mobone/v2"
+	"github.com/rendau/mobone/v2"
 
 	commonRepoPg "github.com/rendau/pulse/internal/domain/common/repo/pg"
 	domainModel "github.com/rendau/pulse/internal/domain/oauth/model"

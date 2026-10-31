@@ -7,8 +7,8 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/mechta-market/mobone/v2"
-	moboneTools "github.com/mechta-market/mobone/v2/tools"
+	"github.com/rendau/mobone/v2"
+	moboneTools "github.com/rendau/mobone/v2/tools"
 	"github.com/samber/lo"
 
 	commonRepoPg "github.com/rendau/pulse/internal/domain/common/repo/pg"
