@@ -25,6 +25,8 @@ type Config struct {
 	NotReadyDownRatio float64
 	// Public — пороги проблем публичных приложений gateway
 	Public PublicConfig
+	// Temp — пороги перегрева нод
+	Temp TempConfig
 }
 
 type Service struct {
@@ -42,11 +44,12 @@ func New(conf Config) *Service {
 		conf.NotReadyDownRatio = 0.5
 	}
 	conf.Public.defaults()
+	conf.Temp.defaults()
 	return &Service{conf: conf}
 }
 
 // ComputeHealth: нет данных о нодах → unknown; неготовых нод ≥ порога или ни одной готовой → down;
-// неготовая нода, давление, много pending-подов, много подов в проблемных состояниях,
+// неготовая нода, давление или перегрев, много pending-подов, много подов в проблемных состояниях,
 // critical инфра-алерт или аномалия метрики → degraded.
 func (s *Service) ComputeHealth(h *model.Health, nodesUnavailable bool) string {
 	if nodesUnavailable || h.Nodes.Total == 0 {
@@ -85,7 +88,11 @@ func (s *Service) SummaryHints(h *model.Health, now time.Time) []string {
 		hints = append(hints, fmt.Sprintf("нод не готово: %d из %d", notReady, h.Nodes.Total))
 	}
 	for _, n := range h.Nodes.Problems {
-		hints = append(hints, fmt.Sprintf("нода %s: %s", n.Name, strings.Join(n.Problems, ", ")))
+		hint := fmt.Sprintf("нода %s: %s", n.Name, strings.Join(n.Problems, ", "))
+		if heat := heatDetails(h.Nodes, n.Name); heat != "" {
+			hint += " — перегрев: " + heat
+		}
+		hints = append(hints, hint)
 	}
 	if h.Pods.Pending > 0 {
 		hints = append(hints, fmt.Sprintf("pending-подов: %d (порог деградации %d)", h.Pods.Pending, s.conf.PendingPodsThreshold))

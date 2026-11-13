@@ -51,9 +51,27 @@ type ServiceLogError struct {
 type ClusterNodes struct {
 	Total     int           `json:"total"`
 	Ready     int           `json:"ready"`
-	Problems  []NodeProblem `json:"problems" jsonschema:"ноды с проблемами (NotReady, MemoryPressure, DiskPressure, PIDPressure, Unschedulable); пустой список — проблем нет"`
+	Problems  []NodeProblem `json:"problems" jsonschema:"ноды с проблемами (NotReady, MemoryPressure, DiskPressure, PIDPressure, Unschedulable, Overheating); пустой список — проблем нет"`
 	CPUCores  float64       `json:"cpu_cores_allocatable"`
 	MemoryGiB float64       `json:"memory_gib_allocatable"`
+	// Temperatures — только когда у нод есть датчики
+	Temperatures []NodeTemperature `json:"temperatures,omitempty" jsonschema:"температура нод сейчас по датчикам node-exporter; поля нет — датчиков нет (виртуальные машины облака их не отдают); динамика — query_metrics promql node_hwmon_temp_celsius"`
+}
+
+type NodeTemperature struct {
+	Node       string       `json:"node"`
+	MaxCelsius float64      `json:"max_celsius"`
+	Hot        bool         `json:"hot,omitempty" jsonschema:"есть перегретое устройство"`
+	Devices    []TempDevice `json:"devices" jsonschema:"по устройству, самое горячее первым"`
+}
+
+type TempDevice struct {
+	Device       string   `json:"device" jsonschema:"устройство: coretemp и x86_pkg_temp — процессор, nvme — диск, acpitz — плата"`
+	Chip         string   `json:"chip"`
+	Sensor       string   `json:"sensor,omitempty" jsonschema:"самый горячий датчик устройства (Core 2, Composite); его значение — celsius"`
+	Celsius      float64  `json:"celsius"`
+	LimitCelsius *float64 `json:"limit_celsius,omitempty" jsonschema:"предел из самого датчика (crit/max); нет — неизвестен"`
+	Hot          bool     `json:"hot,omitempty" jsonschema:"близко к пределу — перегрев"`
 }
 
 type NodeProblem struct {
@@ -101,8 +119,9 @@ func EncodeClusterHealthRep(v *clusterModel.Health) ClusterHealthRep {
 			Problems: lo.Map(v.Nodes.Problems, func(n clusterModel.NodeProblem, _ int) NodeProblem {
 				return NodeProblem{Name: n.Name, Problems: n.Problems}
 			}),
-			CPUCores:  float64(v.Nodes.CPUMillis) / 1000,
-			MemoryGiB: float64(v.Nodes.MemoryBytes) / (1 << 30),
+			CPUCores:     float64(v.Nodes.CPUMillis) / 1000,
+			MemoryGiB:    float64(v.Nodes.MemoryBytes) / (1 << 30),
+			Temperatures: lo.Map(v.Nodes.Temperatures, encodeNodeTemperature),
 		},
 		Pods: ClusterPods{
 			Total: v.Pods.Total, Running: v.Pods.Running, Pending: v.Pods.Pending, Failed: v.Pods.Failed,
@@ -244,3 +263,18 @@ func encodeLogErrors(v *logsModel.ClusterErrors) *LogErrors {
 		}),
 	}
 }
+
+func encodeNodeTemperature(v clusterModel.NodeTemperature, _ int) NodeTemperature {
+	return NodeTemperature{Node: v.Node, MaxCelsius: round1(v.MaxCelsius), Hot: v.Hot, Devices: lo.Map(v.Devices, encodeTempDevice)}
+}
+
+func encodeTempDevice(v clusterModel.TempDevice, _ int) TempDevice {
+	rep := TempDevice{Device: v.Name, Chip: v.Chip, Sensor: v.Sensor, Celsius: round1(v.Celsius), Hot: v.Hot}
+	if v.LimitCelsius != nil {
+		rep.LimitCelsius = new(round1(*v.LimitCelsius))
+	}
+	return rep
+}
+
+// round1 — до десятых: датчики отдают 52.85000000000001
+func round1(v float64) float64 { return math.Round(v*10) / 10 }

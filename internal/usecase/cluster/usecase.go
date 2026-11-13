@@ -110,6 +110,7 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 	eg.Go(func() error { c.pods(egCtx); c.events(egCtx); return nil })
 	eg.Go(func() error { c.alerts(egCtx); return nil })
 	eg.Go(func() error { c.metrics(egCtx); return nil })
+	eg.Go(func() error { c.temperatures(egCtx); return nil })
 	eg.Go(func() error { c.logErrors(egCtx); return nil })
 	eg.Go(func() error { c.selfReports(egCtx); return nil })
 	if c.publicEnabled() {
@@ -121,6 +122,10 @@ func (u *Usecase) Health(ctx context.Context, win time.Duration) (*clusterModel.
 	if c.publicEnabled() {
 		c.publicApps(c.readyPods)
 	}
+
+	// температуры — после нод: сбор нод заменяет c.h.Nodes целиком
+	c.h.Nodes.Temperatures = c.temps
+	u.rules.Overheat(&c.h.Nodes)
 
 	c.h.Errors = lo.UniqBy(c.h.Errors, func(e snapshotModel.SourceError) string { return e.Source })
 	c.h.Health = u.rules.ComputeHealth(c.h, c.nodesUnavailable)
@@ -142,6 +147,8 @@ type collector struct {
 	readyPods map[string]int
 	// public — сырьё для проблем публичных приложений gateway (public.go)
 	public public
+	// temps — температура нод (temperature.go)
+	temps []clusterModel.NodeTemperature
 
 	mu               sync.Mutex
 	nodesUnavailable bool

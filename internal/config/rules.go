@@ -95,6 +95,11 @@ type Rules struct {
 		MaxLogServices int `yaml:"max_log_services"`
 		// Metrics — метрики кластера с базовой линией (node-exporter / kube-state-metrics)
 		Metrics []MetricDef `yaml:"metrics"`
+		// NodeTemp — пороги перегрева нод; нулевые поля — дефолты домена (domain/cluster/service/temperature.go)
+		NodeTemp struct {
+			Margin float64 `yaml:"margin"`
+			Hot    float64 `yaml:"hot"`
+		} `yaml:"node_temp"`
 	} `yaml:"cluster"`
 
 	Ruto struct {

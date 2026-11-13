@@ -439,6 +439,7 @@ func (a *App) Init() {
 			domainClusterServiceP.New(domainClusterServiceP.Config{
 				PendingPodsThreshold: rules.Cluster.PendingPodsThreshold,
 				ProblemPodsThreshold: rules.Cluster.ProblemPodsThreshold,
+				Temp:                 domainClusterServiceP.TempConfig{Margin: rules.Cluster.NodeTemp.Margin, Hot: rules.Cluster.NodeTemp.Hot},
 				Public: domainClusterServiceP.PublicConfig{
 					MinRequests: problems.MinRequests, MinErrors: problems.MinErrors, ErrorRate: problems.ErrorRate,
 					ErrorFactor: problems.ErrorFactor, SlowP95: problems.SlowP95, SlowFactor: problems.SlowFactor,

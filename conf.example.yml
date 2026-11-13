@@ -144,6 +144,12 @@ cluster:
   max_infra_alerts: 30
   # сколько сервисов с наибольшим числом ошибок в логах показывать (log_errors)
   max_log_services: 10
+  # nodes.temperatures — температура нод по датчикам node-exporter (hwmon, иначе thermal zone);
+  # у виртуальных машин облака датчиков нет — поля нет. Перегрев (проблема ноды Overheating):
+  # до предела датчика (crit/max) не больше margin градусов, а без предела — не ниже hot
+  node_temp:
+    margin: 5
+    hot: 90
   # метрики кластера с базовой линией; без секции — встроенный набор по node-exporter и
   # kube-state-metrics (cluster_cpu_usage_ratio, cluster_memory_usage_ratio, pods_not_ready,
   # container_restarts_1h)

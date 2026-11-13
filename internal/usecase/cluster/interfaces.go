@@ -72,6 +72,7 @@ type SelfReportI interface {
 type rulesServiceI interface {
 	ComputeHealth(h *clusterModel.Health, nodesUnavailable bool) string
 	SummaryHints(h *clusterModel.Health, now time.Time) []string
+	Overheat(nodes *clusterModel.Nodes)
 	PublicProblems(apps []*clusterModel.PublicApp, window time.Duration) []*clusterModel.PublicApp
 }
 

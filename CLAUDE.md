@@ -88,7 +88,11 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   (внутренний токен `MCP_AUTH_TOKEN` — агент pulse, `app/mcp_server.go` → `req.Extra.TokenInfo`),
   остальным — отказ; ответ как есть без проекции (`human.go`: значения полей с именем секрета,
   карты и учётные данные в адресах — маской), схема необязательна; агент пересылает его человеку
-  мимо модели), `cluster` (get_cluster_health: ноды, поды
+  мимо модели), `cluster` (get_cluster_health: ноды, температура нод (`cluster/temperature.go`:
+  стандартные метрики node-exporter hwmon, иначе thermal zone; имя ноды — из `node_uname_info` по
+  job+instance; по устройству самый горячий датчик и предел из crit/max, мусор выше 150 °C отброшен;
+  датчиков нет — у ВМ облака — поля нет; перегрев — проблема ноды `Overheating`, пороги
+  `cluster.node_temp`), поды
   по кластеру (под без workload'а каталога — к сервису по репозиторию образа или
   `app.kubernetes.io/managed-by`), Warning-события по причинам с сервисами их объектов, инфра-алерты = не привязанные к каталогу,
   метрики кластера с базовой линией, ошибки в логах всего кластера по сервисам — `log_errors`,

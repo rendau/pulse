@@ -44,6 +44,35 @@ type Nodes struct {
 	// CPUMillis, MemoryBytes — суммарные allocatable
 	CPUMillis   int64
 	MemoryBytes int64
+	// Temperatures — температура нод по датчикам node-exporter; пусто — датчиков нет
+	// (виртуальные машины облака их не отдают) или Prometheus не подключён
+	Temperatures []NodeTemperature
+}
+
+// NodeProblemOverheating — устройство ноды близко к пределу температуры.
+const NodeProblemOverheating = "Overheating"
+
+// NodeTemperature — температура одной ноды по устройствам.
+type NodeTemperature struct {
+	Node string
+	// Devices — по устройству (процессор, диск, плата), самое горячее первым
+	Devices    []TempDevice
+	MaxCelsius float64
+	Hot        bool
+}
+
+// TempDevice — устройство ноды с датчиками температуры: значение — самого горячего датчика.
+type TempDevice struct {
+	// Chip — устройство в node-exporter (platform_coretemp_0, nvme_nvme0, thermal_zone1)
+	Chip string
+	// Name — понятное имя устройства (coretemp, nvme, acpitz, x86_pkg_temp)
+	Name string
+	// Sensor — самый горячий датчик (Core 2, Composite, temp3)
+	Sensor  string
+	Celsius float64
+	// LimitCelsius — предел из самого датчика (crit/max); nil — неизвестен
+	LimitCelsius *float64
+	Hot          bool
 }
 
 type NodeProblem struct {
