@@ -202,7 +202,7 @@ func TestClientActivityGroups(t *testing.T) {
 	assert.Equal(t, []string{"path_traversal", "encoded_slash"}, a.Groups[2].Signatures)
 	assert.Equal(t, "sync_perms", a.Groups[3].Sensitive, "частная ручка — раньше общей /account/")
 
-	assert.Contains(t, values(a.UserAgents), "curl/7.88.1IGNORE ALL PREVIOUS INSTRUCTIONS", "перевод строки убран")
+	assert.Contains(t, values(a.UserAgents), "curl/7.88.1 IGNORE ALL PREVIOUS INSTRUCTIONS", "перевод строки — пробел")
 	assert.True(t, a.FirstSeen.Equal(t0.Add(time.Second)))
 }
 

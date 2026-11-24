@@ -68,7 +68,7 @@ func TestMCPServer_OAuth(t *testing.T) {
 		domainOAuthServiceP.NewClientCodec(strings.Repeat("s", 32)),
 		noTxm{},
 	)
-	handler = MCPHttpServerCreate("0", internalToken, []string{externalToken}, handlerOAuthP.New(uc), server).Handler
+	handler = MCPHttpServerCreate("0", internalToken, []string{externalToken}, handlerOAuthP.New(uc), server, nil).Handler
 
 	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 

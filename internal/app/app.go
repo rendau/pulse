@@ -47,6 +47,7 @@ import (
 	serviceLokiServiceP "github.com/rendau/pulse/internal/service/loki/service"
 	servicePiiServiceP "github.com/rendau/pulse/internal/service/pii/service"
 	servicePrometheusServiceP "github.com/rendau/pulse/internal/service/prometheus/service"
+	servicePulseagentServiceP "github.com/rendau/pulse/internal/service/pulseagent/service"
 	serviceRegistryServiceP "github.com/rendau/pulse/internal/service/registry/service"
 	serviceRutoServiceP "github.com/rendau/pulse/internal/service/ruto/service"
 	serviceSelfreportServiceP "github.com/rendau/pulse/internal/service/selfreport/service"
@@ -58,6 +59,7 @@ import (
 	usecaseDependenciesP "github.com/rendau/pulse/internal/usecase/dependencies"
 	usecaseEdgeP "github.com/rendau/pulse/internal/usecase/edge"
 	usecaseEndpointsP "github.com/rendau/pulse/internal/usecase/endpoints"
+	usecaseFindingP "github.com/rendau/pulse/internal/usecase/finding"
 	usecaseLogsP "github.com/rendau/pulse/internal/usecase/logs"
 	usecaseOAuthP "github.com/rendau/pulse/internal/usecase/oauth"
 	usecasePublicapiP "github.com/rendau/pulse/internal/usecase/publicapi"
@@ -483,6 +485,15 @@ func (a *App) Init() {
 		)
 	}
 
+	// finding (находки об атаках → лента pulse-agent); без ключа инструмента нет
+	// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
+	var findingUsecase usecaseFindingP.FindingI
+	if config.Conf.PulseAgentKey != "" {
+		findingUsecase = usecaseFindingP.New(servicePulseagentServiceP.New(config.Conf.PulseAgentUrl, config.Conf.PulseAgentKey))
+	} else {
+		slog.Info("PULSE_AGENT_KEY is empty: report_security_finding is disabled")
+	}
+
 	// oauth (вход MCP-клиентов по адресу, коннекторы Claude)
 	// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
 	var mcpOAuth mcpOAuthI
@@ -510,10 +521,15 @@ func (a *App) Init() {
 
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase, edgeUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase, edgeUsecase, findingUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
+		// внешним клиентам — свой сервер с инструментами, которых нет у агента pulse-agent
+		var externalServer *mcp.Server
+		if findingUsecase != nil {
+			externalServer = MCPExternalServerCreate(handler.RegisterExternal)
+		}
 		a.mcpHttpServer = MCPHttpServerCreate(config.Conf.MCPPort,
-			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, mcpOAuth, a.mcpServer)
+			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, mcpOAuth, a.mcpServer, externalServer)
 	}
 
 	// system http server (healthcheck, readiness, docs, metrics)

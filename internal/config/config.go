@@ -70,6 +70,11 @@ var Conf = struct {
 	// через запятую — офис, выходы кластеров, коннекторы; у таких адресов метка own
 	EdgeKnownAddresses []string `env:"EDGE_KNOWN_ADDRESSES" envSeparator:","`
 
+	// pulse-agent: находки об атаках (report_security_finding) — POST /v1/findings с ключом клиента
+	// pulse из API_KEYS pulse-agent; пустой ключ — инструмента нет
+	PulseAgentUrl string `env:"PULSE_AGENT_URL" envDefault:"http://pulse-agent.default"`
+	PulseAgentKey string `env:"PULSE_AGENT_KEY"`
+
 	// kusec: configmaps, secrets, env (интеграция после получения проекта kusec)
 	KusecUrl   string `env:"KUSEC_URL"`
 	KusecToken string `env:"KUSEC_TOKEN"`

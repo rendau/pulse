@@ -10,6 +10,10 @@ const (
 // внутренний клиент (MCP_AUTH_TOKEN, агент pulse) — он пересылает их человеку мимо модели.
 const ScopeHuman = "human"
 
+// ScopeInternal — внутренний клиент (MCP_AUTH_TOKEN, агент pulse-agent): ему отдаётся MCP-сервер
+// без инструментов для внешних клиентов (report_security_finding — у агента свой наблюдатель).
+const ScopeInternal = "internal"
+
 // Version, Commit, BuiltAt подставляются при сборке: -ldflags "-X .../internal/constant.Version=<ver>"
 // (Commit — полный SHA: манифест сервиса, build.commit).
 var (

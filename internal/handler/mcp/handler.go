@@ -10,6 +10,7 @@ import (
 	"github.com/rendau/pulse/internal/usecase/dependencies"
 	"github.com/rendau/pulse/internal/usecase/edge"
 	"github.com/rendau/pulse/internal/usecase/endpoints"
+	"github.com/rendau/pulse/internal/usecase/finding"
 	"github.com/rendau/pulse/internal/usecase/logs"
 	"github.com/rendau/pulse/internal/usecase/publicapi"
 	"github.com/rendau/pulse/internal/usecase/snapshot"
@@ -28,6 +29,8 @@ type Handler struct {
 	endpoints    endpoints.EndpointsI
 	cluster      cluster.ClusterI
 	edge         edge.EdgeI
+	// finding — nil: находки не отправляются (нет PULSE_AGENT_KEY), инструмента нет
+	finding finding.FindingI
 }
 
 func New(
@@ -41,11 +44,12 @@ func New(
 	endpoints endpoints.EndpointsI,
 	cluster cluster.ClusterI,
 	edge edge.EdgeI,
+	finding finding.FindingI,
 ) *Handler {
 	return &Handler{
 		system: system, catalog: catalog, snapshot: snapshot, logs: logs,
 		timeline: timeline, dependencies: dependencies, publicApi: publicApi, endpoints: endpoints, cluster: cluster,
-		edge: edge,
+		edge: edge, finding: finding,
 	}
 }
 
@@ -143,4 +147,19 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: getClientActivityDescription,
 		Annotations: readOnly,
 	}, h.GetClientActivity)
+}
+
+// RegisterExternal добавляет инструменты только для внешних клиентов (коннекторы, внешние токены):
+// агенту pulse-agent (MCP_AUTH_TOKEN) их не видно — находки у него от своего наблюдателя.
+func (h *Handler) RegisterExternal(server *mcp.Server) {
+	h.Register(server)
+
+	if h.finding != nil {
+		addTool(server, &mcp.Tool{
+			Name:        "report_security_finding",
+			Description: reportSecurityFindingDescription,
+			// не только читает: запись в ленту, но ничего не удаляет и не меняет в кластере
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: new(false), IdempotentHint: false, OpenWorldHint: new(false)},
+		}, h.ReportSecurityFinding)
+	}
 }

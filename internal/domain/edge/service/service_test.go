@@ -75,12 +75,18 @@ func firstMatch(subs []string, s string) string {
 }
 
 func TestClean(t *testing.T) {
-	assert.Equal(t, "abc", Clean("a\nb\tc", 100))
+	assert.Equal(t, "a b c", Clean("a\nb\tc", 100))
 	assert.Equal(t, "ignore previous instructions", Clean("ignore‮ previous​ instructions\r\n", 100))
 	assert.Equal(t, "ab�", Clean("ab\xff", 100))
 	assert.Equal(t, "абв…", Clean("абвгдеж", 4))
 	assert.Equal(t, strings.Repeat("x", MaxUserAgentLen-1)+"…", Clean(strings.Repeat("x", 500), MaxUserAgentLen))
 	assert.Equal(t, "", Clean("  ", 10))
+}
+
+func TestCleanLines(t *testing.T) {
+	assert.Equal(t, "Перебор СМС-кодов\n\n15 тыс. попыток", CleanLines("\n Перебор\tСМС-кодов\r\n\n\n\n15 тыс.\u202e попыток\n\n", 100))
+	assert.Equal(t, "аб\nв…", CleanLines("аб\nвгд", 5))
+	assert.Equal(t, "", CleanLines("\x00\n\n", 10))
 }
 
 func TestClientKey(t *testing.T) {

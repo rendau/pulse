@@ -15,6 +15,7 @@ import (
 
 	"github.com/rendau/pulse/internal/constant"
 	handlerMcpP "github.com/rendau/pulse/internal/handler/mcp"
+	usecaseFindingModel "github.com/rendau/pulse/internal/usecase/finding/model"
 	usecaseSystemP "github.com/rendau/pulse/internal/usecase/system"
 )
 
@@ -27,12 +28,12 @@ func TestMCPServer_Ping(t *testing.T) {
 		{Name: "broken_source", Ping: func(context.Context) error { return errors.New("connection refused") }},
 		{Name: "disabled_source"},
 	})
-	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	server := MCPServerCreate(handler.Register)
 
-	// токен бота и внешних клиентов; пустые игнорируются
+	// токен агента и внешних клиентов; пустые игнорируются
 	const token, externalToken = "secret-token", "external-token"
-	httpServer := MCPHttpServerCreate("0", token, []string{externalToken, ""}, nil, server)
+	httpServer := MCPHttpServerCreate("0", token, []string{externalToken, ""}, nil, server, nil)
 	ts := httptest.NewServer(httpServer.Handler)
 	defer ts.Close()
 
@@ -87,7 +88,8 @@ func TestMCPServer_Ping(t *testing.T) {
 		assert.Contains(t, names, "ping")
 		assert.Contains(t, names, "get_public_api")
 		assert.Contains(t, names, "get_edge_traffic")
-		// 13 диагностических + 2 поиска атак по журналу входящих запросов (решение 2026-11-24)
+		// 13 диагностических + 2 поиска атак по журналу входящих запросов (решение 2026-11-24);
+		// у внешних клиентов — ещё report_security_finding (TestMCPServer_ExternalTools)
 		assert.LessOrEqual(t, len(names), 15, "не более 15 инструментов")
 
 		// схемы ответов допускают новые поля: клиенты с запомненной схемой не ломаются
@@ -152,7 +154,7 @@ func TestMCPServer_HumanScope(t *testing.T) {
 		})
 	})
 	const internalToken, externalToken = "internal-token", "external-token"
-	ts := httptest.NewServer(MCPHttpServerCreate("0", internalToken, []string{externalToken}, nil, server).Handler)
+	ts := httptest.NewServer(MCPHttpServerCreate("0", internalToken, []string{externalToken}, nil, server, nil).Handler)
 	defer ts.Close()
 
 	for token, human := range map[string]bool{internalToken: true, externalToken: false} {
@@ -174,4 +176,71 @@ func TestMCPServer_HumanScope(t *testing.T) {
 		assert.Equal(t, human, slices.Contains(out.Scopes, constant.ScopeHuman), token)
 		_ = session.Close()
 	}
+}
+
+type fakeFinding struct{ calls int }
+
+func (f *fakeFinding) Report(_ context.Context, req *usecaseFindingModel.ReportReq) (*usecaseFindingModel.Report, error) {
+	f.calls++
+	return &usecaseFindingModel.Report{Key: "security:" + req.Ip, Id: 5}, nil
+}
+
+// report_security_finding видят только внешние клиенты: агенту pulse-agent (внутренний токен)
+// он не нужен — у агента свой наблюдатель, иначе петля.
+func TestMCPServer_ExternalTools(t *testing.T) {
+	ctx := context.Background()
+	finding := &fakeFinding{}
+	handler := handlerMcpP.New(usecaseSystemP.New(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, finding)
+	const internalToken, externalToken = "internal-token", "external-token"
+	ts := httptest.NewServer(MCPHttpServerCreate("0", internalToken, []string{externalToken}, nil,
+		MCPServerCreate(handler.Register), MCPExternalServerCreate(handler.RegisterExternal)).Handler)
+	defer ts.Close()
+
+	connect := func(token string) *mcp.ClientSession {
+		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+			Endpoint:   ts.URL,
+			HTTPClient: &http.Client{Transport: &bearerTransport{token: token}},
+		}, nil)
+		require.NoError(t, err)
+		return session
+	}
+	toolNames := func(session *mcp.ClientSession) []string {
+		tools, err := session.ListTools(ctx, nil)
+		require.NoError(t, err)
+		names := make([]string, 0, len(tools.Tools))
+		for _, tool := range tools.Tools {
+			names = append(names, tool.Name)
+			if tool.Name == "report_security_finding" {
+				assert.False(t, tool.Annotations.ReadOnlyHint)
+			}
+		}
+		return names
+	}
+	args := map[string]any{"ip": "198.51.100.7", "severity": "critical", "title": "t", "text": "x"}
+
+	agent := connect(internalToken)
+	defer func() { _ = agent.Close() }()
+	assert.NotContains(t, toolNames(agent), "report_security_finding")
+	res, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "report_security_finding", Arguments: args})
+	if err == nil {
+		assert.True(t, res.IsError)
+	}
+	assert.Equal(t, 0, finding.calls)
+	assert.Contains(t, agent.InitializeResult().Instructions, "Все инструменты read-only")
+	assert.NotContains(t, agent.InitializeResult().Instructions, "report_security_finding")
+
+	external := connect(externalToken)
+	defer func() { _ = external.Close() }()
+	externalNames := toolNames(external)
+	assert.Contains(t, externalNames, "report_security_finding")
+	assert.LessOrEqual(t, len(externalNames), 16, "не более 16 инструментов у внешних клиентов")
+	assert.Contains(t, external.InitializeResult().Instructions, "report_security_finding")
+	res, err = external.CallTool(ctx, &mcp.CallToolParams{Name: "report_security_finding", Arguments: args})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	raw, err := json.Marshal(res.StructuredContent)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"key":"security:198.51.100.7","id":5,"deduplicated":false}`, string(raw))
+	assert.Equal(t, 1, finding.calls)
 }

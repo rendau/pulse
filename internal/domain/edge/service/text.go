@@ -16,12 +16,15 @@ const (
 )
 
 // Clean — недоверенный текст из запроса в виде, пригодном для ответа: битый UTF-8 заменён,
-// управляющие и невидимые символы (перевод строки, табуляция, смена направления текста,
-// нулевой ширины) убраны, длина — не больше max символов (обрезанное — с «…»).
+// перевод строки и табуляция — пробел, прочие управляющие и невидимые символы (смена
+// направления текста, нулевой ширины) убраны, длина — не больше max символов (обрезанное — с «…»).
 func Clean(s string, maxLen int) string {
 	s = strings.ToValidUTF8(s, "�")
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			return ' '
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
 			return -1
 		}
 		return r
@@ -29,6 +32,29 @@ func Clean(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
 	if maxLen > 0 && utf8.RuneCountInString(s) > maxLen {
 		s = string([]rune(s)[:maxLen-1]) + "…"
+	}
+	return s
+}
+
+// CleanLines — Clean для многострочного текста: строки чистятся по отдельности, переводы
+// строк остаются (не больше одной пустой строки подряд), длина — не больше max символов.
+func CleanLines(s string, maxLen int) string {
+	var lines []string
+	blank := 0
+	for line := range strings.Lines(strings.ToValidUTF8(s, "�")) {
+		line = Clean(line, 0)
+		if line == "" {
+			if blank++; blank > 1 || len(lines) == 0 {
+				continue
+			}
+		} else {
+			blank = 0
+		}
+		lines = append(lines, line)
+	}
+	s = strings.TrimSpace(strings.Join(lines, "\n"))
+	if maxLen > 0 && utf8.RuneCountInString(s) > maxLen {
+		s = strings.TrimSpace(string([]rune(s)[:maxLen-1])) + "…"
 	}
 	return s
 }

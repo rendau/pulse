@@ -50,11 +50,25 @@ const mcpInstructions = `pulse — единая точка доступа к и�
 	`(какие объекты, базы, запросы сбоят) — ручка из его diagnostic_endpoints. Один шаг по графу, не больше двух соседей; ` +
 	`в ответе раздели, что видит сам сервис и что — сосед.`
 
+// mcpExternalInstructions — оговорка инструкций сервера внешних клиентов: у них есть запись находок
+const mcpExternalInstructions = ` Исключение — report_security_finding: передаёт людям подтверждённую атаку, найденную ` +
+	`через get_edge_traffic и get_client_activity; для «всё спокойно» не вызывается.`
+
 // MCPServerCreate собирает MCP-сервер и регистрирует инструменты.
 func MCPServerCreate(register func(server *mcp.Server)) *mcp.Server {
+	return newMCPServer(mcpInstructions, register)
+}
+
+// MCPExternalServerCreate — MCP-сервер внешних клиентов: к инструкциям — оговорка про инструменты,
+// которых нет у внутреннего клиента.
+func MCPExternalServerCreate(register func(server *mcp.Server)) *mcp.Server {
+	return newMCPServer(mcpInstructions+mcpExternalInstructions, register)
+}
+
+func newMCPServer(instructions string, register func(server *mcp.Server)) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: constant.ServiceName, Version: constant.Version},
-		&mcp.ServerOptions{Instructions: mcpInstructions, Logger: slog.Default()},
+		&mcp.ServerOptions{Instructions: instructions, Logger: slog.Default()},
 	)
 
 	register(server)
@@ -95,9 +109,18 @@ type mcpOAuthI interface {
 // адресов OAuth (с OAuth), — порт отдельный, свой путь MCP не нужен. Режим stateless: нет сессий, каждый запрос самодостаточен — сервис можно
 // масштабировать горизонтально без sticky-сессий. internalToken — внутреннего клиента (агент
 // pulse: ему — ответы ручек для человека), externalTokens — внешних; пустые игнорируются.
-func MCPHttpServerCreate(port, internalToken string, externalTokens []string, oauth mcpOAuthI, server *mcp.Server) *http.Server {
+// internal — сервер внутреннего клиента, external — остальных (nil — тот же internal).
+func MCPHttpServerCreate(port, internalToken string, externalTokens []string, oauth mcpOAuthI, internal, external *mcp.Server) *http.Server {
+	if external == nil {
+		external = internal
+	}
 	handler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
+		func(r *http.Request) *mcp.Server {
+			if info := auth.TokenInfoFromContext(r.Context()); info != nil && slices.Contains(info.Scopes, constant.ScopeInternal) {
+				return internal
+			}
+			return external
+		},
 		&mcp.StreamableHTTPOptions{Stateless: true, Logger: slog.Default()},
 	)
 
@@ -118,7 +141,8 @@ func MCPHttpServerCreate(port, internalToken string, externalTokens []string, oa
 
 // authMiddleware проверяет bearer-токен: подходит любой из статических токенов или, с OAuth,
 // access-токен OAuth (pso_). Внутренний токен получает право constant.ScopeHuman (инструменты
-// видят его в req.Extra.TokenInfo); клиенты OAuth — внешние, этого права у них нет. Нет ни
+// видят его в req.Extra.TokenInfo) и constant.ScopeInternal (свой сервер без инструментов для
+// внешних клиентов); клиенты OAuth — внешние, этих прав у них нет. Нет ни
 // одного непустого токена и OAuth выключен — проверка отключена (локальная разработка), ручки
 // для человека недоступны; в этом случае в лог пишется предупреждение при старте. С OAuth 401
 // несёт WWW-Authenticate с адресом метаданных защищаемого ресурса — с него клиент начинает вход.
@@ -155,7 +179,7 @@ func authMiddleware(internalToken string, externalTokens []string, oauth mcpOAut
 		}
 		info := &auth.TokenInfo{Scopes: []string{usecaseOAuthP.Scope}}
 		if tokenMatch(got, internal) {
-			info.Scopes = append(info.Scopes, constant.ScopeHuman)
+			info.Scopes = append(info.Scopes, constant.ScopeHuman, constant.ScopeInternal)
 		}
 		return info, nil
 	}

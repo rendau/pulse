@@ -107,6 +107,12 @@ ingress на MCP-порт и env OAuth выше.
 | `get_cluster_health` | ноды, проблемные и pending-поды, Warning-события, инфра-алерты, загрузка кластера |
 | `get_edge_traffic` | поиск атак: внешние запросы по журналу edge-прокси (traefik) — топ чужих адресов, признаки взлома в путях, чувствительные ручки, новые адреса; свои адреса — `EDGE_KNOWN_ADDRESSES` |
 | `get_client_activity` | поиск атак: сжатая хронология запросов одного адреса (метод, домен, путь с `{id}`, код → сколько раз, когда) |
+| `report_security_finding` | **не только читает**: передаёт подтверждённую атаку в ленту pulse-agent (оттуда — Telegram чатам с подпиской на безопасность). Есть только у внешних клиентов (OAuth, `MCP_EXTERNAL_TOKENS`) и только при заданном `PULSE_AGENT_KEY`; агенту pulse-agent (`MCP_AUTH_TOKEN`) не показывается |
+
+Все инструменты, кроме `report_security_finding`, только читают. Находка уходит в pulse-agent
+(`PULSE_AGENT_URL`, по умолчанию `http://pulse-agent.default`) запросом `POST /v1/findings` с ключом
+`PULSE_AGENT_KEY` (ключ клиента `pulse` в `API_KEYS` pulse-agent); повторы по одному адресу
+склеиваются по ключу `security:<адрес>`.
 
 Диагностические ручки (`endpoints` в `service.yaml`) вызываются на ClusterIP сервиса по DNS
 `<k8s_service>.<namespace>.svc:<port>`; для локальной разработки `ENDPOINT_CALL_MODE=k8s-proxy`
