@@ -44,7 +44,7 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - `migration.go` — запуск миграций из `migrations/`.
 - `internal/config/` — `config.go` (env: адреса, токены, порты — **все адреса и токены источников
   только через env**) и `rules.go` (yaml-правила: `image_mapping`, `indexer.*`, `snapshot.*`,
-  `metrics.*`).
+  `metrics.*`, `edge.*`).
 - `internal/handler/` — транспортный слой.
   - `mcp/` — MCP-инструменты (`handler.go` — регистрация и описания, по файлу на группу).
   - `mcp/dto/` — преобразование usecase-моделей ↔ JSON-ответы инструментов (теги только тут).
@@ -104,7 +104,17 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   трафик пропал (≤2% от меньшего из «окном раньше» и «вчера», оба ≥300); формат логов gateway знает
   только `service/ruto` (`GatewayErrorsFilter`/`ParseGatewayError`), пороги — `ruto.problems`,
   правила — `domain/cluster/service/public.go`), `publicapi` (get_public_api: приложения ruto сервиса по рёбрам
-  индексера, маршруты из снапшота ruto, трафик из метрик gateway). Исключение из правила
+  индексера, маршруты из снапшота ruto, трафик из метрик gateway), `edge` (get_edge_traffic, get_client_activity —
+  поиск атак по журналу входящих запросов edge-прокси (traefik, JSON access log) в Loki, правила `edge.*`, свои
+  адреса — env `EDGE_KNOWN_ADDRESSES`: адрес клиента — `Cf-Connecting-Ip`, иначе `ClientHost`, IPv6 — подсеть /64
+  (сводит pulse: `regexReplaceAll` в Loki втрое медленнее); только метрические запросы, строго по одному (замок
+  usecase), подстрочный предфильтр до `| json`, `| __error__=""` (иначе не-JSON строки дают сотни серий);
+  Loki не отдаёт больше `max_query_series` (дефолт 500) серий даже во внутренней группировке, а адресов за час —
+  тысячи: `sum by (ip)` при отказе — частями по окончанию адреса (`shard`, только окна ≤2h; сутки — сотни
+  запросов), запросы по списку адресов — половинами (`chunked`); шаги по важности с дедлайном (топ — не больше
+  половины времени, затем признаки взлома, чувствительные ручки, коды, подробности, новые адреса, число путей);
+  «новый» — сутки назад за запрос с бюджетом и кэшем; хронология адреса — строки журнала постранично, группы в
+  pulse; путь/UA/Referer — недоверенный текст: `edge/service.Clean`, обрезка, отметка в описаниях). Исключение из правила
   «usecase не ходит в соседний usecase»:
   `snapshot` берёт `top_errors` у `logs` через узкий порт `LogsI`, чтобы не дублировать
   селектор + выборку + агрегацию; так же `cluster` берёт `ClusterErrors` у `logs` (порт `LogsI`).
@@ -120,7 +130,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
     `ClusterHost`); `cluster` — правила здоровья кластера и подсказки (фаза 7.1); `oauth` —
     подключения OAuth (`oauth_grant`: sha256 ключа доступа, которым разрешено) и их токены
     (`oauth_token`, только sha256), stateless `client_id` (`ClientCodec`), PKCE, адреса возврата;
-    `repo/mem` — репозиторий в памяти для тестов.
+    `repo/mem` — репозиторий в памяти для тестов; `edge` — журнал входящих запросов (чистые функции): разбор
+    строки traefik, ключ клиента (`ClientKey`), свои адреса (`ParseKnown`/`KnownLabel`), признаки взлома
+    (`Signatures` — список дополняется в коде: подстроки для Loki + регэксп), `NormalizePath` (id → `{id}`), `Clean`.
   - `*/model/` — доменные структуры (entity).
   - `*/service/` — доменные сервисы (инварианты/логика).
   - `*/repo/` — репозитории.
@@ -159,8 +171,9 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Не обращается напрямую к репозиториям и сервисам.
   - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
   - Общее число инструментов — не более 12–13; новые — объединять с существующими.
-  `list_service_endpoints` из первоначальной постановки влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 13
-  инструментов — лимит исчерпан, новые только объединением с существующими.
+  `list_service_endpoints` из первоначальной постановки влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 15
+  инструментов: 13 диагностических и 2 поиска атак (`get_edge_traffic`, `get_client_activity`, добавлены 2026-11-24
+  по отдельному решению) — лимит исчерпан, новые только объединением с существующими.
 - RBAC индексера и инструментов: get на pods/log (логи без Loki); get/list на nodes, deployments, statefulsets, daemonsets, cronjobs, jobs,
   replicasets, pods, events, configmaps, services; для `ENDPOINT_CALL_MODE=k8s-proxy` — get на services/proxy
   (локально; в кластере pulse ходит в Service по DNS-имени).

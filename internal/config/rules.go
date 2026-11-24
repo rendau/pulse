@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -127,6 +129,33 @@ type Rules struct {
 		} `yaml:"problems"`
 	} `yaml:"ruto"`
 
+	// Edge — журнал входящих запросов edge-прокси (traefik, JSON access log) в Loki:
+	// get_edge_traffic и get_client_activity — поиск атак
+	Edge struct {
+		// Selector — LogQL-селектор журнала; пусто — инструменты выключены
+		Selector string `yaml:"selector"`
+		// InternalRouterPrefix — начало имени роутера (RouterName) внутренней двери: такие
+		// запросы — не извне, в сводку не входят
+		InternalRouterPrefix string `yaml:"internal_router_prefix"`
+		// SensitivePaths — части путей чувствительных ручек; путь относится к первой подошедшей,
+		// поэтому частные — выше общих
+		SensitivePaths []string `yaml:"sensitive_paths"`
+		// Top — адресов в сводке по умолчанию
+		Top int `yaml:"top"`
+		// CacheTTL — сколько держать сводку (повторный вызов не читает журнал заново)
+		CacheTTL time.Duration `yaml:"cache_ttl"`
+		// QueryTimeout — на один запрос к Loki; Deadline — на вызов; MaxQueries — запросов на вызов
+		QueryTimeout time.Duration `yaml:"query_timeout"`
+		Deadline     time.Duration `yaml:"deadline"`
+		MaxQueries   int           `yaml:"max_queries"`
+		// NewLookback — адреса не было столько до окна — он новый; NewBudget — время на проверку
+		NewLookback time.Duration `yaml:"new_lookback"`
+		NewBudget   time.Duration `yaml:"new_budget"`
+		// ActivityMaxLines — строк журнала на хронологию адреса; ActivityMaxGroups — групп в ответе
+		ActivityMaxLines  int `yaml:"activity_max_lines"`
+		ActivityMaxGroups int `yaml:"activity_max_groups"`
+	} `yaml:"edge"`
+
 	// Manifest — манифест сервиса (docs/service-manifest.md)
 	Manifest struct {
 		// Path — путь манифеста; ручка состояния — Path/status
@@ -201,6 +230,12 @@ func LoadRules(path string) (*Rules, error) {
 	}
 
 	rules.applyDefaults()
+
+	for _, p := range rules.Edge.SensitivePaths {
+		if p == "" || strings.ContainsAny(p, "`\"\\") || strings.ContainsFunc(p, unicode.IsControl) {
+			return nil, fmt.Errorf("edge.sensitive_paths: %q: empty or contains quotes, backslash or control characters", p)
+		}
+	}
 
 	for _, m := range rules.ImageMapping {
 		if _, err = filepath.Match(m.Path, ""); err != nil {
@@ -343,6 +378,36 @@ func (r *Rules) applyDefaults() {
 	}
 	if len(r.Cluster.Metrics) == 0 {
 		r.Cluster.Metrics = defaultClusterMetrics()
+	}
+	if r.Edge.SensitivePaths == nil {
+		r.Edge.SensitivePaths = []string{"sync_perms", "new_refresh_token", "/onec_proxy/send", "/ab/v1/payment", "/ab/v1/wh/", "/cb/sms/", "/account/"}
+	}
+	if r.Edge.Top <= 0 {
+		r.Edge.Top = 25
+	}
+	if r.Edge.CacheTTL <= 0 {
+		r.Edge.CacheTTL = 5 * time.Minute
+	}
+	if r.Edge.QueryTimeout <= 0 {
+		r.Edge.QueryTimeout = time.Minute
+	}
+	if r.Edge.Deadline <= 0 {
+		r.Edge.Deadline = 150 * time.Second
+	}
+	if r.Edge.MaxQueries <= 0 {
+		r.Edge.MaxQueries = 60
+	}
+	if r.Edge.NewLookback <= 0 {
+		r.Edge.NewLookback = 7 * 24 * time.Hour
+	}
+	if r.Edge.NewBudget <= 0 {
+		r.Edge.NewBudget = 45 * time.Second
+	}
+	if r.Edge.ActivityMaxLines <= 0 {
+		r.Edge.ActivityMaxLines = 50000
+	}
+	if r.Edge.ActivityMaxGroups <= 0 {
+		r.Edge.ActivityMaxGroups = 200
 	}
 	if r.Metrics.MaxWindow <= 0 {
 		r.Metrics.MaxWindow = 7 * 24 * time.Hour

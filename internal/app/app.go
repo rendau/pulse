@@ -24,6 +24,7 @@ import (
 	domainDependencyServiceP "github.com/rendau/pulse/internal/domain/dependency/service"
 	domainDeployRepoDbP "github.com/rendau/pulse/internal/domain/deploy/repo/db"
 	domainDeployServiceP "github.com/rendau/pulse/internal/domain/deploy/service"
+	domainEdgeServiceP "github.com/rendau/pulse/internal/domain/edge/service"
 	domainEventServiceP "github.com/rendau/pulse/internal/domain/event/service"
 	domainLogsServiceP "github.com/rendau/pulse/internal/domain/logs/service"
 	domainOAuthRepoDbP "github.com/rendau/pulse/internal/domain/oauth/repo/db"
@@ -55,6 +56,7 @@ import (
 	usecaseCatalogP "github.com/rendau/pulse/internal/usecase/catalog"
 	usecaseClusterP "github.com/rendau/pulse/internal/usecase/cluster"
 	usecaseDependenciesP "github.com/rendau/pulse/internal/usecase/dependencies"
+	usecaseEdgeP "github.com/rendau/pulse/internal/usecase/edge"
 	usecaseEndpointsP "github.com/rendau/pulse/internal/usecase/endpoints"
 	usecaseLogsP "github.com/rendau/pulse/internal/usecase/logs"
 	usecaseOAuthP "github.com/rendau/pulse/internal/usecase/oauth"
@@ -450,6 +452,37 @@ func (a *App) Init() {
 		)
 	}
 
+	// edge (журнал входящих запросов: поиск атак)
+	var edgeUsecase *usecaseEdgeP.Usecase
+	{
+		var lokiClient usecaseEdgeP.LokiI
+		if lokiService != nil {
+			lokiClient = lokiService
+		}
+		known, bad := domainEdgeServiceP.ParseKnown(config.Conf.EdgeKnownAddresses)
+		if len(bad) > 0 {
+			slog.Warn("EDGE_KNOWN_ADDRESSES: entries skipped", "entries", bad)
+		}
+		edgeUsecase = usecaseEdgeP.New(
+			usecaseEdgeP.Config{
+				Selector:             rules.Edge.Selector,
+				InternalRouterPrefix: rules.Edge.InternalRouterPrefix,
+				Sensitive:            rules.Edge.SensitivePaths,
+				Known:                known,
+				Top:                  rules.Edge.Top,
+				CacheTTL:             rules.Edge.CacheTTL,
+				QueryTimeout:         rules.Edge.QueryTimeout,
+				Deadline:             rules.Edge.Deadline,
+				MaxQueries:           rules.Edge.MaxQueries,
+				NewLookback:          rules.Edge.NewLookback,
+				NewBudget:            rules.Edge.NewBudget,
+				ActivityMaxLines:     rules.Edge.ActivityMaxLines,
+				ActivityMaxGroups:    rules.Edge.ActivityMaxGroups,
+			},
+			lokiClient,
+		)
+	}
+
 	// oauth (вход MCP-клиентов по адресу, коннекторы Claude)
 	// nil-указатель нельзя класть в интерфейс напрямую: получится ненулевой интерфейс
 	var mcpOAuth mcpOAuthI
@@ -477,7 +510,7 @@ func (a *App) Init() {
 
 	// mcp server
 	{
-		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase)
+		handler := handlerMcpP.New(systemUsecase, catalogUsecase, snapshotUsecase, logsUsecase, timelineUsecase, dependenciesUsecase, publicApiUsecase, endpointsUsecase, clusterUsecase, edgeUsecase)
 		a.mcpServer = MCPServerCreate(handler.Register)
 		a.mcpHttpServer = MCPHttpServerCreate(config.Conf.MCPPort,
 			config.Conf.MCPAuthToken, config.Conf.MCPExternalTokens, mcpOAuth, a.mcpServer)

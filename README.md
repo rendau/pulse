@@ -105,6 +105,8 @@ ingress на MCP-порт и env OAuth выше.
 | `get_public_api` | внешний контур через gateway ruto: домен, опубликованные маршруты, rps/5xx/p95 и коды ответов |
 | `call_service_endpoint` | вызов диагностической ручки из `service.yaml` (только объявленный id, только GET, PII маскированы) |
 | `get_cluster_health` | ноды, проблемные и pending-поды, Warning-события, инфра-алерты, загрузка кластера |
+| `get_edge_traffic` | поиск атак: внешние запросы по журналу edge-прокси (traefik) — топ чужих адресов, признаки взлома в путях, чувствительные ручки, новые адреса; свои адреса — `EDGE_KNOWN_ADDRESSES` |
+| `get_client_activity` | поиск атак: сжатая хронология запросов одного адреса (метод, домен, путь с `{id}`, код → сколько раз, когда) |
 
 Диагностические ручки (`endpoints` в `service.yaml`) вызываются на ClusterIP сервиса по DNS
 `<k8s_service>.<namespace>.svc:<port>`; для локальной разработки `ENDPOINT_CALL_MODE=k8s-proxy`

@@ -27,7 +27,7 @@ func TestMCPServer_Ping(t *testing.T) {
 		{Name: "broken_source", Ping: func(context.Context) error { return errors.New("connection refused") }},
 		{Name: "disabled_source"},
 	})
-	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := handlerMcpP.New(systemUsecase, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	server := MCPServerCreate(handler.Register)
 
 	// токен бота и внешних клиентов; пустые игнорируются
@@ -86,7 +86,9 @@ func TestMCPServer_Ping(t *testing.T) {
 		}
 		assert.Contains(t, names, "ping")
 		assert.Contains(t, names, "get_public_api")
-		assert.LessOrEqual(t, len(names), 13, "не более 13 инструментов")
+		assert.Contains(t, names, "get_edge_traffic")
+		// 13 диагностических + 2 поиска атак по журналу входящих запросов (решение 2026-11-24)
+		assert.LessOrEqual(t, len(names), 15, "не более 15 инструментов")
 
 		// схемы ответов допускают новые поля: клиенты с запомненной схемой не ломаются
 		// после деплоя, добавившего поле

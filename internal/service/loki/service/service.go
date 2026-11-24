@@ -13,11 +13,14 @@ import (
 
 	"github.com/rendau/pulse/internal/errs"
 	"github.com/rendau/pulse/internal/infra/httpx"
+	lokiModel "github.com/rendau/pulse/internal/service/loki/model"
 )
 
 const (
 	readyPath    = "/ready"
 	maxBodyBytes = 8 << 20
+	// seriesLimitText — начало ответа Loki на превышение max_query_series
+	seriesLimitText = "maximum number of series"
 )
 
 // Auth — авторизация к источнику. Token — bearer; OrgId — X-Scope-OrgID (мультитенантность).
@@ -40,7 +43,8 @@ func New(baseUrl string, auth Auth) *Service {
 		auth: auth,
 		// 1m: счётчик ошибок по логам всего кластера за сутки; поиск назад по суткам —
 		// запросами по ≈2 с, его предел — бюджет поиска, а не этот таймаут
-		httpClient: httpx.New(httpx.Config{Timeout: time.Minute}),
+		// ответ Loki приходит целиком после подсчёта: заголовки ждём столько же, сколько весь запрос
+		httpClient: httpx.New(httpx.Config{Timeout: time.Minute, ResponseHeaderTimeout: time.Minute}),
 	}
 
 	baseUrl = strings.TrimRight(baseUrl, "/")
@@ -101,6 +105,9 @@ func (s *Service) sendRequest(ctx context.Context, method, path string, query ur
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusBadRequest && strings.Contains(string(body), seriesLimitText) {
+		return nil, fmt.Errorf("%w: %s: %s", lokiModel.ErrTooManySeries, target, truncate(body, 200))
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("%w: %s: status %d: %s", errs.ServiceNA, target, resp.StatusCode, truncate(body, 200))
 	}

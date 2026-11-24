@@ -112,6 +112,33 @@ ruto:
     backend_errors_min: 5  # backend не ответил gateway столько раз за окно
     max_apps: 20
 
+edge:
+  # журнал входящих запросов edge-прокси в Loki (traefik, accessLog.format=json, заголовки —
+  # request_<Имя>): get_edge_traffic и get_client_activity — поиск атак. Пусто — инструменты выключены
+  selector: '{kubernetes_namespace_name="ingress", kubernetes_pod_name=~"^traefik-[bcdfghjklmnpqrstvwxz2456789]{5}$"}'
+  # начало имени роутера (RouterName) внутренней двери: такие запросы — не извне, в сводку не входят
+  internal_router_prefix: websecure-int-
+  # части путей чувствительных ручек; путь относится к первой подошедшей — частные выше общих
+  sensitive_paths: [sync_perms, new_refresh_token, /onec_proxy/send, /ab/v1/payment, /ab/v1/wh/, /cb/sms/, /account/]
+  # адресов в сводке по умолчанию (максимум 50); сколько держать сводку в кэше
+  top: 25
+  cache_ttl: 5m
+  # Loki одним инстансом: запросы строго по одному, таймаут на запрос, дедлайн и бюджет на вызов.
+  # Час журнала — ~330 МБ, ~3 с на запрос; сутки — ~6 ГБ, ~12–18 с. Loki не отдаёт больше
+  # max_query_series серий (дефолт 500) даже внутри группировки, а адресов за час — тысячи:
+  # тогда сводка считается частями по окончанию адреса (за час — ~14 запросов вместо одного)
+  query_timeout: 1m
+  deadline: 150s
+  max_queries: 60
+  # «новый» адрес — не встречался столько до окна; журнал читается по суткам (~8 с на сутки),
+  # бюджет — на всю проверку (не успели — проверено меньше, new_checked в ответе)
+  new_lookback: 168h
+  new_budget: 45s
+  # хронология адреса: строк журнала на вызов (≈1 мин на 50 тыс.: перебор кодов за 13 минут —
+  # 15 тыс. строк) и групп в ответе
+  activity_max_lines: 50000
+  activity_max_groups: 200
+
 manifest:
   # манифест сервиса (docs/service-manifest.md): путь; ручка состояния — <path>/status
   path: /.well-known/pulse

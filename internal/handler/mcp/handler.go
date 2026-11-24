@@ -8,6 +8,7 @@ import (
 	"github.com/rendau/pulse/internal/usecase/catalog"
 	"github.com/rendau/pulse/internal/usecase/cluster"
 	"github.com/rendau/pulse/internal/usecase/dependencies"
+	"github.com/rendau/pulse/internal/usecase/edge"
 	"github.com/rendau/pulse/internal/usecase/endpoints"
 	"github.com/rendau/pulse/internal/usecase/logs"
 	"github.com/rendau/pulse/internal/usecase/publicapi"
@@ -26,6 +27,7 @@ type Handler struct {
 	publicApi    publicapi.PublicApiI
 	endpoints    endpoints.EndpointsI
 	cluster      cluster.ClusterI
+	edge         edge.EdgeI
 }
 
 func New(
@@ -38,10 +40,12 @@ func New(
 	publicApi publicapi.PublicApiI,
 	endpoints endpoints.EndpointsI,
 	cluster cluster.ClusterI,
+	edge edge.EdgeI,
 ) *Handler {
 	return &Handler{
 		system: system, catalog: catalog, snapshot: snapshot, logs: logs,
 		timeline: timeline, dependencies: dependencies, publicApi: publicApi, endpoints: endpoints, cluster: cluster,
+		edge: edge,
 	}
 }
 
@@ -127,4 +131,16 @@ func (h *Handler) Register(server *mcp.Server) {
 		Description: getClusterHealthDescription,
 		Annotations: readOnly,
 	}, h.GetClusterHealth)
+
+	addTool(server, &mcp.Tool{
+		Name:        "get_edge_traffic",
+		Description: getEdgeTrafficDescription,
+		Annotations: readOnly,
+	}, h.GetEdgeTraffic)
+
+	addTool(server, &mcp.Tool{
+		Name:        "get_client_activity",
+		Description: getClientActivityDescription,
+		Annotations: readOnly,
+	}, h.GetClientActivity)
 }

@@ -66,6 +66,10 @@ var Conf = struct {
 	// ruto-core (API-gateway): опубликованные маршруты — служебный порт core, http://ruto-core.<ns>.svc:3003
 	RutoUrl string `env:"RUTO_URL"`
 
+	// свои адреса для журнала входящих запросов (get_edge_traffic): «адрес_или_подсеть=метка»
+	// через запятую — офис, выходы кластеров, коннекторы; у таких адресов метка own
+	EdgeKnownAddresses []string `env:"EDGE_KNOWN_ADDRESSES" envSeparator:","`
+
 	// kusec: configmaps, secrets, env (интеграция после получения проекта kusec)
 	KusecUrl   string `env:"KUSEC_URL"`
 	KusecToken string `env:"KUSEC_TOKEN"`
