@@ -170,7 +170,8 @@ MCP-сервер (streamable HTTP, `github.com/modelcontextprotocol/go-sdk`), Po
   - Работает только с DTO инструментов и usecase-интерфейсами.
   - Не обращается напрямую к репозиториям и сервисам.
   - Описание инструмента — часть продукта: когда выбирать / когда нет, что возвращает, 4–5 строк.
-  - Общее число инструментов — не более 12–13; новые — объединять с существующими.
+  - Общее число инструментов — не более 15 у агента pulse-agent и 16 у внешних клиентов (проверяет
+    `internal/app/mcp_server_test.go`); новые — объединять с существующими.
   `list_service_endpoints` из первоначальной постановки влит в `get_service_info` (`diagnostic_endpoints`). Сейчас 15
   инструментов: 13 диагностических и 2 поиска атак (`get_edge_traffic`, `get_client_activity`, добавлены 2026-11-24
   по отдельному решению) — лимит исчерпан, новые только объединением с существующими.
@@ -318,7 +319,11 @@ domain service → repo
 ### API (MCP)
 - Инструменты регистрируются в `internal/handler/mcp/handler.go` через `addTool` с типизированными
   In/Out DTO (`internal/handler/mcp/dto`); схема выводится из json/jsonschema-тегов.
-- Все инструменты read-only: `ToolAnnotations{ReadOnlyHint: true}`.
+- Все инструменты только читают (`ToolAnnotations{ReadOnlyHint: true}`), кроме одного —
+  `report_security_finding`: передаёт подтверждённую атаку в ленту pulse-agent
+  (`POST <PULSE_AGENT_URL>/v1/findings`, ключ `PULSE_AGENT_KEY`), дальше — Telegram чатам с подпиской
+  на вид `security`. Виден только внешним клиентам (коннекторы Claude), агенту pulse-agent — нет;
+  без `PULSE_AGENT_KEY` не регистрируется.
 - Регистрация — через `addTool` (`handler/mcp/schema.go`), не `mcp.AddTool`: схема ответа допускает
   новые поля (без `additionalProperties: false`), иначе клиенты с запомненной схемой ломаются после
   деплоя. Поля ответа можно добавлять; удалять и переименовывать нельзя. Схема входа — строгая.
