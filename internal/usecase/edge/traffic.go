@@ -111,22 +111,36 @@ func (r *run) traffic(host string, start, end time.Time, top int, checkNew bool)
 	base := r.u.base(host, false)
 	known := r.u.conf.Known
 
-	// 1. запросов по адресам — все адреса окна (для своих и для топа)
+	// окно длиннее maxShardWindow: каждый запрос — полное чтение журнала окна (сутки — ~6 ГБ и
+	// ~10 с на всех ядрах Loki), поэтому шаги, которые разбирают одни и те же строки, — общими
+	// запросами, а число путей — только у подозрительных адресов
+	long := end.Sub(start) > maxShardWindow
+
+	// 1. запросов по адресам — все адреса окна (для своих и для топа); за длинное окно — сразу и
+	// по классам кода (шаг 4 без отдельного запроса).
 	// не больше половины времени вызова: без него признаки взлома и ручки важнее топа
 	clients := clientSet{}
 	var samples []lokiModel.Sample
 	var complete bool
 	var err error
+	by, fields, labels := "ip", clientFields(nil), ipLabel
+	if long {
+		by, fields, labels = "ip, sc", clientFields(map[string]string{"status": edgeService.FieldStatus}), ipLabel+", "+statusClassLabel
+	}
 	r.within(r.left()/2, func() {
 		samples, complete, err = r.sharded(end.Sub(start), func(f string) string {
-			return "sum by (ip) (count_over_time(" + base + " " + jsonFields(clientFields(nil)) + " | " + ipLabel + f + " " + rng + "))"
+			return "sum by (" + by + ") (count_over_time(" + base + " " + jsonFields(fields) + " | " + labels + f + " " + rng + "))"
 		})
 	})
 	if err != nil {
 		r.fail("запросов по адресам", err)
 	}
+	var byStatus []model.Count
 	for _, s := range samples {
 		clients.add(s.Labels["ip"], s.Value)
+		if long {
+			byStatus = append(byStatus, model.Count{Value: s.Labels["sc"], Count: s.Value})
+		}
 	}
 	if complete {
 		result.ClientsTotal = len(clients)
@@ -148,14 +162,27 @@ func (r *run) traffic(host string, start, end time.Time, top int, checkNew bool)
 		}
 	}
 
-	// 2. признаки взлома в путях — по всем адресам
-	sig := r.signatures(base, rng, end.Sub(start), clients)
-	// 3. чувствительные ручки — по всем адресам (не влезло — по адресам из топа)
-	candidates := lo.Uniq(lo.Flatten([][]string{lo.FlatMap(strangers, labelsOf), lo.FlatMap(own, labelsOf), sigLabels(sig, clients)}))
-	sensitive, sensHits := r.sensitive(base, rng, candidates, clients)
+	// 2–3. признаки взлома в путях и чувствительные ручки — по всем адресам; за длинное окно —
+	// одним запросом, не вышло — по отдельности (ручки: не влезло — по адресам из топа)
+	var sig map[string]*model.SignatureClient
+	var sensitive []model.SensitiveEndpoint
+	var sensHits map[string]float64
+	merged := false
+	if long {
+		sig, sensitive, sensHits, merged = r.pathSignals(base, rng, clients)
+	}
+	if !merged {
+		sig = r.signatures(base, rng, end.Sub(start), clients)
+		candidates := lo.Uniq(lo.Flatten([][]string{lo.FlatMap(strangers, labelsOf), lo.FlatMap(own, labelsOf), sigLabels(sig, clients)}))
+		sensitive, sensHits = r.sensitive(base, rng, candidates, clients)
+	}
 
-	// 4. всего запросов по классам кода
-	result.Statuses = r.statuses(base, rng)
+	// 4. всего запросов по классам кода (за длинное окно — уже из шага 1)
+	if long && err == nil {
+		result.Statuses = statusCounts(byStatus)
+	} else {
+		result.Statuses = r.statuses(base, rng)
+	}
 	result.Requests = lo.SumBy(result.Statuses, func(c model.Count) float64 { return c.Count })
 	if result.Requests == 0 && complete {
 		result.Requests = lo.SumBy(byVolume, func(c *clientAgg) float64 { return c.requests })
@@ -174,7 +201,11 @@ func (r *run) traffic(host string, start, end time.Time, top int, checkNew bool)
 	if checkNew {
 		r.within(r.left()/2, func() { fresh = r.checkNew(strangers, start) })
 	}
-	paths, pathsOver := r.distinctPaths(base, rng, strangers, end.Sub(start))
+	pathClients := strangers
+	if long {
+		pathClients = pathSuspects(strangers, details, sig, sensHits)
+	}
+	paths, pathsOver := r.distinctPaths(base, rng, pathClients, end.Sub(start))
 
 	encode := func(c *clientAgg) model.Client {
 		label, _ := edgeService.KnownLabel(known, c.key)
@@ -224,6 +255,57 @@ func (r *run) traffic(host string, start, end time.Time, top int, checkNew bool)
 }
 
 func labelsOf(c *clientAgg, _ int) []string { return c.labels }
+
+// pathSuspectShare4xx — доля 4xx, с которой у адреса за длинное окно считается число путей
+const pathSuspectShare4xx = 0.5
+
+// pathSuspects — адреса топа, у которых за длинное окно считается число путей (запрос на каждые
+// longWindowPathChunk адресов — полное чтение журнала окна): много 4xx, признаки взлома или
+// чувствительные ручки, самые активные первыми; не больше одного запроса.
+func pathSuspects(strangers []*clientAgg, details map[string]*detailAgg, sig map[string]*model.SignatureClient, sensHits map[string]float64) []*clientAgg {
+	out := lo.Filter(strangers, func(c *clientAgg, _ int) bool {
+		if _, ok := sig[c.key]; ok || sensHits[c.key] > 0 {
+			return true
+		}
+		d, ok := details[c.key]
+		return ok && d.total > 0 && d.c4xx/d.total >= pathSuspectShare4xx
+	})
+	return out[:min(len(out), longWindowPathChunk)]
+}
+
+// pathSignals — признаки взлома и чувствительные ручки одним запросом по строкам с путём (за
+// длинное окно — одно чтение журнала вместо двух). false — не вышло: шаги считаются по отдельности.
+func (r *run) pathSignals(base, rng string, clients clientSet) (map[string]*model.SignatureClient, []model.SensitiveEndpoint, map[string]float64, bool) {
+	patterns := r.u.conf.Sensitive
+	if len(patterns) == 0 {
+		return nil, nil, nil, false
+	}
+	sig := map[string]*model.SignatureClient{}
+	if !r.enough("признаки взлома и чувствительные ручки") {
+		return sig, nil, nil, true
+	}
+	samples, err := r.vector("sum by (ip, sig, ep) (count_over_time("+base+anyOf(lo.Uniq(append(edgeService.SignaturesSubstrings(), patterns...)))+" "+
+		jsonFields(clientFields(map[string]string{"path": edgeService.FieldPath}))+
+		" | "+ipLabel+", "+signatureOrEmptyLabel()+", "+sensitiveLabel(patterns)+` | sig!="" or ep!=""`+" "+rng+"))", r.at)
+	if err != nil {
+		if !errorsIsSeries(err) {
+			r.fail("признаки взлома и чувствительные ручки", err)
+			return sig, nil, nil, true
+		}
+		return nil, nil, nil, false
+	}
+	byEp := map[string]map[string]float64{}
+	for _, s := range samples {
+		if s.Labels["sig"] != "" {
+			addSignature(sig, clients, s.Labels["ip"], s.Labels["sig"], s.Value)
+		}
+		if ep := s.Labels["ep"]; ep != "" {
+			addSensitive(byEp, clients, ep, s.Labels["ip"], s.Value)
+		}
+	}
+	sensitive, hits := r.buildSensitive(byEp, nil, nil)
+	return sig, sensitive, hits, true
+}
 
 // suspects — чужие адреса с признаками взлома и обращениями к чувствительным ручкам, больше
 // всего — первыми; лейблы ip — из ответов Loki (clients).
@@ -307,25 +389,44 @@ func (r *run) signatures(base, rng string, win time.Duration, clients clientSet)
 	}
 
 	for _, s := range samples {
-		key, ok := edgeService.ClientKey(s.Labels["ip"])
-		if !ok {
-			continue
-		}
-		clients.add(s.Labels["ip"], 0)
-		c, ok := out[key]
-		if !ok {
-			c = &model.SignatureClient{Addr: key}
-			out[key] = c
-		}
-		c.Hits += s.Value
-		name := lo.FirstOr(edgeService.MatchSignatures(s.Labels["sig"]), "other")
-		if i := lo.IndexOf(lo.Map(c.Signatures, func(x model.Count, _ int) string { return x.Value }), name); i >= 0 {
-			c.Signatures[i].Count += s.Value
-		} else {
-			c.Signatures = append(c.Signatures, model.Count{Value: name, Count: s.Value})
-		}
+		addSignature(out, clients, s.Labels["ip"], s.Labels["sig"], s.Value)
 	}
 	return out
+}
+
+// addSignature — запросы адреса (лейбл ip) с признаком взлома (лейбл sig); лейбл адреса —
+// в clients (без запросов).
+func addSignature(out map[string]*model.SignatureClient, clients clientSet, label, sigLabel string, v float64) {
+	key, ok := edgeService.ClientKey(label)
+	if !ok {
+		return
+	}
+	clients.add(label, 0)
+	c, ok := out[key]
+	if !ok {
+		c = &model.SignatureClient{Addr: key}
+		out[key] = c
+	}
+	c.Hits += v
+	name := lo.FirstOr(edgeService.MatchSignatures(sigLabel), "other")
+	if i := lo.IndexOf(lo.Map(c.Signatures, func(x model.Count, _ int) string { return x.Value }), name); i >= 0 {
+		c.Signatures[i].Count += v
+	} else {
+		c.Signatures = append(c.Signatures, model.Count{Value: name, Count: v})
+	}
+}
+
+// addSensitive — запросы адреса (лейбл ip) к чувствительной ручке ep; лейбл адреса — в clients.
+func addSensitive(byEp map[string]map[string]float64, clients clientSet, ep, label string, v float64) {
+	key, ok := edgeService.ClientKey(label)
+	if !ok {
+		return
+	}
+	clients.add(label, 0)
+	if byEp[ep] == nil {
+		byEp[ep] = map[string]float64{}
+	}
+	byEp[ep][key] += v
 }
 
 // sensitive — обращения к чувствительным ручкам по адресам. Не влезло в лимит серий — по
@@ -341,17 +442,7 @@ func (r *run) sensitive(base, rng string, candidates []string, clients clientSet
 	byEp := map[string]map[string]float64{}
 	more := map[string]bool{}
 	totals := map[string]float64{}
-	add := func(ep, label string, v float64) {
-		key, ok := edgeService.ClientKey(label)
-		if !ok {
-			return
-		}
-		clients.add(label, 0)
-		if byEp[ep] == nil {
-			byEp[ep] = map[string]float64{}
-		}
-		byEp[ep][key] += v
-	}
+	add := func(ep, label string, v float64) { addSensitive(byEp, clients, ep, label, v) }
 
 	samples, err := r.vector("sum by (ip, ep) (count_over_time("+base+anyOf(patterns)+" "+pathJson+
 		" | "+ipLabel+", "+sensitiveLabel(patterns)+` | ep!=""`+" "+rng+"))", r.at)
@@ -398,9 +489,14 @@ func (r *run) sensitive(base, rng string, candidates []string, clients clientSet
 	default:
 		r.fail("чувствительные ручки", err)
 	}
+	return r.buildSensitive(byEp, more, totals)
+}
 
+// buildSensitive — обращения к чувствительным ручкам по порядку конфига: адресов, запросов, топ
+// адресов; more — адресов больше лимита Loki (запросов — не меньше totals).
+func (r *run) buildSensitive(byEp map[string]map[string]float64, more map[string]bool, totals map[string]float64) ([]model.SensitiveEndpoint, map[string]float64) {
 	hits := map[string]float64{}
-	out := lo.FilterMap(patterns, func(p string, _ int) (model.SensitiveEndpoint, bool) {
+	out := lo.FilterMap(r.u.conf.Sensitive, func(p string, _ int) (model.SensitiveEndpoint, bool) {
 		perClient := byEp[p]
 		if len(perClient) == 0 && totals[p] == 0 {
 			return model.SensitiveEndpoint{}, false

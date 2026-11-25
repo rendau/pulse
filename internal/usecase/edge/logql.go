@@ -150,6 +150,14 @@ func signatureLabel() string {
 	return "sig=`{{ regexReplaceAll " + strconv.Quote("(?i)"+re) + " .path \"${1}\" }}`"
 }
 
+// signatureOrEmptyLabel — лейбл sig: совпавший с признаком взлома кусок пути, иначе пусто (в
+// общем запросе с чувствительными ручками проходят и пути без признака). Вторая ветка регэкспа
+// ловит любой путь без признака и даёт пустую первую группу.
+func signatureOrEmptyLabel() string {
+	re := `^(?:.*?` + strings.TrimPrefix(edgeService.SignaturesRegex(), "(?i)") + `.*|.*)$`
+	return "sig=`{{ regexReplaceAll " + strconv.Quote("(?is)"+re) + " .path \"${1}\" }}`"
+}
+
 // signatureFilter — путь с признаком взлома.
 func signatureFilter() string {
 	return " | path=~" + strconv.Quote(`(?i)^.*`+strings.TrimPrefix(edgeService.SignaturesRegex(), "(?i)")+`.*$`)
