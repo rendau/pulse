@@ -55,7 +55,7 @@ func (u *Usecase) Traffic(ctx context.Context, req *model.TrafficReq) (*model.Tr
 	if !req.End.IsZero() {
 		endKey = strconv.FormatInt(end.Unix(), 10)
 	}
-	key := fmt.Sprintf("%s|%s|%s|%d", host, end.Sub(start), endKey, top)
+	key := fmt.Sprintf("%s|%s|%s|%d|%t", host, end.Sub(start), endKey, top, req.CheckNew)
 	if hit, ok := u.cache[key]; ok && time.Since(hit.at) < u.conf.CacheTTL {
 		result := *hit.result
 		result.CachedAt = hit.at
@@ -66,7 +66,7 @@ func (u *Usecase) Traffic(ctx context.Context, req *model.TrafficReq) (*model.Tr
 	defer cancel()
 	t0 := time.Now()
 	r := u.newRun(ctx, end)
-	result := r.traffic(host, start, end, top)
+	result := r.traffic(host, start, end, top, req.CheckNew)
 	result.Took = time.Since(t0)
 
 	for k, v := range u.cache {
@@ -105,7 +105,7 @@ func (s clientSet) add(label string, v float64) *clientAgg {
 	return c
 }
 
-func (r *run) traffic(host string, start, end time.Time, top int) *model.Traffic {
+func (r *run) traffic(host string, start, end time.Time, top int, checkNew bool) *model.Traffic {
 	result := &model.Traffic{Start: start, End: end, Host: host}
 	rng := rangeOf(end.Sub(start))
 	base := r.u.base(host, false)
@@ -167,11 +167,13 @@ func (r *run) traffic(host string, start, end time.Time, top int) *model.Traffic
 		strangers = suspects(clients, sig, sensHits, known, top)
 	}
 
-	// 5–7. подробности, новые адреса и разных путей — для чужих адресов топа
+	// 5–7. подробности, новые адреса (по просьбе) и разных путей — для чужих адресов топа
 	// новые адреса важнее числа путей: проверка — до половины оставшегося времени
 	details := r.details(base, rng, strangers)
 	var fresh map[string]newResult
-	r.within(r.left()/2, func() { fresh = r.checkNew(strangers, start) })
+	if checkNew {
+		r.within(r.left()/2, func() { fresh = r.checkNew(strangers, start) })
+	}
 	paths, pathsOver := r.distinctPaths(base, rng, strangers, end.Sub(start))
 
 	encode := func(c *clientAgg) model.Client {

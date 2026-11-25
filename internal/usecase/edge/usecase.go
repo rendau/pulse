@@ -1,6 +1,6 @@
 // Package edge — журнал входящих запросов edge-прокси (traefik) в Loki: сводка внешнего
 // трафика по адресам клиентов (кто сколько, признаки взлома, чувствительные ручки, новые
-// адреса) и хронология одного адреса. Для агента, который по расписанию ищет атаки.
+// адреса — по просьбе) и хронология одного адреса. Для агента, который по расписанию ищет атаки.
 //
 // Нагрузка на Loki: журнал — сотни мегабайт в час, а у Loki нет индекса по словам, и любой
 // запрос читает все строки окна. Поэтому считают метрические запросы (count_over_time) с
@@ -58,9 +58,10 @@ type Usecase struct {
 
 	// mu — запросы к Loki строго по одному: Loki одним инстансом падал от параллельных тяжёлых
 	// запросов. Под ним же — кэши.
-	mu    sync.Mutex
-	cache map[string]cacheEntry
-	seen  map[string]seenEntry
+	mu     sync.Mutex
+	cache  map[string]cacheEntry
+	seen   map[string]seenEntry
+	absent map[string]absentEntry
 }
 
 type cacheEntry struct {
@@ -103,7 +104,8 @@ func New(conf Config, loki LokiI) *Usecase {
 		// строка журнала ≈1.5 КБ: 2000 строк — ≈3–4 МБ ответа Loki (предел тела 8 МБ)
 		conf.ActivityPageLines = 2000
 	}
-	return &Usecase{conf: conf, loki: loki, cache: map[string]cacheEntry{}, seen: map[string]seenEntry{}}
+	return &Usecase{conf: conf, loki: loki, cache: map[string]cacheEntry{}, seen: map[string]seenEntry{},
+		absent: map[string]absentEntry{}}
 }
 
 func (u *Usecase) check() error {

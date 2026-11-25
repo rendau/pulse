@@ -17,6 +17,8 @@ type GetEdgeTrafficReq struct {
 	End    string `json:"end,omitempty" jsonschema:"конец окна: дата 2026-11-23 (без window — эти сутки) или время 2026-11-23T16:00 (Asia/Almaty); пусто — сейчас"`
 	Host   string `json:"host,omitempty" jsonschema:"только запросы к домену (RequestHost), например api.mdev.kz; пусто — все домены"`
 	Top    int    `json:"top,omitempty" jsonschema:"сколько чужих адресов в топе: 25 по умолчанию, максимум 50"`
+	// CheckNew — тяжело для Loki: только при разборе, не в каждом опросе
+	CheckNew bool `json:"check_new,omitempty" jsonschema:"true — проверить, новые ли адреса топа (поле new): журнал за 7 дней до окна, самое тяжёлое для Loki — только при разборе подозрительных адресов, не в регулярном опросе"`
 }
 
 type EdgeTrafficRep struct {
@@ -56,7 +58,7 @@ type EdgeClient struct {
 	Countries         []EdgeCount `json:"countries,omitempty" jsonschema:"страна по Cloudflare (только домены за Cloudflare)"`
 	SignatureHits     float64     `json:"signature_hits,omitempty" jsonschema:"запросов с признаками взлома в пути"`
 	SensitiveHits     float64     `json:"sensitive_hits,omitempty" jsonschema:"запросов к чувствительным ручкам"`
-	New               *bool       `json:"new,omitempty" jsonschema:"true — адреса не было в журнале за new_checked до окна; нет поля — не проверялся"`
+	New               *bool       `json:"new,omitempty" jsonschema:"true — адреса не было в журнале за new_checked до окна; нет поля — не проверялся (без check_new)"`
 	NewChecked        string      `json:"new_checked,omitempty" jsonschema:"насколько назад от начала окна проверено (7d; меньше — не хватило времени)"`
 }
 

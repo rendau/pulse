@@ -8,6 +8,9 @@ type TrafficReq struct {
 	End    time.Time // нулевое — сейчас
 	Host   string    // пусто — все домены
 	Top    int
+	// CheckNew — проверять, новые ли адреса топа (журнал за NewLookback до окна — самое тяжёлое
+	// для Loki); false — поля New у адресов нет
+	CheckNew bool
 }
 
 // Traffic — сводка внешних запросов за окно по адресам клиентов.

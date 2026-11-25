@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -276,4 +277,121 @@ func TestLogQLBuilders(t *testing.T) {
 func TestStatusCounts(t *testing.T) {
 	got := statusCounts([]model.Count{{Value: "2", Count: 10}, {Value: "4", Count: 3}, {Value: "", Count: 1}, {Value: "5", Count: 2}})
 	assert.Equal(t, []model.Count{{Value: "2xx", Count: 10}, {Value: "4xx", Count: 3}, {Value: "5xx", Count: 2}, {Value: "other", Count: 1}}, got)
+}
+
+// segLoki — Loki для проверки новых адресов: адрес встречался в моменты seenAt; запросы
+// запоминаются отрезками [at-range, at).
+type segLoki struct {
+	seenAt map[string][]time.Time
+	segs   []span
+}
+
+var rangeRe = regexp.MustCompile(`\[(\d+)s\]\)\)$`)
+
+func (f *segLoki) QueryVector(_ context.Context, query string, at time.Time) ([]lokiModel.Sample, error) {
+	m := rangeRe.FindStringSubmatch(query)
+	if m == nil {
+		return nil, fmt.Errorf("unexpected query %q", query)
+	}
+	sec, _ := time.ParseDuration(m[1] + "s")
+	from := at.Add(-sec)
+	f.segs = append(f.segs, span{from: from, to: at})
+	var out []lokiModel.Sample
+	for ip, times := range f.seenAt {
+		for _, ts := range times {
+			if !ts.Before(from) && ts.Before(at) && strings.Contains(query, ip) {
+				out = append(out, lokiModel.Sample{Labels: map[string]string{"ip": ip}, Value: 1})
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (f *segLoki) QueryRange(context.Context, string, time.Time, time.Time, int) ([]lokiModel.Stream, error) {
+	return nil, nil
+}
+
+func TestCheckNewRemembersAbsence(t *testing.T) {
+	now := time.Now().Truncate(time.Minute)
+	loki := &segLoki{seenAt: map[string][]time.Time{"5.5.5.5": {now.Add(-50 * time.Hour)}}}
+	u := newTestUsecase(loki)
+	clients := []*clientAgg{{key: "1.1.1.1"}, {key: "5.5.5.5"}}
+
+	// первый вызов: неделя по суткам, 5.5.5.5 найден на третьих сутках
+	start := now.Add(-15 * time.Minute)
+	res := u.newRun(context.Background(), now).checkNew(clients, start)
+	assert.Equal(t, newResult{isNew: true, checked: 7 * 24 * time.Hour}, res["1.1.1.1"])
+	assert.False(t, res["5.5.5.5"].isNew)
+	require.Len(t, loki.segs, 7)
+	assert.Equal(t, span{from: start.Add(-24 * time.Hour), to: start}, loki.segs[0])
+
+	// через 10 минут: 5.5.5.5 уже известен, у 1.1.1.1 — только 10 минут после прошлой проверки
+	loki.segs = nil
+	start2 := start.Add(10 * time.Minute)
+	res = u.newRun(context.Background(), now.Add(10*time.Minute)).checkNew(clients, start2)
+	assert.Equal(t, newResult{isNew: true, checked: 7 * 24 * time.Hour}, res["1.1.1.1"])
+	assert.False(t, res["5.5.5.5"].isNew)
+	require.Equal(t, []span{{from: start, to: start2}}, loki.segs, "досмотр — только после прошлой проверки")
+
+	// адрес появился в окне прошлого опроса — для следующего окна он уже не новый
+	loki.seenAt["1.1.1.1"] = []time.Time{start2.Add(2 * time.Minute)}
+	loki.segs = nil
+	start3 := start2.Add(10 * time.Minute)
+	res = u.newRun(context.Background(), now.Add(20*time.Minute)).checkNew(clients, start3)
+	assert.False(t, res["1.1.1.1"].isNew)
+	assert.Equal(t, []span{{from: start2, to: start3}}, loki.segs)
+}
+
+func TestCheckNewContinuesPartialCheck(t *testing.T) {
+	now := time.Now().Truncate(time.Minute)
+	loki := &segLoki{seenAt: map[string][]time.Time{}}
+	u := newTestUsecase(loki)
+	clients := []*clientAgg{{key: "1.1.1.1"}}
+	start := now.Add(-time.Hour)
+	// прошлая проверка не дошла до недели: проверены только последние трое суток до её окна
+	u.absent["1.1.1.1"] = absentEntry{from: start.Add(-72*time.Hour - 10*time.Minute), to: start.Add(-10 * time.Minute)}
+
+	res := u.newRun(context.Background(), now).checkNew(clients, start)
+	assert.Equal(t, newResult{isNew: true, checked: 7 * 24 * time.Hour}, res["1.1.1.1"])
+	require.NotEmpty(t, loki.segs)
+	assert.Equal(t, span{from: start.Add(-10 * time.Minute), to: start}, loki.segs[0], "сначала — после прошлой проверки")
+	assert.Equal(t, start.Add(-72*time.Hour-10*time.Minute), loki.segs[1].to, "потом — глубже неё")
+	assert.Equal(t, start.Add(-7*24*time.Hour), loki.segs[len(loki.segs)-1].from)
+	assert.Equal(t, absentEntry{from: start.Add(-7 * 24 * time.Hour), to: start}, u.absent["1.1.1.1"])
+}
+
+func TestCheckNewMixedReadsDayOnce(t *testing.T) {
+	now := time.Now().Truncate(time.Minute)
+	loki := &segLoki{seenAt: map[string][]time.Time{}}
+	u := newTestUsecase(loki)
+	start := now.Add(-time.Hour)
+	u.absent["1.1.1.1"] = absentEntry{from: start.Add(-7*24*time.Hour - 10*time.Minute), to: start.Add(-10 * time.Minute)}
+
+	// новый адрес вместе с известным: одни и те же сутки читаются один раз на обоих
+	res := u.newRun(context.Background(), now).checkNew([]*clientAgg{{key: "1.1.1.1"}, {key: "2.2.2.2"}}, start)
+	assert.True(t, res["1.1.1.1"].isNew)
+	assert.True(t, res["2.2.2.2"].isNew)
+	assert.Len(t, loki.segs, 7)
+}
+
+func TestTrafficSkipsNewCheckByDefault(t *testing.T) {
+	var queries []string
+	u := newTestUsecase(vectorFunc(func(q string) ([]lokiModel.Sample, error) {
+		queries = append(queries, q)
+		if strings.HasPrefix(q, "sum by (ip) (") && !strings.Contains(q, "ip=~") {
+			return []lokiModel.Sample{{Labels: map[string]string{"ip": "9.9.9.9"}, Value: 100}}, nil
+		}
+		return nil, nil
+	}))
+	res, err := u.Traffic(context.Background(), &model.TrafficReq{Window: time.Hour})
+	require.NoError(t, err)
+	require.Len(t, res.Clients, 1)
+	assert.Nil(t, res.Clients[0].New)
+	assert.False(t, lo.SomeBy(queries, func(q string) bool { return strings.Contains(q, "[86400s]") }), "журнал до окна не читается")
+
+	res, err = u.Traffic(context.Background(), &model.TrafficReq{Window: time.Hour, CheckNew: true})
+	require.NoError(t, err)
+	require.NotNil(t, res.Clients[0].New)
+	assert.True(t, *res.Clients[0].New)
 }

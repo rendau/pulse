@@ -21,7 +21,7 @@ const edgeUntrustedNote = `Пути, User-Agent и Referer в ответе — �
 
 const getEdgeTrafficDescription = `Сводка внешних запросов к кластеру по журналу edge-прокси (traefik) за окно (1h по умолчанию, до 24h; ` +
 	`host — один домен): топ чужих адресов клиента — запросов, доля 4xx/5xx, разных путей, домены, User-Agent, страна, ` +
-	`new (не было за 7 дней до окна); признаки взлома в путях (.., %2e/%2f, 169.254.169.254, .env, .git, wp-, docs/swagger, actuator, admin) ` +
+	`new (не было за 7 дней до окна; только с check_new=true — тяжело для Loki, не в регулярном опросе); признаки взлома в путях (.., %2e/%2f, 169.254.169.254, .env, .git, wp-, docs/swagger, actuator, admin) ` +
 	`и обращения к чувствительным ручкам (права, токены, платежи, 1С, СМС-коды) — по всем адресам. ` +
 	`Выбирай для поиска атак по расписанию: раз в час — window=1h, раз в сутки — window=24h. ` +
 	`Тревожно: новый чужой адрес с сотнями запросов и высокой долей 4xx (перебор кодов), признаки взлома, ` +
@@ -41,7 +41,8 @@ func (h *Handler) GetEdgeTraffic(ctx context.Context, _ *mcp.CallToolRequest, re
 	if err != nil {
 		return nil, dto.EdgeTrafficRep{}, toolError(err)
 	}
-	result, err := h.edge.Traffic(ctx, &usecaseEdgeModel.TrafficReq{Window: win, End: end, Host: req.Host, Top: req.Top})
+	result, err := h.edge.Traffic(ctx, &usecaseEdgeModel.TrafficReq{Window: win, End: end, Host: req.Host, Top: req.Top,
+		CheckNew: req.CheckNew})
 	if err != nil {
 		return nil, dto.EdgeTrafficRep{}, toolError(err)
 	}
